@@ -84,9 +84,9 @@ source_set("safeint") {
 }
 
 # Standalone source set for arg parsing functionality. This uses POSIX functions
-# like strcasecmp that are not available on embedded platforms, so it must remain
-# separate from the main support library and only be compiled when explicitly
-# depended on (typically by command-line tools).
+# like strcasecmp that are not available on embedded platforms, so it must
+# remain separate from the main support library and only be compiled when
+# explicitly depended on (typically by command-line tools).
 source_set("arg_parser") {
   sources = [
     "CHIPArgParser.cpp",
@@ -99,7 +99,6 @@ source_set("arg_parser") {
     ":support",
     "${chip_root}/src/lib/core",
     "${chip_root}/src/lib/core:chip_config_header",
-    "${chip_root}/src/lib/core:core",
     "${chip_root}/src/lib/core:encoding",
     "${chip_root}/src/lib/core:error",
     "${chip_root}/src/lib/core:types",
@@ -246,8 +245,6 @@ static_library("support") {
 
   sources = [
     "AutoRelease.h",
-    "Base64.cpp",
-    "Base64.h",
     "Base85.cpp",
     "Base85.h",
     "BitFlags.h",
@@ -364,6 +361,7 @@ static_library("support") {
     "${chip_root}/src/lib/core:encoding",
     "${chip_root}/src/lib/core:error",
     "${chip_root}/src/lib/core:types",
+    "${chip_root}/src/lib/support/base64",
     "${chip_root}/src/platform:platform_config_header",
     "${chip_root}/src/system:system_config_header",
   ]

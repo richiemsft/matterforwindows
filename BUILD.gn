@@ -29,15 +29,18 @@ declare_args() {
 
   # Restrict an incremental native Windows port to its toolchain validation
   # target until the core libraries have Windows System and Inet backends.
-  chip_build_windows_toolchain_smoke_only = current_os == "win"
+  chip_build_windows_bootstrap_only = current_os == "win"
 }
 
-if (chip_build_windows_toolchain_smoke_only) {
+if (chip_build_windows_bootstrap_only) {
   assert(current_os == "win",
-         "The Windows toolchain smoke build requires target_os=\"win\"")
+         "The Windows bootstrap build requires target_os=\"win\"")
 
   group("default") {
-    deps = [ "//build/config/win/tests:msvc-toolchain-smoke" ]
+    deps = [
+      "//build/config/win/tests:msvc-sdk-smoke",
+      "//build/config/win/tests:msvc-toolchain-smoke",
+    ]
   }
 } else {
   # This build file should not be used in superproject builds.

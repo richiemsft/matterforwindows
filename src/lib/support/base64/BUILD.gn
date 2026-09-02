@@ -12,14 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-assert(current_os == "win")
-
-executable("msvc-toolchain-smoke") {
-  sources = [ "msvc_toolchain_smoke.cpp" ]
-}
-
-executable("msvc-sdk-smoke") {
-  sources = [ "msvc_sdk_smoke.cpp" ]
-  include_dirs = [ "//src" ]
-  deps = [ "//src/lib/support/base64" ]
+static_library("base64") {
+  sources = [
+    "../Base64.cpp",
+    "../Base64.h",
+  ]
 }

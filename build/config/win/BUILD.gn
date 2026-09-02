@@ -45,7 +45,7 @@ config("default") {
     cflags += [
       "/MDd",
       "/Od",
-      "/Zi",
+      "/Z7",
     ]
   } else {
     cflags += [

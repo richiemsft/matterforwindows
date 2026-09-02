@@ -17,13 +17,13 @@ The initial build foundation provides:
 -   MSVC GN toolchains for x64 and ARM64.
 -   Windows-specific compiler and linker defaults.
 -   A native PowerShell setup script.
--   A toolchain smoke executable that builds on both architectures and runs on
-    x64.
+-   Toolchain and Base64 SDK-library smoke executables that build on both
+    architectures and run on x64.
 
-The default Windows GN graph is intentionally restricted to the smoke target.
+The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
-backends exist. This avoids presenting a successful GN generation as a usable
-Matter SDK port.
+backends exist. This avoids presenting successful GN generation and a
+platform-neutral library build as a usable Matter SDK port.
 
 ## Prerequisites
 
@@ -51,8 +51,9 @@ recorded in the script so separate workstations acquire the same tool binaries.
 
 ```powershell
 gn gen out\win-msvc-smoke --args='target_os="win" target_cpu="x64" chip_device_platform="none"'
-ninja -C out\win-msvc-smoke build/config/win/tests:msvc-toolchain-smoke
+ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-toolchain-smoke.exe
+.\out\win-msvc-smoke\msvc-sdk-smoke.exe
 ```
 
 ## Cross-build the ARM64 smoke target
@@ -62,7 +63,7 @@ Initialize a new PowerShell process for the ARM64 compiler environment:
 ```powershell
 . .\scripts\setup\windows.ps1 -Architecture arm64
 gn gen out\win-arm64-msvc-smoke --args='target_os="win" target_cpu="arm64" chip_device_platform="none"'
-ninja -C out\win-arm64-msvc-smoke build/config/win/tests:msvc-toolchain-smoke
+ninja -C out\win-arm64-msvc-smoke
 dumpbin /headers out\win-arm64-msvc-smoke\msvc-toolchain-smoke.exe |
     Select-String "machine \(ARM64\)"
 ```
