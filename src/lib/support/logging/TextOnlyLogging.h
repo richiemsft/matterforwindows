@@ -404,9 +404,9 @@ inline uint8_t GetLogFilter()
     return kLogCategory_Max;
 }
 
-inline void SetLogFilter(uint8_t category) {}
+inline void SetLogFilter(uint8_t) {}
 
-inline bool IsCategoryEnabled(uint8_t category)
+inline bool IsCategoryEnabled(uint8_t)
 {
     return true;
 }
@@ -530,7 +530,7 @@ void HandleTokenizedLog(uint32_t levels, pw_tokenizer_Token token, pw_tokenizer_
 
 #else // _CHIP_USE_LOGGING
 
-inline void SetLogRedirectCallback(LogRedirectCallback_t callback) {}
+inline void SetLogRedirectCallback(LogRedirectCallback_t) {}
 inline void LogFailure(uint8_t, CHIP_ERROR, const char *) {}
 inline void LogFailure(uint8_t, CHIP_ERROR) {}
 inline void LogVerifyOrReturnError(const char *, int, CHIP_ERROR) {}

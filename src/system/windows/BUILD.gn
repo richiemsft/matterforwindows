@@ -24,6 +24,40 @@ static_library("windows-system-primitives") {
   public_configs = [ ":public" ]
 }
 
+static_library("windows-system-shared-compile") {
+  sources = [
+    "../../lib/support/TimeUtils.cpp",
+    "../SystemClock.cpp",
+    "../SystemClock.h",
+    "../SystemConfig.h",
+    "../SystemMutex.cpp",
+    "../SystemMutex.h",
+  ]
+
+  deps = [ ":windows-system-primitives" ]
+  public_configs = [
+    ":public",
+    ":system-config",
+  ]
+}
+
+config("system-config") {
+  defines = [
+    "CHIP_DEVICE_LAYER_USE_ATOMICS_FOR_CLOCK=0",
+    "CHIP_AUTOMATION_LOGGING=0",
+    "CHIP_DETAIL_LOGGING=0",
+    "CHIP_ERROR_LOGGING=0",
+    "CHIP_PROGRESS_LOGGING=0",
+    "CHIP_SYSTEM_CONFIG_PLATFORM_PROVIDES_TIME=0",
+    "CHIP_SYSTEM_CONFIG_USE_LWIP=0",
+    "CHIP_SYSTEM_CONFIG_USE_NETWORK_FRAMEWORK=0",
+    "CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT=0",
+    "CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS=0",
+    "CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS=0",
+    "CHIP_SYSTEM_CONFIG_USE_SOCKETS=1",
+  ]
+}
+
 config("public") {
   include_dirs = [ "//src" ]
 }

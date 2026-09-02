@@ -19,6 +19,11 @@ The initial build foundation provides:
 -   A native PowerShell setup script.
 -   Toolchain and Base64 SDK-library smoke executables that build on both
     architectures and run on x64.
+-   Native QPC/FILETIME clock and SRW-lock primitives wired through the shared
+    `System::Clock` and `System::Mutex` APIs. This subset builds for x64 and
+    ARM64 and has x64 runtime coverage.
+-   A typed WinSock handle with bounded IPv6 UDP and `WSAPoll` runtime
+    coverage on x64 and ARM64 cross-build coverage.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
@@ -54,6 +59,8 @@ gn gen out\win-msvc-smoke --args='target_os="win" target_cpu="x64" chip_device_p
 ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-toolchain-smoke.exe
 .\out\win-msvc-smoke\msvc-sdk-smoke.exe
+.\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
+.\out\win-msvc-smoke\msvc-socket-smoke.exe
 ```
 
 ## Cross-build the ARM64 smoke target
@@ -208,6 +215,7 @@ are complete.
 | MSVC toolchain smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | Base64 SDK library smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
+| Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Not yet run on native hardware |
 | Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -233,8 +241,11 @@ are complete.
 
 ## Known limitations
 
--   Core, System, Inet, crypto, Device Layer, controller, and server targets do
-    not yet compile as complete Windows closures.
+-   The shared System clock and mutex APIs compile and run through a focused
+    Windows target, but the complete System event-loop, timer, packet-buffer,
+    and error closure does not yet compile on Windows.
+-   Core, Inet, crypto, Device Layer, controller, and server targets do not yet
+    compile as complete Windows closures.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
     hardware.
 -   No Windows CI runner, DNS-SD backend, BLE backend, or persistence provider

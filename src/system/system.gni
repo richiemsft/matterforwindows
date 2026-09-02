@@ -27,11 +27,15 @@ declare_args() {
   # Use Network.framework API
   chip_system_config_use_network_framework = false
 
-  # Mutex implementation: posix, freertos, none.
+  # Mutex implementation: posix, windows, freertos, none.
   chip_system_config_locking = ""
 
-  # Clock implementation: clock_gettime, gettimeofday
-  chip_system_config_clock = "clock_gettime"
+  # Clock implementation: clock_gettime, gettimeofday, windows.
+  if (current_os == "win") {
+    chip_system_config_clock = "windows"
+  } else {
+    chip_system_config_clock = "clock_gettime"
+  }
 
   # Enable metrics collection.
   chip_system_config_provide_statistics = true
@@ -76,6 +80,8 @@ declare_args() {
 if (chip_system_config_locking == "") {
   if (current_os == "freertos") {
     chip_system_config_locking = "freertos"
+  } else if (current_os == "win") {
+    chip_system_config_locking = "windows"
   } else if (current_os == "cmsis-rtos") {
     chip_system_config_locking = "cmsis-rtos"
   } else if (current_os == "zephyr") {
@@ -93,11 +99,12 @@ if (target_os == "mac" || target_os == "ios") {
 
 assert(
     chip_system_config_locking == "posix" ||
+        chip_system_config_locking == "windows" ||
         chip_system_config_locking == "freertos" ||
         chip_system_config_locking == "none" ||
         chip_system_config_locking == "cmsis-rtos" ||
         chip_system_config_locking == "zephyr",
-    "Please select a valid mutex implementation: posix, freertos, cmsis-rtos, zephyr, none")
+    "Please select a valid mutex implementation: posix, windows, freertos, cmsis-rtos, zephyr, none")
 
 assert(
     !chip_system_config_use_dispatch || chip_system_config_locking == "none",
@@ -105,5 +112,6 @@ assert(
 
 assert(
     chip_system_config_clock == "clock_gettime" ||
-        chip_system_config_clock == "gettimeofday",
-    "Please select a valid clock implementation: clock_gettime, gettimeofday")
+        chip_system_config_clock == "gettimeofday" ||
+        chip_system_config_clock == "windows",
+    "Please select a valid clock implementation: clock_gettime, gettimeofday, windows")

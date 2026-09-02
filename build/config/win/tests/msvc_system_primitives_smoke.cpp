@@ -16,7 +16,8 @@
  */
 
 #include <system/windows/WindowsClock.h>
-#include <system/windows/WindowsMutex.h>
+#include <system/SystemClock.h>
+#include <system/SystemMutex.h>
 
 #include <Windows.h>
 
@@ -27,17 +28,18 @@
 
 int main()
 {
-    const uint64_t monotonicBefore = chip::System::Internal::WindowsClock::GetMonotonicMicroseconds();
+    const uint64_t monotonicBefore = chip::System::SystemClock().GetMonotonicMicroseconds64().count();
     Sleep(2);
-    const uint64_t monotonicAfter = chip::System::Internal::WindowsClock::GetMonotonicMicroseconds();
+    const uint64_t monotonicAfter = chip::System::SystemClock().GetMonotonicMicroseconds64().count();
     if (monotonicAfter <= monotonicBefore)
     {
         return 1;
     }
 
     constexpr uint64_t kJanuary2020UnixMicroseconds = 1577836800000000;
-    const auto realTime = chip::System::Internal::WindowsClock::GetRealTimeMicroseconds();
-    if (!realTime.has_value() || realTime.value() < kJanuary2020UnixMicroseconds)
+    chip::System::Clock::Microseconds64 realTime;
+    if (chip::System::SystemClock().GetClock_RealTime(realTime) != CHIP_NO_ERROR ||
+        realTime.count() < kJanuary2020UnixMicroseconds)
     {
         return 1;
     }
@@ -46,7 +48,11 @@ int main()
         return 1;
     }
 
-    chip::System::Internal::WindowsMutex mutex;
+    chip::System::Mutex mutex;
+    if (chip::System::Mutex::Init(mutex) != CHIP_NO_ERROR)
+    {
+        return 1;
+    }
     uint32_t counter = 0;
     std::array<std::thread, 4> threads;
     for (auto & thread : threads)
@@ -54,7 +60,7 @@ int main()
         thread = std::thread([&mutex, &counter]() {
             for (uint32_t i = 0; i < 10000; ++i)
             {
-                std::lock_guard<chip::System::Internal::WindowsMutex> lock(mutex);
+                std::lock_guard<chip::System::Mutex> lock(mutex);
                 ++counter;
             }
         });

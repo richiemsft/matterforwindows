@@ -36,6 +36,10 @@
 #include <pthread.h>
 #endif // CHIP_SYSTEM_CONFIG_POSIX_LOCKING
 
+#if CHIP_SYSTEM_CONFIG_WINDOWS_LOCKING
+#include <system/windows/WindowsMutex.h>
+#endif
+
 #if CHIP_SYSTEM_CONFIG_FREERTOS_LOCKING
 #if defined(ESP_PLATFORM)
 #include "freertos/FreeRTOS.h"
@@ -128,6 +132,10 @@ private:
     pthread_mutex_t mPOSIXMutex;
 #endif // CHIP_SYSTEM_CONFIG_POSIX_LOCKING
 
+#if CHIP_SYSTEM_CONFIG_WINDOWS_LOCKING
+    Internal::WindowsMutex mWindowsMutex;
+#endif
+
 #if CHIP_SYSTEM_CONFIG_FREERTOS_LOCKING
 #if (configSUPPORT_STATIC_ALLOCATION == 1)
     StaticSemaphore_t mFreeRTOSSemaphoreObj;
@@ -172,6 +180,24 @@ inline void Mutex::Unlock()
     pthread_mutex_unlock(&this->mPOSIXMutex);
 }
 #endif // CHIP_SYSTEM_CONFIG_POSIX_LOCKING
+
+#if CHIP_SYSTEM_CONFIG_WINDOWS_LOCKING
+inline CHIP_ERROR Mutex::Init(Mutex & aMutex)
+{
+    (void) aMutex;
+    return CHIP_NO_ERROR;
+}
+
+inline void Mutex::Lock()
+{
+    mWindowsMutex.Lock();
+}
+
+inline void Mutex::Unlock()
+{
+    mWindowsMutex.Unlock();
+}
+#endif // CHIP_SYSTEM_CONFIG_WINDOWS_LOCKING
 
 #if CHIP_SYSTEM_CONFIG_FREERTOS_LOCKING
 inline void Mutex::Unlock(void)

@@ -28,7 +28,7 @@
 
 #pragma once
 
-#if defined _WIN32 || defined __CYGWIN__
+#if (defined _WIN32 || defined __CYGWIN__) && !defined(CHIP_STATIC_LIBRARY)
 #define DLL_EXPORT __declspec(dllexport)
 #else
 #if __GNUC__ >= 4

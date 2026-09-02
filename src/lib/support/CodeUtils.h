@@ -408,9 +408,9 @@
 #define SuccessOrExitAction(error, action) VerifyOrExit(::chip::ChipError::IsSuccess((error)), action)
 
 #ifndef chipDie
-extern "C" void chipDie(void) __attribute((noreturn));
+extern "C" [[noreturn]] void chipDie(void);
 
-inline void chipDie(void)
+[[noreturn]] inline void chipDie(void)
 {
     ChipLogError(NotSpecified, "chipDie chipDie chipDie");
     chipAbort();
@@ -730,7 +730,7 @@ constexpr bool ArrayIsSorted(const T (&aArray)[N])
  *  @endcode
  */
 template <class F>
-__attribute__((always_inline)) inline auto ScopeExit(F && fn)
+inline auto ScopeExit(F && fn)
 {
     auto deleter = [f = std::forward<F>(fn)](void *) mutable { f(); };
     return std::unique_ptr<void, decltype(deleter)>(reinterpret_cast<void *>(1), std::move(deleter));

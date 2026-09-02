@@ -314,7 +314,7 @@ public:
     /**
      * Prepares events and returns the next requested wake time.
      */
-    virtual Clock::Timestamp PrepareEvents(Clock::Timestamp now) { return Clock::Timestamp::max(); }
+    virtual Clock::Timestamp PrepareEvents(Clock::Timestamp) { return Clock::Timestamp::max(); }
 
     /**
      * Handles / dispatches pending events.

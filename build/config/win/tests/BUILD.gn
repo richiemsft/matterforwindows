@@ -26,7 +26,7 @@ executable("msvc-sdk-smoke") {
 
 executable("msvc-system-primitives-smoke") {
   sources = [ "msvc_system_primitives_smoke.cpp" ]
-  deps = [ "//src/system/windows:windows-system-primitives" ]
+  deps = [ "//src/system/windows:windows-system-shared-compile" ]
 }
 
 executable("msvc-socket-smoke") {

@@ -58,7 +58,7 @@ public:
      *  @endcode
      */
     template <class F>
-    __attribute__((always_inline)) inline bool Handle(F && fn)
+    inline bool Handle(F && fn)
     {
         if (!::chip::ChipError::IsSuccess(error))
         {
@@ -68,12 +68,12 @@ public:
         return true;
     }
 
-    __attribute__((always_inline)) inline CHIP_ERROR GetError() const { return error; }
+    inline CHIP_ERROR GetError() const { return error; }
 #else
 class CriticalFailure
 {
 public:
-    __attribute__((always_inline)) inline CriticalFailure(CHIP_ERROR err) { SuccessOrDie(err); }
+    inline CriticalFailure(CHIP_ERROR err) { SuccessOrDie(err); }
 
     /**
      *  Handle the failure, returning true always as this implementation is never an error; the lambda
@@ -85,26 +85,26 @@ public:
      *  @endcode
      */
     template <class F>
-    __attribute__((always_inline)) inline bool Handle(F && fn)
+    inline bool Handle(F &&)
     {
         return true;
     }
 
-    __attribute__((always_inline)) inline CHIP_ERROR GetError() const { return CHIP_NO_ERROR; }
+    inline CHIP_ERROR GetError() const { return CHIP_NO_ERROR; }
 #endif
 
-    __attribute__((always_inline)) inline operator CHIP_ERROR() const { return GetError(); }
-    __attribute__((always_inline)) inline bool operator==(const ChipError & other) const { return GetError() == other; }
-    __attribute__((always_inline)) inline bool operator!=(const ChipError & other) const { return GetError() != other; }
+    inline operator CHIP_ERROR() const { return GetError(); }
+    inline bool operator==(const ChipError & other) const { return GetError() == other; }
+    inline bool operator!=(const ChipError & other) const { return GetError() != other; }
 };
 } // namespace chip
 
-__attribute__((always_inline)) inline bool operator==(const chip::ChipError & lhs, const chip::CriticalFailure & rhs)
+inline bool operator==(const chip::ChipError & lhs, const chip::CriticalFailure & rhs)
 {
     return lhs == rhs.GetError();
 }
 
-__attribute__((always_inline)) inline bool operator!=(const chip::ChipError & lhs, const chip::CriticalFailure & rhs)
+inline bool operator!=(const chip::ChipError & lhs, const chip::CriticalFailure & rhs)
 {
     return lhs != rhs.GetError();
 }

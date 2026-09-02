@@ -42,6 +42,7 @@ if (chip_build_windows_bootstrap_only) {
       "//build/config/win/tests:msvc-socket-smoke",
       "//build/config/win/tests:msvc-system-primitives-smoke",
       "//build/config/win/tests:msvc-toolchain-smoke",
+      "//src/system/windows:windows-system-shared-compile",
     ]
   }
 } else {

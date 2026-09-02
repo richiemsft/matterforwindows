@@ -51,9 +51,9 @@
  *    before this file is included by the preprocessor.
  */
 #ifndef chipAbort
-extern "C" void chipAbort(void) __attribute((noreturn));
+extern "C" [[noreturn]] void chipAbort(void);
 
-inline void chipAbort(void)
+[[noreturn]] inline void chipAbort(void)
 {
     while (true)
     {

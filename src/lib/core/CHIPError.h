@@ -214,11 +214,11 @@ public:
      *  This only compares the error code. Under the CHIP_CONFIG_ERROR_SOURCE configuration, errors compare equal
      *  if they have the same error code, even if they have different source locations.
      */
-    constexpr __attribute__((always_inline)) inline bool operator==(const ChipError & other) const
+    constexpr inline bool operator==(const ChipError & other) const
     {
         return mError == other.mError;
     }
-    constexpr __attribute__((always_inline)) inline bool operator!=(const ChipError & other) const
+    constexpr inline bool operator!=(const ChipError & other) const
     {
         return mError != other.mError;
     }
@@ -1934,7 +1934,7 @@ extern void RegisterCHIPLayerErrorFormatter();
 extern void DeregisterCHIPLayerErrorFormatter();
 extern bool FormatCHIPError(char * buf, uint16_t bufSize, CHIP_ERROR err);
 
-__attribute__((always_inline)) inline ChipError ChipError::NoErrorIf(ChipError suppressed)
+inline ChipError ChipError::NoErrorIf(ChipError suppressed)
 {
     return (*this == suppressed) ? CHIP_NO_ERROR : *this;
 }

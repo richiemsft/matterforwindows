@@ -32,12 +32,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#if defined(_WIN32)
+#include <system/windows/WindowsClock.h>
+#endif
+
 #if !CHIP_SYSTEM_CONFIG_PLATFORM_PROVIDES_TIME
 
-#if CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_SOCKETS
+#if CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS
 #include <errno.h>
 #include <time.h>
-#endif // CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_SOCKETS
+#endif // CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS
 
 #if CHIP_SYSTEM_CONFIG_USE_LWIP
 #include <lwip/sys.h>
@@ -127,6 +131,7 @@ CHIP_ERROR ClockImpl::GetClock_RealTimeMS(Milliseconds64 & aCurTime)
 
 CHIP_ERROR ClockImpl::SetClock_RealTime(Microseconds64 aNewCurTime)
 {
+    (void) aNewCurTime;
     return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
 }
 
@@ -160,6 +165,7 @@ CHIP_ERROR ClockImpl::GetClock_RealTimeMS(Milliseconds64 & aCurTime)
 
 CHIP_ERROR ClockImpl::SetClock_RealTime(Microseconds64 aNewCurTime)
 {
+    (void) aNewCurTime;
     return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
 }
 
@@ -179,6 +185,50 @@ Milliseconds64 ClockImpl::GetMonotonicMilliseconds64()
 #endif // HAVE_GETTIMEOFDAY
 
 #endif // CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS
+
+#if defined(_WIN32)
+
+CHIP_ERROR ClockImpl::GetClock_RealTime(Microseconds64 & aCurTime)
+{
+    const auto realTime = ::chip::System::Internal::WindowsClock::GetRealTimeMicroseconds();
+    if (!realTime.has_value() ||
+        realTime.value() < static_cast<uint64_t>(CHIP_SYSTEM_CONFIG_VALID_REAL_TIME_THRESHOLD) * UINT64_C(1000000))
+    {
+        return CHIP_ERROR_REAL_TIME_NOT_SYNCED;
+    }
+
+    aCurTime = Microseconds64(realTime.value());
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR ClockImpl::GetClock_RealTimeMS(Milliseconds64 & aCurTime)
+{
+    Microseconds64 realTime;
+    const CHIP_ERROR error = GetClock_RealTime(realTime);
+    if (error == CHIP_NO_ERROR)
+    {
+        aCurTime = std::chrono::duration_cast<Milliseconds64>(realTime);
+    }
+    return error;
+}
+
+CHIP_ERROR ClockImpl::SetClock_RealTime(Microseconds64 aNewCurTime)
+{
+    (void) aNewCurTime;
+    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+}
+
+Microseconds64 ClockImpl::GetMonotonicMicroseconds64()
+{
+    return Microseconds64(::chip::System::Internal::WindowsClock::GetMonotonicMicroseconds());
+}
+
+Milliseconds64 ClockImpl::GetMonotonicMilliseconds64()
+{
+    return std::chrono::duration_cast<Milliseconds64>(GetMonotonicMicroseconds64());
+}
+
+#endif // defined(_WIN32)
 
 #if CHIP_SYSTEM_CONFIG_USE_LWIP_MONOTONIC_TIME
 
@@ -248,7 +298,7 @@ Milliseconds64 ClockImpl::GetMonotonicMilliseconds64()
 
 #endif // CHIP_SYSTEM_CONFIG_PLATFORM_PROVIDES_TIME
 
-#if CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_SOCKETS
+#if CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS
 
 Microseconds64 TimevalToMicroseconds(const timeval & tv)
 {
@@ -263,7 +313,7 @@ void ToTimeval(Microseconds64 in, timeval & out)
     out.tv_usec = static_cast<suseconds_t>(in.count());
 }
 
-#endif // CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_SOCKETS
+#endif // CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS || CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS
 
 static_assert(std::numeric_limits<Microseconds64::rep>::is_integer, "Microseconds64 must be an integer type");
 static_assert(std::numeric_limits<Microseconds32::rep>::is_integer, "Microseconds32 must be an integer type");
