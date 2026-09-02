@@ -1,0 +1,32 @@
+# Copyright (c) 2026 Project CHIP Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("msvc_toolchain.gni")
+
+active_msvc_cpu = getenv("VSCMD_ARG_TGT_ARCH")
+assert(
+    active_msvc_cpu == target_cpu,
+    "The active MSVC environment targets \"${active_msvc_cpu}\", but target_cpu is \"${target_cpu}\". Run scripts/setup/windows.ps1 with -Architecture ${target_cpu}.")
+
+if (active_msvc_cpu == "x64") {
+  msvc_toolchain("win_x64_msvc") {
+    toolchain_cpu = "x64"
+  }
+} else if (active_msvc_cpu == "arm64") {
+  msvc_toolchain("win_arm64_msvc") {
+    toolchain_cpu = "arm64"
+  }
+} else {
+  assert(false, "Unsupported MSVC target architecture: \"${active_msvc_cpu}\"")
+}

@@ -133,3 +133,10 @@ default_configs += default_configs_extra
 executable_default_configs = []
 executable_default_configs += default_configs_pie
 executable_default_configs += default_configs_link_as_needed
+
+if (current_os == "win") {
+  default_configs = []
+  default_configs = [ "${build_root}/config/win:default" ]
+  executable_default_configs = []
+  executable_default_configs = [ "${build_root}/config/win:executable" ]
+}
