@@ -208,6 +208,7 @@ are complete.
 | MSVC toolchain smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | Base64 SDK library smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
+| Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

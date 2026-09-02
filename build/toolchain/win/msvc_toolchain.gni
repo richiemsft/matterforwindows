@@ -61,6 +61,8 @@ template("msvc_toolchain") {
           [ "{{root_out_dir}}/{{target_output_name}}{{output_extension}}" ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{inputs}} {{solibs}} {{libs}} {{rlibs}} {{ldflags}}"
+      lib_switch = ""
+      lib_dir_switch = "/LIBPATH:"
     }
 
     tool("link") {
@@ -72,6 +74,8 @@ template("msvc_toolchain") {
           [ "{{root_out_dir}}/{{target_output_name}}{{output_extension}}" ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{inputs}} {{solibs}} {{libs}} {{rlibs}} {{ldflags}}"
+      lib_switch = ""
+      lib_dir_switch = "/LIBPATH:"
     }
 
     tool("stamp") {

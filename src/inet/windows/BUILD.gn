@@ -14,22 +14,16 @@
 
 assert(current_os == "win")
 
-executable("msvc-toolchain-smoke") {
-  sources = [ "msvc_toolchain_smoke.cpp" ]
+static_library("windows-socket") {
+  sources = [
+    "WindowsSocket.cpp",
+    "WindowsSocket.h",
+  ]
+
+  libs = [ "ws2_32.lib" ]
+  public_configs = [ ":public" ]
 }
 
-executable("msvc-sdk-smoke") {
-  sources = [ "msvc_sdk_smoke.cpp" ]
+config("public") {
   include_dirs = [ "//src" ]
-  deps = [ "//src/lib/support/base64" ]
-}
-
-executable("msvc-system-primitives-smoke") {
-  sources = [ "msvc_system_primitives_smoke.cpp" ]
-  deps = [ "//src/system/windows:windows-system-primitives" ]
-}
-
-executable("msvc-socket-smoke") {
-  sources = [ "msvc_socket_smoke.cpp" ]
-  deps = [ "//src/inet/windows:windows-socket" ]
 }
