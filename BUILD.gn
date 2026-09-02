@@ -39,6 +39,7 @@ if (chip_build_windows_bootstrap_only) {
   group("default") {
     deps = [
       "//build/config/win/tests:msvc-sdk-smoke",
+      "//build/config/win/tests:msvc-system-primitives-smoke",
       "//build/config/win/tests:msvc-toolchain-smoke",
     ]
   }
