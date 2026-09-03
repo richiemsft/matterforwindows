@@ -749,11 +749,119 @@ non-Windows behavior and the C++17 contract:
 
 The focused `msvc-crypto-boringssl-tests` driver and its locally reproduced
 vectors are retained as an independent correctness check. The remaining crypto
-gate items are the full monolithic credentials/Device-Layer closure (deferred
-to the Device Layer phase), binary-size measurement, and an explicit
-enterprise/FIPS deployment statement before Windows crypto support is claimed.
+gate item is the full monolithic credentials/Device-Layer closure (deferred
+to the Device Layer phase); binary-size measurement and the explicit
+enterprise/FIPS deployment statement are now recorded in the crypto
+release-engineering section below.
 Selecting the build dependency in Phase 0 does not pre-approve runtime
 correctness.
+
+### Crypto release engineering (footprint, FIPS, servicing)
+
+This is the Phase 2 release-engineering record for the BoringSSL CryptoPAL
+closure. It does not by itself make Windows crypto a released support claim
+(see the crypto decision gate and the feature-status table).
+
+**Assembly policy (`OPENSSL_NO_ASM`).**
+`third_party/boringssl/repo/BUILD.gn` compiles BoringSSL with
+`defines = [ "OPENSSL_NO_ASM=1" ]` for every Windows target, so only the
+portable C implementations build and no `.asm`/`.S` source is assembled. This
+is the intentional initial policy: correctness first, a single `cl`-only
+toolchain, and no assembler on the clean machine. Enabling
+architecture-specific assembly is a later, measured optimization and would
+require, per architecture:
+
+-   x64: remove `OPENSSL_NO_ASM`, wire the `crypto_sources_nasm` entries
+    (`src/gen/bcm/*-x86_64-win.asm`) into the GN target, and add **NASM** to the
+    toolchain -- these files use NASM syntax that MSVC's `ml64` does not accept.
+-   ARM64: remove `OPENSSL_NO_ASM`, wire the `src/gen/bcm/*-armv8-win.S`
+    GAS-syntax sources, and assemble them with `clang`/`clang-cl`.
+    The `cpu_aarch64_win.c` runtime feature probe is already in `crypto_sources`.
+
+Either path adds an assembler to the clean-machine requirement and must be
+re-measured for size and re-validated for correctness before adoption.
+
+**Build type and CRT.** The Windows port default is `is_debug = true`
+(`build/config/BUILDCONFIG.gn`), so `build/config/win/BUILD.gn` selects the
+dynamic **debug** CRT: `/MDd /Od /Z7` for debug versus `/MD /O2` for release,
+with executables linking `/DEBUG` in debug and `/OPT:REF /OPT:ICF` in release.
+The artifacts measured below are debug/`/MDd`; `dumpbin /DEPENDENTS` on a debug
+`msvc-crypto-pal-tests.exe` shows it importing `MSVCP140D.dll`,
+`VCRUNTIME140D.dll`, `VCRUNTIME140_1D.dll`, `ucrtbased.dll`, and `KERNEL32.dll`
+-- the developer-only debug CRT, which is **not redistributable**. CRT models
+must not be mixed: a static-CRT (`/MT`) or release (`/MD`) consumer must rebuild
+BoringSSL and the entire SDK with the same model. Release footprint is smaller
+and is not represented here.
+
+**Static-link footprint (measured).** Deterministic on-disk PE/COFF sizes taken
+with native tooling (`Get-Item` length; machine type via `dumpbin /HEADERS`)
+from the existing debug build trees `out\win-crypto-tests-x64` and
+`out\win-crypto-tests-arm64`. Measurement configuration:
+`target_os="win"`, `target_cpu="x64"|"arm64"`, `chip_device_platform="none"`,
+`chip_windows_canonical_compile_probes=true`, `chip_build_tests=false`,
+`chip_build_tools=false`, `is_debug` default (`/MDd /Od /Z7`),
+`OPENSSL_NO_ASM=1`. Reproduce with
+`scripts/tools/windows_artifact_sizes.ps1` (native, no external dependencies;
+`-IncludeMachineType` adds the `dumpbin` COFF machine column).
+
+| Artifact | Kind | x64 (bytes) | ARM64 (bytes) |
+|---|---|---|---|
+| `obj/third_party/boringssl/repo/boringssl.lib` | static lib (COFF archive) | 12,860,366 | 12,988,326 |
+| `obj/src/crypto/windows/windows-crypto-boringssl.lib` (CryptoPAL) | static lib | 2,986,184 | 2,952,544 |
+| `obj/src/crypto/libChipCrypto.lib` (`//src/crypto:crypto`) | static lib | 759,332 | 752,136 |
+| `msvc-crypto-pal-tests.exe` | linked exe | 1,859,584 | 1,846,784 |
+| `msvc-crypto-upstream-tests.exe` | linked exe | 1,357,824 | 1,352,704 |
+| `msvc-crypto-boringssl-tests.exe` | linked exe | 1,390,592 | 1,377,280 |
+
+COFF machine type via `dumpbin /HEADERS`: x64 = `8664`, ARM64 = `AA64`. The
+`.lib` archives are **not** deliverable footprint -- they are collections of
+unlinked COFF object members carrying `/Z7` debug info, and are far larger than
+the code that survives linking. The linked `.exe` sizes reflect actual code
+plus embedded debug; a shipping release build (`/MD /O2 /OPT:REF /OPT:ICF`, no
+test framework) would be materially smaller and must be measured separately
+before any size is quoted as a product number.
+
+**FIPS / non-FIPS status.** This repository builds standard, **non-FIPS**
+BoringSSL. There is no `FIPS=1` build define anywhere in the GN integration; the
+`src/crypto/fipsmodule/*` sources listed in `BUILD.generated.gni` are
+BoringSSL's ordinary code layout, not a validated cryptographic-module boundary
+with power-on self-tests and integrity checks. No FIPS 140-2/140-3 claim can be
+made from this build. Enterprise or FIPS deployments require a **separately
+validated** provider/backend (a validated module build, or an OS/CNG-backed
+provider) whose validation cannot be inherited from this closure.
+
+**Licensing and notice obligations (repository facts only).** BoringSSL ships a
+single `third_party/boringssl/repo/src/LICENSE` (11,558 bytes): a fork of
+OpenSSL under the dual OpenSSL/SSLeay BSD-style licenses, with wholly new
+Google-authored files under ISC and `third_party/fiat` (which, unlike other
+`third_party` directories, is compiled into non-test libraries) under MIT. It
+carries no separate `NOTICE`. The Matter SDK root is Apache-2.0 (`LICENSE`) with
+a `NOTICE`, and vulnerability reporting routes through CSA-IOT (`SECURITY.md`).
+A Windows binary that statically links BoringSSL must therefore reproduce the
+BoringSSL `LICENSE` (OpenSSL + SSLeay + ISC + the fiat MIT text) in its
+third-party notices; the fiat MIT text in particular must be carried because
+fiat is linked into shipping libraries. The fallback Mbed TLS is Apache-2.0 and
+JsonCpp is Public-Domain/MIT (see the dependency decision record).
+
+**Dynamic-linkage, DLL search, and signing (future).** The current closure links
+BoringSSL statically (`static_library` targets; the Windows default config
+defines `CHIP_STATIC_LIBRARY=1`), so there is no BoringSSL DLL and no crypto
+DLL search-path exposure today. If dynamic linkage is adopted later, then
+before shipping: load dependent DLLs only from constrained, non-writable search
+paths (the packaged install directory or `AddDllDirectory` /
+`LOAD_LIBRARY_SEARCH_*`, never the current working directory); Authenticode-sign
+every shipped DLL and the loader-facing executables; and document the VC++
+redistributable/CRT servicing policy, since the debug CRT DLLs listed above are
+developer-only and must be replaced by the redistributable release CRT.
+
+**Servicing and pinned commit.** BoringSSL is pinned at gitlink
+`9cac8a6b38c1cbd45c77aee108411d588da006fe` under
+`third_party/boringssl/repo/src` (`.gitmodules` tracks upstream `master`). The
+Windows port maintainers own the GN integration and its servicing: advancing
+the pin, tracking upstream BoringSSL security fixes, and re-running the crypto
+gate on x64 and ARM64 after any bump. SDK vulnerability response follows the
+root `SECURITY.md` (CSA-IOT). There is no automatic update mechanism; updates
+are deliberate submodule bumps.
 
 ### Dependency decision record
 
@@ -779,6 +887,7 @@ correctness.
 | WIN-007 | Use C++/WinRT BLE and marshal completions onto the Matter event loop | Accepted |
 | WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted |
 | WIN-009 | Support unpackaged and packaged desktop applications; surface capability differences explicitly | Accepted |
+| WIN-010 | Ship BoringSSL statically with `OPENSSL_NO_ASM=1` and the dynamic CRT; treat assembly, FIPS, signing, and dynamic linkage as later gated work | Accepted; non-FIPS footprint measured on x64/ARM64 (see crypto release engineering); enterprise/FIPS requires a separately validated backend |
 
 ## Delivery phases and exit criteria
 
