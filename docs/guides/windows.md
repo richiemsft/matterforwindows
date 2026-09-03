@@ -40,6 +40,14 @@ The initial build foundation provides:
     name/index conversion, link state and type classification, hardware
     addresses, prefix lengths, and IPv6 link-local lookup. This has x64 runtime
     and ARM64 cross-build coverage.
+-   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
+    native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
+    `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
+    `IP_PKTINFO`/`IPV6_PKTINFO` source/destination/interface control messages,
+    ephemeral bind, IPv4 and IPv6 multicast join/leave and loopback, and scoped
+    IPv6 via Windows interface indices. Ephemeral bind, packet-info
+    send/receive over IPv4 and IPv6 loopback, multicast, and clean shutdown
+    through `LayerImplWindows` have x64 runtime and ARM64 cross-build coverage.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
@@ -97,6 +105,7 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
 .\out\win-msvc-smoke\msvc-system-wake-event-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe
+.\out\win-msvc-smoke\msvc-inet-udp-endpoint-smoke.exe
 ```
 
 ## Cross-build the ARM64 smoke target
@@ -312,6 +321,8 @@ Phase 0 does not pre-approve runtime correctness.
 | QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Not yet run on native hardware |
 | Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |
+| Inet interface/address enumeration (`GetAdaptersAddresses`) | Supported | Supported | Supported | Not yet run on native hardware |
+| Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

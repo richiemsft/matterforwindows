@@ -371,6 +371,8 @@ public:
     {
 #if CHIP_SYSTEM_PACKETBUFFER_HAS_CHECK
         InternalCheck(buffer);
+#else
+        (void) buffer;
 #endif
     }
 

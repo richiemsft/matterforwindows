@@ -44,8 +44,22 @@
 #endif
 
 #include <cerrno>
+#if !defined(_WIN32)
 #include <unistd.h>
+#endif // !defined(_WIN32)
 #include <utility>
+
+#if defined(_WIN32)
+// Native WinSock UDP endpoint. WinSock headers must precede the multicast
+// membership aliases below so IPV6_ADD_MEMBERSHIP / IPV6_DROP_MEMBERSHIP resolve.
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#include <ws2ipdef.h>
+#include <mswsock.h>
+#include <iphlpapi.h>
+
+#include <cstring>
+#endif // defined(_WIN32)
 
 // SOCK_CLOEXEC not defined on all platforms, e.g. iOS/macOS:
 #ifndef SOCK_CLOEXEC
@@ -86,6 +100,109 @@ namespace chip {
 namespace Inet {
 
 namespace {
+
+#if defined(_WIN32)
+
+// Maps the most recent WinSock error into the CHIP OS error range. This is the
+// WinSock analogue of CHIP_ERROR_POSIX(errno) used by the POSIX paths.
+inline CHIP_ERROR LastWinsockError()
+{
+    return CHIP_ERROR_WINDOWS(static_cast<uint32_t>(WSAGetLastError()));
+}
+
+// Resolves a WinSock extension entry point for the provider that owns this
+// socket. Extension pointers are provider-specific and must not be shared
+// between unrelated sockets.
+template <typename Fn>
+Fn LoadWinsockExtension(SOCKET socket, GUID guid)
+{
+    Fn resolved = nullptr;
+    DWORD bytes = 0;
+    if (WSAIoctl(socket, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid), &resolved, sizeof(resolved), &bytes, nullptr,
+                 nullptr) == SOCKET_ERROR)
+    {
+        return nullptr;
+    }
+    return resolved;
+}
+
+LPFN_WSASENDMSG WinsockSendMsg(SOCKET socket)
+{
+    GUID guid = WSAID_WSASENDMSG;
+    return LoadWinsockExtension<LPFN_WSASENDMSG>(socket, guid);
+}
+
+LPFN_WSARECVMSG WinsockRecvMsg(SOCKET socket)
+{
+    GUID guid = WSAID_WSARECVMSG;
+    return LoadWinsockExtension<LPFN_WSARECVMSG>(socket, guid);
+}
+
+// Reconstitutes an InterfaceId from a Windows interface index (as delivered in
+// IP_PKTINFO / IPV6_PKTINFO). InterfaceId stores a NET_LUID.Value on Windows,
+// so the received scope index must be converted back to a LUID.
+InterfaceId InterfaceIdFromScopeIndex(uint32_t index)
+{
+    if (index == 0)
+    {
+        return InterfaceId::Null();
+    }
+    NET_LUID luid;
+    if (ConvertInterfaceIndexToLuid(static_cast<NET_IFINDEX>(index), &luid) != NO_ERROR)
+    {
+        return InterfaceId::Null();
+    }
+    return InterfaceId(luid.Value);
+}
+
+CHIP_ERROR IPv6Bind(System::SocketHandle socket, const IPAddress & address, uint16_t port, InterfaceId interface)
+{
+    sockaddr_in6 sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin6_family   = AF_INET6;
+    sa.sin6_port     = htons(port);
+    sa.sin6_addr     = address.ToIPv6();
+    sa.sin6_scope_id = interface.GetInterfaceIndex();
+
+    if (bind(socket, reinterpret_cast<const sockaddr *>(&sa), static_cast<int>(sizeof(sa))) == SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+
+    // Route multicast transmissions out of the requested interface and cap the hop limit.
+    DWORD interfaceIndex = interface.GetInterfaceIndex();
+    setsockopt(socket, IPPROTO_IPV6, IPV6_MULTICAST_IF, reinterpret_cast<const char *>(&interfaceIndex), sizeof(interfaceIndex));
+    DWORD hops = INET_CONFIG_IP_MULTICAST_HOP_LIMIT;
+    setsockopt(socket, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, reinterpret_cast<const char *>(&hops), sizeof(hops));
+
+    return CHIP_NO_ERROR;
+}
+
+#if INET_CONFIG_ENABLE_IPV4
+CHIP_ERROR IPv4Bind(System::SocketHandle socket, const IPAddress & address, uint16_t port)
+{
+    sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port   = htons(port);
+    sa.sin_addr   = address.ToIPv4();
+
+    if (bind(socket, reinterpret_cast<const sockaddr *>(&sa), static_cast<int>(sizeof(sa))) == SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+
+    BOOL enable = TRUE;
+    setsockopt(socket, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char *>(&enable), sizeof(enable));
+    setsockopt(socket, IPPROTO_IP, IP_MULTICAST_IF, reinterpret_cast<const char *>(&sa.sin_addr), sizeof(sa.sin_addr));
+    DWORD ttl = INET_CONFIG_IP_MULTICAST_HOP_LIMIT;
+    setsockopt(socket, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char *>(&ttl), sizeof(ttl));
+
+    return CHIP_NO_ERROR;
+}
+#endif // INET_CONFIG_ENABLE_IPV4
+
+#else // defined(_WIN32)
 
 CHIP_ERROR IPv6Bind(int socket, const IPAddress & address, uint16_t port, InterfaceId interface)
 {
@@ -166,6 +283,8 @@ CHIP_ERROR IPv4Bind(int socket, const IPAddress & address, uint16_t port)
     return status;
 }
 #endif // INET_CONFIG_ENABLE_IPV4
+
+#endif // defined(_WIN32)
 
 } // anonymous namespace
 
@@ -255,6 +374,7 @@ CHIP_ERROR UDPEndPointImplSockets::BindInterfaceImpl(IPAddressType addressType, 
 
     return status;
 #else  // !HAVE_SO_BINDTODEVICE
+    (void) interfaceId;
     return CHIP_ERROR_NOT_IMPLEMENTED;
 #endif // HAVE_SO_BINDTODEVICE
 }
@@ -279,12 +399,115 @@ CHIP_ERROR UDPEndPointImplSockets::ListenImpl()
 
 CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, System::PacketBufferHandle && msg)
 {
+#if defined(_WIN32)
     // Ensure packet buffer is not null
     VerifyOrReturnError(!msg.IsNull(), CHIP_ERROR_INVALID_ARGUMENT);
 
-    // Make sure we have the appropriate type of socket based on the
-    // destination address.
+    // Make sure we have the appropriate type of socket based on the destination address.
     ReturnErrorOnFailure(GetSocket(aPktInfo->DestAddress.Type()));
+
+    // Ensure the destination address type is compatible with the endpoint address type.
+    VerifyOrReturnError(mAddrType == aPktInfo->DestAddress.Type(), CHIP_ERROR_INVALID_ARGUMENT);
+
+    // For now the entire message must fit within a single buffer.
+    VerifyOrReturnError(!msg->HasChainedBuffer(), CHIP_ERROR_MESSAGE_TOO_LONG);
+
+    WSABUF dataBuffer;
+    dataBuffer.buf = reinterpret_cast<CHAR *>(msg->Start());
+    dataBuffer.len = static_cast<ULONG>(msg->DataLength());
+
+    // in6_pktinfo is the larger of the two packet-info control messages.
+    uint8_t controlData[WSA_CMSG_SPACE(sizeof(in6_pktinfo))];
+    memset(controlData, 0, sizeof(controlData));
+
+    SockAddr peerSockAddr;
+    memset(&peerSockAddr, 0, sizeof(peerSockAddr));
+
+    WSAMSG msgHeader;
+    memset(&msgHeader, 0, sizeof(msgHeader));
+    msgHeader.name          = &peerSockAddr.any;
+    msgHeader.lpBuffers     = &dataBuffer;
+    msgHeader.dwBufferCount = 1;
+
+    if (mAddrType == IPAddressType::kIPv6)
+    {
+        peerSockAddr.in6.sin6_family   = AF_INET6;
+        peerSockAddr.in6.sin6_port     = htons(aPktInfo->DestPort);
+        peerSockAddr.in6.sin6_addr     = aPktInfo->DestAddress.ToIPv6();
+        peerSockAddr.in6.sin6_scope_id = aPktInfo->Interface.GetInterfaceIndex();
+        msgHeader.namelen              = static_cast<INT>(sizeof(sockaddr_in6));
+    }
+#if INET_CONFIG_ENABLE_IPV4
+    else
+    {
+        peerSockAddr.in.sin_family = AF_INET;
+        peerSockAddr.in.sin_port   = htons(aPktInfo->DestPort);
+        peerSockAddr.in.sin_addr   = aPktInfo->DestAddress.ToIPv4();
+        msgHeader.namelen          = static_cast<INT>(sizeof(sockaddr_in));
+    }
+#endif // INET_CONFIG_ENABLE_IPV4
+
+    // If the endpoint has been bound to a particular interface, and the caller did not
+    // supply a specific interface to send on, use the bound interface.
+    InterfaceId intf = aPktInfo->Interface;
+    if (!intf.IsPresent())
+    {
+        intf = mBoundIntfId;
+    }
+
+#if INET_CONFIG_UDP_SOCKET_PKTINFO
+    // Attach a packet-info control message to pin the source address and/or outgoing interface.
+    if (intf.IsPresent() || aPktInfo->SrcAddress.Type() != IPAddressType::kAny)
+    {
+        msgHeader.Control.buf   = reinterpret_cast<CHAR *>(controlData);
+        msgHeader.Control.len   = static_cast<ULONG>(sizeof(controlData));
+        WSACMSGHDR * controlHdr = WSA_CMSG_FIRSTHDR(&msgHeader);
+        const uint32_t ifIndex  = intf.GetInterfaceIndex();
+
+#if INET_CONFIG_ENABLE_IPV4
+        if (mAddrType == IPAddressType::kIPv4)
+        {
+            controlHdr->cmsg_level = IPPROTO_IP;
+            controlHdr->cmsg_type  = IP_PKTINFO;
+            controlHdr->cmsg_len   = WSA_CMSG_LEN(sizeof(in_pktinfo));
+
+            auto * pktInfo       = reinterpret_cast<in_pktinfo *>(WSA_CMSG_DATA(controlHdr));
+            pktInfo->ipi_ifindex = ifIndex;
+            pktInfo->ipi_addr    = aPktInfo->SrcAddress.ToIPv4();
+
+            msgHeader.Control.len = static_cast<ULONG>(WSA_CMSG_SPACE(sizeof(in_pktinfo)));
+        }
+#endif // INET_CONFIG_ENABLE_IPV4
+
+        if (mAddrType == IPAddressType::kIPv6)
+        {
+            controlHdr->cmsg_level = IPPROTO_IPV6;
+            controlHdr->cmsg_type  = IPV6_PKTINFO;
+            controlHdr->cmsg_len   = WSA_CMSG_LEN(sizeof(in6_pktinfo));
+
+            auto * pktInfo        = reinterpret_cast<in6_pktinfo *>(WSA_CMSG_DATA(controlHdr));
+            pktInfo->ipi6_ifindex = ifIndex;
+            pktInfo->ipi6_addr    = aPktInfo->SrcAddress.ToIPv6();
+
+            msgHeader.Control.len = static_cast<ULONG>(WSA_CMSG_SPACE(sizeof(in6_pktinfo)));
+        }
+    }
+#endif // INET_CONFIG_UDP_SOCKET_PKTINFO
+
+    LPFN_WSASENDMSG wsaSendMsg = WinsockSendMsg(mSocket);
+    VerifyOrReturnError(wsaSendMsg != nullptr, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+
+    DWORD bytesSent = 0;
+    if (wsaSendMsg(mSocket, &msgHeader, 0, &bytesSent, nullptr, nullptr) == SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+
+    VerifyOrReturnError(static_cast<size_t>(bytesSent) == msg->DataLength(), CHIP_ERROR_OUTBOUND_MESSAGE_TOO_BIG);
+    return CHIP_NO_ERROR;
+#else  // defined(_WIN32)
+    // Ensure packet buffer is not null
+    VerifyOrReturnError(!msg.IsNull(), CHIP_ERROR_INVALID_ARGUMENT);
 
     // Ensure the destination address type is compatible with the endpoint address type.
     VerifyOrReturnError(mAddrType == aPktInfo->DestAddress.Type(), CHIP_ERROR_INVALID_ARGUMENT);
@@ -424,6 +647,7 @@ CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, Sy
         return CHIP_ERROR_OUTBOUND_MESSAGE_TOO_BIG;
     }
     return CHIP_NO_ERROR;
+#endif // defined(_WIN32)
 }
 
 void UDPEndPointImplSockets::CloseImpl()
@@ -431,13 +655,95 @@ void UDPEndPointImplSockets::CloseImpl()
     if (mSocket != kInvalidSocketFd)
     {
         TEMPORARY_RETURN_IGNORED static_cast<System::LayerSockets *>(&GetSystemLayer())->StopWatchingSocket(&mWatch);
+#if defined(_WIN32)
+        closesocket(mSocket);
+#else
         close(mSocket);
+#endif // defined(_WIN32)
         mSocket = kInvalidSocketFd;
     }
 }
 
 CHIP_ERROR UDPEndPointImplSockets::GetSocket(IPAddressType addressType)
 {
+#if defined(_WIN32)
+    if (mSocket == kInvalidSocketFd)
+    {
+        int family = PF_UNSPEC;
+
+        switch (addressType)
+        {
+        case IPAddressType::kIPv6:
+            family = PF_INET6;
+            break;
+
+#if INET_CONFIG_ENABLE_IPV4
+        case IPAddressType::kIPv4:
+            family = PF_INET;
+            break;
+#endif // INET_CONFIG_ENABLE_IPV4
+
+        default:
+            return INET_ERROR_WRONG_ADDRESS_TYPE;
+        }
+
+        mSocket = ::WSASocketW(family, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+        if (mSocket == INVALID_SOCKET)
+        {
+            return LastWinsockError();
+        }
+
+        CHIP_ERROR err = static_cast<System::LayerSockets *>(&GetSystemLayer())->StartWatchingSocket(mSocket, &mWatch);
+        if (err != CHIP_NO_ERROR)
+        {
+            // Our mWatch is not valid; make sure we never use it.
+            closesocket(mSocket);
+            mSocket = kInvalidSocketFd;
+            return err;
+        }
+
+        mAddrType = addressType;
+
+        // The System event loop signals readability through WSAPoll; keep the socket
+        // non-blocking so WSARecvMsg never stalls the loop on a spurious wakeup.
+        u_long nonBlocking = 1;
+        if (ioctlsocket(mSocket, static_cast<long>(FIONBIO), &nonBlocking) == SOCKET_ERROR)
+        {
+            err = LastWinsockError();
+            TEMPORARY_RETURN_IGNORED static_cast<System::LayerSockets *>(&GetSystemLayer())->StopWatchingSocket(&mWatch);
+            closesocket(mSocket);
+            mSocket = kInvalidSocketFd;
+            return err;
+        }
+
+        // As with the POSIX path, socket-option failures here are non-fatal.
+        BOOL one = TRUE;
+        setsockopt(mSocket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&one), sizeof(one));
+
+        if (addressType == IPAddressType::kIPv6)
+        {
+            DWORD v6Only = 1;
+            setsockopt(mSocket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&v6Only), sizeof(v6Only));
+            // Request delivery of the destination address and interface on receive.
+            DWORD recvPktInfo = 1;
+            setsockopt(mSocket, IPPROTO_IPV6, IPV6_PKTINFO, reinterpret_cast<const char *>(&recvPktInfo), sizeof(recvPktInfo));
+        }
+
+#if INET_CONFIG_ENABLE_IPV4
+        if (addressType == IPAddressType::kIPv4)
+        {
+            DWORD recvPktInfo = 1;
+            setsockopt(mSocket, IPPROTO_IP, IP_PKTINFO, reinterpret_cast<const char *>(&recvPktInfo), sizeof(recvPktInfo));
+        }
+#endif // INET_CONFIG_ENABLE_IPV4
+    }
+    else if (mAddrType != addressType)
+    {
+        return CHIP_ERROR_INCORRECT_STATE;
+    }
+
+    return CHIP_NO_ERROR;
+#else  // defined(_WIN32)
     if (mSocket == kInvalidSocketFd)
     {
         constexpr int type     = (SOCK_DGRAM | SOCK_CLOEXEC);
@@ -557,6 +863,7 @@ CHIP_ERROR UDPEndPointImplSockets::GetSocket(IPAddressType addressType)
     }
 
     return CHIP_NO_ERROR;
+#endif // defined(_WIN32)
 }
 
 // static
@@ -588,6 +895,91 @@ void UDPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
 
     if (!lBuffer.IsNull())
     {
+#if defined(_WIN32)
+        WSABUF dataBuffer;
+        SockAddr lPeerSockAddr;
+        // Room for both an IPv6 and an IPv4 packet-info control message.
+        uint8_t controlData[WSA_CMSG_SPACE(sizeof(in6_pktinfo)) + WSA_CMSG_SPACE(sizeof(in_pktinfo))];
+        WSAMSG msgHeader;
+
+        dataBuffer.buf = reinterpret_cast<CHAR *>(lBuffer->Start());
+        dataBuffer.len = static_cast<ULONG>(lBuffer->AvailableDataLength());
+
+        memset(&lPeerSockAddr, 0, sizeof(lPeerSockAddr));
+        memset(controlData, 0, sizeof(controlData));
+        memset(&msgHeader, 0, sizeof(msgHeader));
+
+        msgHeader.name          = &lPeerSockAddr.any;
+        msgHeader.namelen       = static_cast<INT>(sizeof(lPeerSockAddr));
+        msgHeader.lpBuffers     = &dataBuffer;
+        msgHeader.dwBufferCount = 1;
+        msgHeader.Control.buf   = reinterpret_cast<CHAR *>(controlData);
+        msgHeader.Control.len   = static_cast<ULONG>(sizeof(controlData));
+
+        LPFN_WSARECVMSG wsaRecvMsg = WinsockRecvMsg(mSocket);
+        DWORD rcvLen               = 0;
+        int recvResult             = (wsaRecvMsg != nullptr) ? wsaRecvMsg(mSocket, &msgHeader, &rcvLen, nullptr, nullptr)
+                                                             : SOCKET_ERROR;
+
+        if (wsaRecvMsg == nullptr)
+        {
+            lStatus = CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+        }
+        else if (recvResult == SOCKET_ERROR)
+        {
+            lStatus = WSAGetLastError() == WSAEMSGSIZE ? CHIP_ERROR_INBOUND_MESSAGE_TOO_BIG : LastWinsockError();
+        }
+        else if (lBuffer->AvailableDataLength() < static_cast<size_t>(rcvLen))
+        {
+            lStatus = CHIP_ERROR_INBOUND_MESSAGE_TOO_BIG;
+        }
+        else
+        {
+            lBuffer->SetDataLength(static_cast<uint16_t>(rcvLen));
+
+            if (lPeerSockAddr.any.sa_family == AF_INET6)
+            {
+                lPacketInfo.SrcAddress = IPAddress(lPeerSockAddr.in6.sin6_addr);
+                lPacketInfo.SrcPort    = ntohs(lPeerSockAddr.in6.sin6_port);
+            }
+#if INET_CONFIG_ENABLE_IPV4
+            else if (lPeerSockAddr.any.sa_family == AF_INET)
+            {
+                lPacketInfo.SrcAddress = IPAddress(lPeerSockAddr.in.sin_addr);
+                lPacketInfo.SrcPort    = ntohs(lPeerSockAddr.in.sin_port);
+            }
+#endif // INET_CONFIG_ENABLE_IPV4
+            else
+            {
+                lStatus = CHIP_ERROR_INCORRECT_STATE;
+            }
+        }
+
+        if (lStatus == CHIP_NO_ERROR)
+        {
+            for (WSACMSGHDR * controlHdr = WSA_CMSG_FIRSTHDR(&msgHeader); controlHdr != nullptr;
+                 controlHdr              = WSA_CMSG_NXTHDR(&msgHeader, controlHdr))
+            {
+#if INET_CONFIG_ENABLE_IPV4
+                if (controlHdr->cmsg_level == IPPROTO_IP && controlHdr->cmsg_type == IP_PKTINFO)
+                {
+                    auto * inPktInfo        = reinterpret_cast<in_pktinfo *>(WSA_CMSG_DATA(controlHdr));
+                    lPacketInfo.Interface   = InterfaceIdFromScopeIndex(inPktInfo->ipi_ifindex);
+                    lPacketInfo.DestAddress = IPAddress(inPktInfo->ipi_addr);
+                    continue;
+                }
+#endif // INET_CONFIG_ENABLE_IPV4
+
+                if (controlHdr->cmsg_level == IPPROTO_IPV6 && controlHdr->cmsg_type == IPV6_PKTINFO)
+                {
+                    auto * in6PktInfo       = reinterpret_cast<in6_pktinfo *>(WSA_CMSG_DATA(controlHdr));
+                    lPacketInfo.Interface   = InterfaceIdFromScopeIndex(in6PktInfo->ipi6_ifindex);
+                    lPacketInfo.DestAddress = IPAddress(in6PktInfo->ipi6_addr);
+                    continue;
+                }
+            }
+        }
+#else  // defined(_WIN32)
         struct iovec msgIOV;
         SockAddr lPeerSockAddr;
         uint8_t controlData[256];
@@ -677,6 +1069,7 @@ void UDPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
 #endif // defined(IPV6_PKTINFO)
             }
         }
+#endif // defined(_WIN32)
     }
     else
     {
@@ -690,7 +1083,11 @@ void UDPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
     }
     else
     {
+#if defined(_WIN32)
+        if (OnReceiveError != nullptr && lStatus != CHIP_ERROR_WINDOWS(WSAEWOULDBLOCK))
+#else
         if (OnReceiveError != nullptr && lStatus != CHIP_ERROR_POSIX(EAGAIN))
+#endif // defined(_WIN32)
         {
             OnReceiveError(this, lStatus, nullptr);
         }
@@ -698,19 +1095,26 @@ void UDPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
 }
 
 #ifdef IPV6_MULTICAST_LOOP
-static CHIP_ERROR SocketsSetMulticastLoopback(int aSocket, bool aLoopback, int aProtocol, int aOption)
+static CHIP_ERROR SocketsSetMulticastLoopback(System::SocketHandle aSocket, bool aLoopback, int aProtocol, int aOption)
 {
     const unsigned int lValue = static_cast<unsigned int>(aLoopback);
+#if defined(_WIN32)
+    if (setsockopt(aSocket, aProtocol, aOption, reinterpret_cast<const char *>(&lValue), sizeof(lValue)) == SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+#else
     if (setsockopt(aSocket, aProtocol, aOption, &lValue, sizeof(lValue)) != 0)
     {
         return CHIP_ERROR_POSIX(errno);
     }
+#endif // defined(_WIN32)
 
     return CHIP_NO_ERROR;
 }
 #endif // IPV6_MULTICAST_LOOP
 
-static CHIP_ERROR SocketsSetMulticastLoopback(int aSocket, IPVersion aIPVersion, bool aLoopback)
+static CHIP_ERROR SocketsSetMulticastLoopback(System::SocketHandle aSocket, IPVersion aIPVersion, bool aLoopback)
 {
 #ifdef IPV6_MULTICAST_LOOP
     CHIP_ERROR lRetval;
@@ -801,10 +1205,18 @@ CHIP_ERROR UDPEndPointImplSockets::IPv4JoinLeaveMulticastGroupImpl(InterfaceId a
 #endif
 
     const int command = join ? IP_ADD_MEMBERSHIP : IP_DROP_MEMBERSHIP;
+#if defined(_WIN32)
+    if (setsockopt(mSocket, IPPROTO_IP, command, reinterpret_cast<const char *>(&lMulticastRequest), sizeof(lMulticastRequest)) ==
+        SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+#else
     if (setsockopt(mSocket, IPPROTO_IP, command, &lMulticastRequest, sizeof(lMulticastRequest)) != 0)
     {
         return CHIP_ERROR_POSIX(errno);
     }
+#endif // defined(_WIN32)
     return CHIP_NO_ERROR;
 }
 
@@ -819,7 +1231,59 @@ CHIP_ERROR UDPEndPointImplSockets::IPv6JoinLeaveMulticastGroupImpl(InterfaceId a
     }
 #endif // CHIP_SYSTEM_CONFIG_USE_PLATFORM_MULTICAST_API
 
-#ifdef IPV6_MULTICAST_IMPLEMENTED
+#if defined(_WIN32)
+    if (!aInterfaceId.IsPresent())
+    {
+        // Join/leave on every viable interface, mirroring the POSIX default-interface behavior.
+        bool interfaceFound = false;
+
+        InterfaceIterator interfaceIt;
+        while (interfaceIt.HasCurrent())
+        {
+            if (!interfaceIt.SupportsMulticast() || !interfaceIt.IsUp())
+            {
+                interfaceIt.Next();
+                continue;
+            }
+
+            InterfaceId interfaceId = interfaceIt.GetInterfaceId();
+
+            IPAddress ifAddr;
+            if (interfaceId.GetLinkLocalAddr(&ifAddr) != CHIP_NO_ERROR || ifAddr.Type() != IPAddressType::kIPv6)
+            {
+                interfaceIt.Next();
+                continue;
+            }
+
+            interfaceFound = true;
+
+            // Ignore per-interface errors: some interfaces (e.g. loopback) always work
+            // while others are not expected to.
+            TEMPORARY_RETURN_IGNORED IPv6JoinLeaveMulticastGroupImpl(interfaceId, aAddress, join);
+            interfaceIt.Next();
+        }
+
+        if (interfaceFound)
+        {
+            return CHIP_NO_ERROR;
+        }
+
+        ChipLogError(Inet, "No valid IPv6 multicast interface found");
+    }
+
+    ipv6_mreq lMulticastRequest;
+    memset(&lMulticastRequest, 0, sizeof(lMulticastRequest));
+    lMulticastRequest.ipv6mr_interface = aInterfaceId.GetInterfaceIndex();
+    lMulticastRequest.ipv6mr_multiaddr = aAddress.ToIPv6();
+
+    const int command = join ? IPV6_ADD_MEMBERSHIP : IPV6_DROP_MEMBERSHIP;
+    if (setsockopt(mSocket, IPPROTO_IPV6, command, reinterpret_cast<const char *>(&lMulticastRequest),
+                   sizeof(lMulticastRequest)) == SOCKET_ERROR)
+    {
+        return LastWinsockError();
+    }
+    return CHIP_NO_ERROR;
+#elif defined(IPV6_MULTICAST_IMPLEMENTED)
     if (!aInterfaceId.IsPresent())
     {
         // Do it on all the viable interfaces.

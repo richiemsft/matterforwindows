@@ -41,6 +41,7 @@ if (chip_build_windows_bootstrap_only) {
       "//build/config/win/tests:msvc-core-unit-tests",
       "//build/config/win/tests:msvc-dependency-smoke",
       "//build/config/win/tests:msvc-inet-interface-smoke",
+      "//build/config/win/tests:msvc-inet-udp-endpoint-smoke",
       "//build/config/win/tests:msvc-sdk-smoke",
       "//build/config/win/tests:msvc-socket-smoke",
       "//build/config/win/tests:msvc-system-error-source-smoke",

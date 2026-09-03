@@ -54,3 +54,55 @@ config("public") {
     "//src/include",
   ]
 }
+
+# Native WinSock UDP endpoint: exercises the shared UDPEndPointImplSockets.cpp
+# _WIN32 branches on top of the Windows system layer.
+config("udp-endpoint-config") {
+  defines = [
+    "INET_CONFIG_ENABLE_IPV4=1",
+    "INET_UDP_END_POINT_IMPL_CONFIG_FILE=<inet/UDPEndPointImplSockets.h>",
+  ]
+}
+
+static_library("windows-udp-endpoint") {
+  sources = [
+    "../EndPointBasis.h",
+    "../EndPointStateSockets.h",
+    "../IANAConstants.h",
+    "../IPAddress-StringFuncts.cpp",
+    "../IPAddress.cpp",
+    "../IPAddress.h",
+    "../IPPacketInfo.cpp",
+    "../IPPacketInfo.h",
+    "../IPPrefix.cpp",
+    "../IPPrefix.h",
+    "../InetError.cpp",
+    "../InetError.h",
+    "../InetInterface.cpp",
+    "../InetInterface.h",
+    "../UDPEndPoint.cpp",
+    "../UDPEndPoint.h",
+    "../UDPEndPointImpl.h",
+    "../UDPEndPointImplSockets.cpp",
+    "../UDPEndPointImplSockets.h",
+    "//src/system/SystemPacketBuffer.cpp",
+    "//src/system/SystemPacketBuffer.h",
+    "//src/lib/support/BufferWriter.cpp",
+    "//src/lib/support/BufferWriter.h",
+  ]
+
+  deps = [
+    "//src/lib/core/windows:windows-core-portable",
+    "//src/system/windows:windows-system-layer",
+    "//third_party/nlio",
+  ]
+  libs = [
+    "Iphlpapi.lib",
+    "Ws2_32.lib",
+  ]
+  public_configs = [
+    ":public",
+    ":udp-endpoint-config",
+    "//src/system/windows:system-config",
+  ]
+}

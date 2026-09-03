@@ -38,6 +38,12 @@
 #include <arpa/inet.h>
 #endif
 
+#if defined(_WIN32)
+// MSVC exposes the reentrant tokenizer as strtok_s with the same 3-argument
+// signature as the POSIX strtok_r used below.
+#define strtok_r strtok_s
+#endif // defined(_WIN32)
+
 namespace chip {
 namespace Inet {
 

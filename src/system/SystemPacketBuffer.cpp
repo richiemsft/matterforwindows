@@ -44,6 +44,13 @@
 #include <sys/types.h>
 #include <utility>
 
+#if defined(_WIN32)
+// MSVC's <sys/types.h> does not provide the POSIX ssize_t used below; map it to
+// the Win32 SSIZE_T signed pointer-width type.
+#include <BaseTsd.h>
+using ssize_t = SSIZE_T;
+#endif // defined(_WIN32)
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP
 #include <lwip/mem.h>
 #include <lwip/pbuf.h>
