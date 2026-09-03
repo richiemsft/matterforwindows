@@ -406,3 +406,139 @@ executable("msvc-inet-endpoint-tests") {
     "//src/system",
   ]
 }
+
+# Real upstream src/transport/tests and src/protocols/secure_channel/tests
+# GoogleTest suites, run against focused host-neutral subsets of //src/transport
+# and //src/protocols/secure_channel compiled with native MSVC (see
+# //src/transport/windows and //src/protocols/secure_channel/windows). They link
+# only the canonical //src/crypto, //src/inet, //src/system, and //src/lib
+# libraries; the session-establishment / exchange / MRP closures that reach the
+# Device Layer (platform/ConnectivityManager.h) are out of scope for Phase 2.
+# See //docs/guides/windows.md for the enabled/deferred inventory.
+
+# A handful of upstream transport/secure_channel test bodies and vector headers
+# use GCC/Clang C++17 extensions (designated-initializer aggregates, unsized
+# empty arrays) that MSVC rejects under /std:c++17. As with the crypto suites,
+# gen_msvc_cxx17_source.py emits C++17 build-artifact copies into a private gen
+# directory; the upstream files are untouched and the known-answer assertions
+# validate every rewrite at runtime.
+_transport_cxx17_dir = "$target_gen_dir/transport_cxx17"
+
+action_foreach("gen_transport_cxx17") {
+  script = "gen_msvc_cxx17_source.py"
+  sources = [ "//src/transport/tests/TestCryptoContext.cpp" ]
+  outputs = [ "$_transport_cxx17_dir/{{source_file_part}}" ]
+  args = [
+    "{{source}}",
+    rebase_path("$_transport_cxx17_dir/{{source_file_part}}", root_build_dir),
+  ]
+}
+
+# SecureChannel protocol/session suites that allocate but do not self-init
+# memory (shared memory-initializing main):
+#   - TestCheckInCounter: the monotonic ICD check-in counter.
+#   - TestDefaultSessionResumptionStorage / TestSimpleSessionResumptionStorage:
+#     session-resumption record storage.
+#
+# TestCheckinMsg is deferred: its vectors are pulled in via an angle-bracket
+# full path (<protocols/secure_channel/tests/CheckIn_Message_test_vectors.h>)
+# that the same-directory C++17 transform used elsewhere cannot shadow, and that
+# header's structure is not handled by gen_msvc_cxx17_source.py. See
+# //docs/guides/windows.md.
+executable("msvc-secure-channel-tests") {
+  sources = [
+    "//src/protocols/secure_channel/tests/TestCheckInCounter.cpp",
+    "//src/protocols/secure_channel/tests/TestDefaultSessionResumptionStorage.cpp",
+    "//src/protocols/secure_channel/tests/TestSimpleSessionResumptionStorage.cpp",
+    "msvc_crypto_test_main.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/protocols/secure_channel/windows:windows-sc-checkin-counter",
+    "//src/protocols/secure_channel/windows:windows-sc-resumption-storage",
+  ]
+}
+
+# Self-initializing transport suite (its fixture owns the per-suite MemoryInit /
+# MemoryShutdown), so the no-init shared main is used. TestCryptoContext
+# exercises the message privacy-nonce / AEAD key schedule of CryptoContext.
+executable("msvc-transport-crypto-context-tests") {
+  sources = [
+    "$_transport_cxx17_dir/TestCryptoContext.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+    "msvc_system_inet_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    ":gen_transport_cxx17",
+    "//build/config/win/googletest",
+    "//src/transport/windows:windows-transport-crypto-context",
+  ]
+}
+
+# Transport suites that allocate but do not manage their own MemoryInit, so the
+# shared memory-initializing main is used:
+#   - TestSecureSession: CryptoContext session key derivation and encrypt/decrypt
+#     (the suite exercises CryptoContext, not the SecureSession object).
+#   - TestPeerMessageCounter: the header-only peer message-counter window.
+#   - TestGroupMessageCounter: the group peer message-counter table.
+executable("msvc-transport-tests") {
+  sources = [
+    "//src/transport/tests/TestGroupMessageCounter.cpp",
+    "//src/transport/tests/TestPeerMessageCounter.cpp",
+    "//src/transport/tests/TestSecureSession.cpp",
+    "msvc_crypto_test_main.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/transport/windows:windows-transport-crypto-context",
+    "//src/transport/windows:windows-transport-group-counter",
+  ]
+}
+
+# SecureChannel protocol/session suites that allocate but do not self-init
+# memory (shared memory-initializing main). See the msvc-secure-channel-tests
+# target above for the enabled suites and the deferred TestCheckinMsg note.
+
+# TestStatusReport self-initializes memory in its fixture, so it uses the
+# no-init main and is kept in its own executable.
+executable("msvc-secure-channel-status-report-tests") {
+  sources = [
+    "//src/protocols/secure_channel/tests/TestStatusReport.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+    "msvc_system_inet_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/protocols/secure_channel/windows:windows-sc-status-report",
+  ]
+}

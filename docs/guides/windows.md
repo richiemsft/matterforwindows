@@ -123,6 +123,28 @@ The initial build foundation provides:
     isolation; upstream test bodies are compiled verbatim. See the System and
     Inet test section below for the enabled/skipped inventory and the port fixes
     the tests surfaced.
+-   The host-neutral upstream `src/transport/tests` and
+    `src/protocols/secure_channel/tests` GoogleTest suites run against focused
+    Windows-local subsets of `//src/transport` and
+    `//src/protocols/secure_channel` (see `//src/transport/windows` and
+    `//src/protocols/secure_channel/windows`) linked to the canonical
+    `//src/crypto`, `//src/inet`, `//src/system`, and `//src/lib` libraries.
+    `msvc-transport-crypto-context-tests` runs `TestCryptoContext` (1 test);
+    `msvc-transport-tests` runs `TestSecureSession`, `TestPeerMessageCounter`,
+    and `TestGroupMessageCounter` (22 tests); `msvc-secure-channel-tests` runs
+    `TestCheckInCounter`, `TestDefaultSessionResumptionStorage`, and
+    `TestSimpleSessionResumptionStorage` (13 tests); and
+    `msvc-secure-channel-status-report-tests` runs `TestStatusReport` (4 tests).
+    All 40 tests pass on x64 and the four executables cross-build and inspect as
+    `AA64` for ARM64. The suites reuse the System/Inet GoogleTest facades and the
+    `upstream_sdk_warnings` isolation; upstream test bodies are compiled
+    verbatim. Suites whose `SecureSession` / `ExchangeManager` /
+    `ReliableMessageMgr` closures reach the Device Layer
+    (`platform/ConnectivityManager.h`) -- including every `src/messaging/tests`
+    suite -- are deferred. Two shared-header portability fixes
+    (`src/transport/raw/PeerAddress.h` union initializers,
+    `src/lib/support/AutoRelease.h` `always_inline`) are documented in the
+    transport / secure-channel test section below.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The canonical library probe remains opt-in until the upstream System, Inet,
@@ -327,6 +349,111 @@ POSIX-only harness and are tracked for a later phase:
 -   `TestInetAddress.TestCheckToLwIPAddr` and `TestInetEndPoint`'s LwIP paths are
     LwIP-only and compiled out on the sockets build.
 
+## Run the upstream transport and secure-channel test suites
+
+The `msvc-transport-*` and `msvc-secure-channel-*` executables run the
+host-neutral upstream `src/transport/tests` and
+`src/protocols/secure_channel/tests` GoogleTest suites under native MSVC. They
+link focused, host-neutral subsets of `//src/transport` and
+`//src/protocols/secure_channel` (see `//src/transport/windows` and
+`//src/protocols/secure_channel/windows`) against the canonical `//src/crypto`,
+`//src/inet`, `//src/system`, and `//src/lib` libraries -- no Device Layer.
+They are built with the canonical probe graph:
+
+```powershell
+gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
+ninja -C out\win-canonical-x64
+.\out\win-canonical-x64\msvc-transport-crypto-context-tests.exe
+.\out\win-canonical-x64\msvc-transport-tests.exe
+.\out\win-canonical-x64\msvc-secure-channel-tests.exe
+.\out\win-canonical-x64\msvc-secure-channel-status-report-tests.exe
+```
+
+Use the same arguments with `target_cpu="arm64"` after initializing the ARM64
+MSVC environment to cross-build; the executables inspect as `AA64`.
+
+### Enabled suites
+
+-   `msvc-transport-crypto-context-tests` (1 test, 1 suite): `TestCryptoContext`
+    exercises the `CryptoContext` message privacy-nonce derivation.
+-   `msvc-transport-tests` (22 tests, 3 suites): `TestSecureSession` (the
+    `CryptoContext` session-key init and AEAD encrypt/decrypt round trips -- the
+    suite exercises `CryptoContext`, not the `SecureSession` object),
+    `TestPeerMessageCounter` (the header-only peer message-counter replay
+    window), and `TestGroupMessageCounter` (the group peer message-counter
+    table).
+-   `msvc-secure-channel-tests` (13 tests, 3 suites): `TestCheckInCounter` (the
+    monotonic ICD check-in counter), `TestDefaultSessionResumptionStorage`, and
+    `TestSimpleSessionResumptionStorage` (session-resumption record storage over
+    an in-memory `TestPersistentStorageDelegate`).
+-   `msvc-secure-channel-status-report-tests` (4 tests, 1 suite):
+    `TestStatusReport` (SecureChannel StatusReport message encode/parse).
+
+All 40 tests pass on x64 and the four executables cross-build and inspect as
+`AA64` for ARM64. They reuse the same GoogleTest `pw_unit_test/framework.h` and
+`lib/core/StringBuilderAdapters.h` facades and the `upstream_sdk_warnings`
+isolation as the System/Inet suites. Executables whose fixtures own their
+per-suite `MemoryInit`/`MemoryShutdown` (`TestCryptoContext`, `TestStatusReport`)
+use the no-init `msvc_system_inet_test_main.cpp`; the remaining suites use the
+memory-initializing `msvc_crypto_test_main.cpp`.
+
+### Windows-local library subsets
+
+The canonical `//src/transport:transport` and
+`//src/protocols/secure_channel:secure_channel` targets pass the GCC/Clang
+`-Wconversion` flag (which cl.exe rejects as an invalid numeric argument) and
+build at the strict `/W4 /WX` default. Rather than modify those upstream BUILD
+files, the Windows tests link small `source_set`s under
+`//src/transport/windows` and `//src/protocols/secure_channel/windows` that list
+exactly the host-neutral translation units the enabled suites need and add
+`//build/config/win:upstream_sdk_warnings` (which both relaxes `/W4 /WX` for the
+GCC/Clang-authored bodies and omits `-Wconversion`). The upstream `.cpp` sources
+are compiled verbatim. `credentials/FabricTable.h` and
+`messaging/ReliableMessageProtocolConfig.h` are reached only as headers through
+`//src:includes`.
+
+### Port fixes surfaced by the tests
+
+-   `src/transport/raw/PeerAddress.h` initialized its `Id` union with C++20
+    designated initializers (`mId{ .mRemoteId = ... }`) that GCC/Clang accept as
+    a C++17 extension but MSVC rejects (C7555). The four first-member
+    (`mRemoteId`) initializers now use the semantically identical positional
+    form (`mId{ ... }`); the second-member (`mNFCShortId`) initializer moves to
+    the constructor body. Both forms are standard C++17 and behave identically on
+    every compiler and endianness, so non-Windows behavior is unchanged.
+-   `src/lib/support/AutoRelease.h` used a raw
+    `__attribute__((always_inline))`, which MSVC does not accept. A guarded
+    `CHIP_AUTORELEASE_ALWAYS_INLINE` macro maps it to `__forceinline` under MSVC
+    and keeps the GCC/Clang attribute elsewhere.
+
+### Not yet enabled
+
+The following upstream transport / messaging / secure-channel suites reach the
+unported Windows Device Layer and are tracked for a later phase:
+
+-   `TestPeerConnections` and `TestSecureSessionTable` construct
+    `Transport::SecureSession`, whose MRP timeout virtuals
+    (`GetAckTimeout` / `GetMessageReceiptTimeout`, present in the vtable) link
+    `chip::GetRetransmissionTimeout` -> `ReliableMessageMgr::GetBackoff` from
+    `src/messaging/ReliableMessageMgr.cpp`, which includes
+    `platform/ConnectivityManager.h` (the Device Layer).
+-   `TestSessionManager` / `TestSessionManagerDispatch` link `MessageCounterManager`,
+    `PASESession`, and `GroupDataProviderImpl`, all of which drive exchanges /
+    fabric storage through the Device Layer.
+-   Every `src/messaging/tests` suite (`TestExchange`, `TestExchangeMgr`,
+    `TestExchangeHolder`, `TestReliableMessageProtocol`,
+    `TestAbortExchangesForFabric`, `TestMessagingLayer`) builds on
+    `MessagingContext`, whose `ExchangeManager` / `ReliableMessageMgr` closure
+    reaches `platform/ConnectivityManager.h`.
+-   `TestPASESession`, `TestCASESession`, `TestPairingSession`,
+    `TestMessageCounterManager`, and the fuzz suites drive the session-establishment
+    exchange machinery (Device Layer).
+-   `TestCheckinMsg` is host-neutral to compile, but its vectors are pulled in via
+    an angle-bracket full-path include
+    (`<protocols/secure_channel/tests/CheckIn_Message_test_vectors.h>`) that the
+    same-directory C++17 source transform used for the crypto suites cannot
+    shadow; it is deferred until that header can be adapted.
+
 ## Compile the canonical core libraries
 
 The canonical System, Inet, and BoringSSL CryptoPAL libraries can be added to
@@ -413,7 +540,7 @@ bootstrap graph as the finished SDK:
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
 | Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE | Phases 3–5 |
 | Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
-| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` suites (80 tests) run on x64 via a GoogleTest facade; the full Pigweed light-framework facade still contains GNU inline assembly and attributes that block other complete suites | Phase 2 |
+| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
 Failures are tracked in six categories:
 

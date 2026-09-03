@@ -25,6 +25,15 @@
 #include <lib/support/CodeUtils.h>
 #include <stddef.h>
 
+// __attribute__((always_inline)) is GCC/Clang syntax that MSVC does not accept.
+// Map it to the MSVC equivalent (__forceinline) so this header compiles under
+// native MSVC without changing behavior on any other compiler.
+#if defined(_MSC_VER) && !defined(__clang__)
+#define CHIP_AUTORELEASE_ALWAYS_INLINE __forceinline
+#else
+#define CHIP_AUTORELEASE_ALWAYS_INLINE __attribute__((always_inline)) inline
+#endif
+
 namespace chip {
 
 /// RAII class for iterators that guarantees that Release() will be called
@@ -36,7 +45,7 @@ class AutoRelease
 {
 public:
     AutoRelease(Releasable * releasable) : mReleasable(releasable) {}
-    __attribute__((always_inline)) inline ~AutoRelease() { Release(); }
+    CHIP_AUTORELEASE_ALWAYS_INLINE ~AutoRelease() { Release(); }
 
     // Not copyable
     AutoRelease(const AutoRelease &)             = delete;
@@ -62,7 +71,7 @@ public:
     inline operator bool() { return mReleasable != nullptr; }
     inline bool IsNull() const { return mReleasable == nullptr; }
 
-    __attribute__((always_inline)) inline void Release()
+    CHIP_AUTORELEASE_ALWAYS_INLINE void Release()
     {
         VerifyOrReturn(mReleasable != nullptr);
         mReleasable->Release();
@@ -87,3 +96,5 @@ template <class T>
 AutoRelease(T * releasable) -> AutoRelease<T>;
 
 } // namespace chip
+
+#undef CHIP_AUTORELEASE_ALWAYS_INLINE

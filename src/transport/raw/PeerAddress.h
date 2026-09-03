@@ -67,12 +67,17 @@ enum class Type : uint8_t
 class PeerAddress
 {
 public:
-    constexpr PeerAddress() : mTransportType(Type::kUndefined), mId{ .mRemoteId = kUndefinedNodeId } {}
+    // NOTE: mId is a union whose first member is mRemoteId, so positional
+    // aggregate initialization ({ value }) initializes mRemoteId identically to
+    // the designated form ({ .mRemoteId = value }) on every compiler and
+    // endianness. MSVC rejects designated initializers under /std:c++17
+    // (C7555); the positional form is standard C++17 and semantically identical.
+    constexpr PeerAddress() : mTransportType(Type::kUndefined), mId{ kUndefinedNodeId } {}
     constexpr PeerAddress(const Inet::IPAddress & addr, Type type) :
-        mIPAddress(addr), mTransportType(type), mId{ .mRemoteId = kUndefinedNodeId }
+        mIPAddress(addr), mTransportType(type), mId{ kUndefinedNodeId }
     {}
-    constexpr PeerAddress(Type type) : mTransportType(type), mId{ .mRemoteId = kUndefinedNodeId } {}
-    constexpr PeerAddress(Type type, NodeId remoteId) : mTransportType(type), mId{ .mRemoteId = remoteId } {}
+    constexpr PeerAddress(Type type) : mTransportType(type), mId{ kUndefinedNodeId } {}
+    constexpr PeerAddress(Type type, NodeId remoteId) : mTransportType(type), mId{ remoteId } {}
 
     constexpr PeerAddress(PeerAddress &&)        = default;
     constexpr PeerAddress(const PeerAddress &)   = default;
@@ -271,7 +276,11 @@ public:
     static PeerAddress BuildMatterIanaMulticastAddress() { return UDP(Inet::IPAddress::MakeIPv6MatterIANAMulticastAddr()); }
 
 private:
-    constexpr PeerAddress(uint16_t shortId) : mTransportType(Type::kNfc), mId{ .mNFCShortId = shortId } {}
+    // mNFCShortId is the union's second member; initialize it in the
+    // constructor body (well-defined and endianness-independent on all
+    // compilers) rather than with a designated initializer, which MSVC rejects
+    // under /std:c++17.
+    constexpr PeerAddress(uint16_t shortId) : mTransportType(Type::kNfc), mId{} { mId.mNFCShortId = shortId; }
 
     static PeerAddress FromString(char * addrStr, uint16_t port, Type type)
     {
