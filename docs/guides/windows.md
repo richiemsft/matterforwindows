@@ -27,6 +27,9 @@ The initial build foundation provides:
 -   Native QPC/FILETIME clock and SRW-lock primitives wired through the shared
     `System::Clock` and `System::Mutex` APIs. This subset builds for x64 and
     ARM64 and has x64 runtime coverage.
+-   Native Win32, WinSock, and HRESULT error mapping with UTF-8 system
+    descriptions, plus a nonblocking IPv6 loopback wake-socket primitive.
+    Both have x64 runtime and ARM64 cross-build coverage.
 -   A typed WinSock handle with bounded IPv6 UDP and `WSAPoll` runtime
     coverage on x64 and ARM64 cross-build coverage.
 
@@ -80,7 +83,9 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-sdk-smoke.exe
 .\out\win-msvc-smoke\msvc-dependency-smoke.exe
 .\out\win-msvc-smoke\msvc-core-unit-tests.exe
+.\out\win-msvc-smoke\msvc-system-error-source-smoke.exe
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
+.\out\win-msvc-smoke\msvc-system-wake-event-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe
 ```
 
@@ -192,6 +197,11 @@ and applied consistently to all dependencies.
 -   The first event loop will preserve the existing System Layer callback
     contract using `WSAPoll` and a WinSock wake-socket pair. IOCP can be
     evaluated later without changing application APIs.
+-   Win32 and WinSock codes use the 24-bit `ChipError::Range::kOS` value.
+    Values that cannot be represented are rejected instead of truncated.
+    Failed HRESULTs use `kPlatformExtended`: the fixed failure-severity bit is
+    restored when converting back to HRESULT, preserving the remaining 31
+    facility, customer, and code bits.
 -   `SRWLOCK` is the preferred non-recursive mutex primitive.
 -   Monotonic time will use `QueryPerformanceCounter`; UTC time will use a
     precise `FILETIME` API and convert from the Windows epoch with checked

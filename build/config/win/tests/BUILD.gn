@@ -62,6 +62,35 @@ executable("msvc-system-primitives-smoke") {
   deps = [ "//src/system/windows:windows-system-shared-compile" ]
 }
 
+executable("msvc-system-error-source-smoke") {
+  sources = [
+    "../../../../src/lib/core/CHIPError.cpp",
+    "../../../../src/lib/core/ErrorStr.cpp",
+    "../../../../src/system/SystemError.cpp",
+    "msvc_system_error_source_smoke.cpp",
+  ]
+  output_dir = root_out_dir
+  configs += [
+    ":error-source",
+    "//src/lib/core/windows:public",
+    "//src/system/windows:public",
+    "//src/system/windows:system-config",
+  ]
+}
+
+executable("msvc-system-wake-event-smoke") {
+  sources = [ "msvc_system_wake_event_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [
+    "//src/lib/core/windows:windows-core-portable",
+    "//src/system/windows:windows-system-primitives",
+  ]
+}
+
+config("error-source") {
+  defines = [ "CHIP_CONFIG_ERROR_SOURCE=1" ]
+}
+
 executable("msvc-socket-smoke") {
   sources = [ "msvc_socket_smoke.cpp" ]
   output_dir = root_out_dir

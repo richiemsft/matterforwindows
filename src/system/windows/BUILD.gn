@@ -19,9 +19,26 @@ static_library("windows-system-primitives") {
     "WindowsClock.cpp",
     "WindowsClock.h",
     "WindowsMutex.h",
+    "WindowsWakeEvent.cpp",
+    "WindowsWakeEvent.h",
   ]
 
+  deps = [ ":windows-system-errors" ]
   public_configs = [ ":public" ]
+  libs = [ "Ws2_32.lib" ]
+}
+
+static_library("windows-system-errors") {
+  sources = [
+    "../SystemError.cpp",
+    "../SystemError.h",
+  ]
+
+  deps = [ "//src/lib/core/windows:windows-core-portable" ]
+  public_configs = [
+    ":public",
+    ":system-config",
+  ]
 }
 
 static_library("windows-system-shared-compile") {
@@ -34,7 +51,11 @@ static_library("windows-system-shared-compile") {
     "../SystemMutex.h",
   ]
 
-  deps = [ ":windows-system-primitives" ]
+  deps = [
+    ":windows-system-errors",
+    ":windows-system-primitives",
+    "//src/lib/core/windows:windows-core-portable",
+  ]
   public_configs = [
     ":public",
     ":system-config",

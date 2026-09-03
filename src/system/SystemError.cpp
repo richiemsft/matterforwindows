@@ -28,7 +28,9 @@
 #include <system/SystemError.h>
 
 #include <lib/core/ErrorStr.h>
+#if !defined(_WIN32)
 #include <lib/support/CHIPMemString.h>
+#endif
 #include <lib/support/DLLUtil.h>
 
 #include <lib/core/CHIPConfig.h>
@@ -41,6 +43,10 @@
 #include <limits>
 #include <stddef.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#include <Windows.h>
+#endif
 
 namespace chip {
 namespace System {
@@ -71,6 +77,92 @@ DLL_EXPORT CHIP_ERROR MapErrorPOSIX(int aError)
     return (aError == 0 ? CHIP_NO_ERROR : CHIP_ERROR(ChipError::Range::kPOSIX, aError));
 }
 #endif
+
+#if defined(_WIN32)
+
+namespace {
+
+constexpr uint32_t kMaximumEncapsulatedOsError = UINT32_C(0x00FFFFFF);
+constexpr uint32_t kHResultFacilityWin32Mask   = UINT32_C(0xFFFF0000);
+constexpr uint32_t kHResultFacilityWin32       = UINT32_C(0x80070000);
+
+#if CHIP_CONFIG_ERROR_SOURCE && CHIP_CONFIG_ERROR_STD_SOURCE_LOCATION
+CHIP_ERROR MapWindowsValue(uint32_t code, std::source_location location)
+{
+    return code <= kMaximumEncapsulatedOsError ? CHIP_ERROR(ChipError::Range::kOS, static_cast<int32_t>(code), location)
+                                               : CHIP_ERROR_INVALID_ARGUMENT;
+}
+#elif CHIP_CONFIG_ERROR_SOURCE
+CHIP_ERROR MapWindowsValue(uint32_t code, const char * file, unsigned int line)
+{
+    return code <= kMaximumEncapsulatedOsError ? CHIP_ERROR(ChipError::Range::kOS, static_cast<int32_t>(code), file, line)
+                                               : CHIP_ERROR_INVALID_ARGUMENT;
+}
+#else
+CHIP_ERROR MapWindowsValue(uint32_t code)
+{
+    return code <= kMaximumEncapsulatedOsError
+        ? CHIP_ERROR(ChipError::Range::kOS, static_cast<int32_t>(code))
+        : CHIP_ERROR_INVALID_ARGUMENT;
+}
+#endif
+
+} // namespace
+
+#if CHIP_CONFIG_ERROR_SOURCE && CHIP_CONFIG_ERROR_STD_SOURCE_LOCATION
+DLL_EXPORT CHIP_ERROR MapErrorWindows(uint32_t code, std::source_location location)
+{
+    return code == ERROR_SUCCESS ? CHIP_NO_ERROR : MapWindowsValue(code, location);
+}
+
+DLL_EXPORT CHIP_ERROR MapErrorHRESULT(int32_t code, std::source_location location)
+{
+    if (code >= 0)
+    {
+        return CHIP_NO_ERROR;
+    }
+    const uint32_t unsignedCode = static_cast<uint32_t>(code);
+    return (unsignedCode & kHResultFacilityWin32Mask) == kHResultFacilityWin32
+        ? MapWindowsValue(unsignedCode & UINT32_C(0xFFFF), location)
+        : CHIP_ERROR(ChipError::Range::kPlatformExtended, code, location);
+}
+#elif CHIP_CONFIG_ERROR_SOURCE
+DLL_EXPORT CHIP_ERROR MapErrorWindows(uint32_t code, const char * file, unsigned int line)
+{
+    return code == ERROR_SUCCESS ? CHIP_NO_ERROR : MapWindowsValue(code, file, line);
+}
+
+DLL_EXPORT CHIP_ERROR MapErrorHRESULT(int32_t code, const char * file, unsigned int line)
+{
+    if (code >= 0)
+    {
+        return CHIP_NO_ERROR;
+    }
+    const uint32_t unsignedCode = static_cast<uint32_t>(code);
+    return (unsignedCode & kHResultFacilityWin32Mask) == kHResultFacilityWin32
+        ? MapWindowsValue(unsignedCode & UINT32_C(0xFFFF), file, line)
+        : CHIP_ERROR(ChipError::Range::kPlatformExtended, code, file, line);
+}
+#else
+DLL_EXPORT CHIP_ERROR MapErrorWindows(uint32_t code)
+{
+    return code == ERROR_SUCCESS ? CHIP_NO_ERROR : MapWindowsValue(code);
+}
+
+DLL_EXPORT CHIP_ERROR MapErrorHRESULT(int32_t code)
+{
+    if (code >= 0)
+    {
+        return CHIP_NO_ERROR;
+    }
+    const uint32_t unsignedCode = static_cast<uint32_t>(code);
+    return (unsignedCode & kHResultFacilityWin32Mask) == kHResultFacilityWin32
+        ? MapWindowsValue(unsignedCode & UINT32_C(0xFFFF))
+        : CHIP_ERROR(ChipError::Range::kPlatformExtended, code);
+}
+#endif
+
+#endif // defined(_WIN32)
 } // namespace Internal
 
 /**
@@ -109,7 +201,13 @@ DLL_EXPORT const char * DescribeErrorPOSIX(CHIP_ERROR aError)
     const char * s = strerror(lError);
     if (s != nullptr)
     {
+#if defined(_WIN32)
+        const size_t length = strlen(s) < sizeof(errBuf) ? strlen(s) : sizeof(errBuf) - 1;
+        memcpy(errBuf, s, length);
+        errBuf[length] = '\0';
+#else
         chip::Platform::CopyString(errBuf, sizeof(errBuf), s);
+#endif
         return errBuf;
     }
 #endif
@@ -160,6 +258,83 @@ bool FormatPOSIXError(char * buf, uint16_t bufSize, CHIP_ERROR err)
 
     return false;
 }
+
+#if defined(_WIN32)
+
+DLL_EXPORT uint32_t GetWindowsError(CHIP_ERROR error)
+{
+    return static_cast<uint32_t>(error.GetValue()) & UINT32_C(0x00FFFFFF);
+}
+
+DLL_EXPORT int32_t GetHRESULT(CHIP_ERROR error)
+{
+    return static_cast<int32_t>(UINT32_C(0x80000000) | (static_cast<uint32_t>(error.GetValue()) & UINT32_C(0x7FFFFFFF)));
+}
+
+DLL_EXPORT const char * DescribeErrorWindows(CHIP_ERROR error)
+{
+#if CHIP_SYSTEM_CONFIG_THREAD_LOCAL_STORAGE
+    static thread_local char errorBuffer[256];
+#else
+    static char errorBuffer[256];
+#endif
+    wchar_t wideBuffer[256];
+    const DWORD nativeError = error.IsRange(ChipError::Range::kPlatformExtended)
+        ? static_cast<DWORD>(GetHRESULT(error))
+        : static_cast<DWORD>(GetWindowsError(error));
+    DWORD length = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, nativeError, 0, wideBuffer,
+                                  static_cast<DWORD>(sizeof(wideBuffer) / sizeof(wideBuffer[0])), nullptr);
+    while (length > 0 &&
+           (wideBuffer[length - 1] == L'\r' || wideBuffer[length - 1] == L'\n' || wideBuffer[length - 1] == L' '))
+    {
+        --length;
+    }
+
+    if (length == 0)
+    {
+        return "Unknown Windows error";
+    }
+
+    const int utf8Length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wideBuffer, static_cast<int>(length), errorBuffer,
+                                                static_cast<int>(sizeof(errorBuffer) - 1), nullptr, nullptr);
+    if (utf8Length <= 0)
+    {
+        return "Unknown Windows error";
+    }
+
+    errorBuffer[utf8Length] = '\0';
+    return errorBuffer;
+}
+
+void RegisterWindowsErrorFormatter()
+{
+    static ErrorFormatter formatter = { FormatWindowsError, nullptr };
+    static bool registered          = false;
+    if (!registered)
+    {
+        RegisterErrorFormatter(&formatter);
+        registered = true;
+    }
+}
+
+bool FormatWindowsError(char * buf, uint16_t bufSize, CHIP_ERROR err)
+{
+    if (!err.IsRange(ChipError::Range::kOS) && !err.IsRange(ChipError::Range::kPlatformExtended))
+    {
+        return false;
+    }
+
+    const char * description =
+#if CHIP_CONFIG_SHORT_ERROR_STR
+        nullptr;
+#else
+        DescribeErrorWindows(err);
+#endif
+    FormatError(buf, bufSize, err.IsRange(ChipError::Range::kOS) ? "Win32" : "HRESULT", err, description);
+    return true;
+}
+
+#endif // defined(_WIN32)
 
 /**
  * This implements a mapping function for CHIP System Layer errors that allows mapping integers in the number space of the

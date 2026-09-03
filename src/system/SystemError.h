@@ -47,22 +47,60 @@
 
 #define CHIP_ERROR_POSIX(code) chip::System::Internal::MapErrorPOSIX(code CHIP_ERROR_SOURCE_LOCATION)
 
+#if defined(_WIN32)
+#define CHIP_ERROR_WINDOWS(code)                                                                                                  \
+    chip::System::Internal::MapErrorWindows(static_cast<uint32_t>(code) CHIP_ERROR_SOURCE_LOCATION)
+#define CHIP_ERROR_HRESULT(code)                                                                                                  \
+    chip::System::Internal::MapErrorHRESULT(static_cast<int32_t>(code) CHIP_ERROR_SOURCE_LOCATION)
+#endif
+
 namespace chip {
 namespace System {
 
 namespace Internal {
 #if CHIP_CONFIG_ERROR_SOURCE && CHIP_CONFIG_ERROR_STD_SOURCE_LOCATION
 extern CHIP_ERROR MapErrorPOSIX(int code, std::source_location location);
+#if defined(_WIN32)
+extern CHIP_ERROR MapErrorWindows(uint32_t code, std::source_location location);
+extern CHIP_ERROR MapErrorHRESULT(int32_t code, std::source_location location);
+#endif
 #elif CHIP_CONFIG_ERROR_SOURCE
 extern CHIP_ERROR MapErrorPOSIX(int code, const char * file, unsigned int line);
+#if defined(_WIN32)
+extern CHIP_ERROR MapErrorWindows(uint32_t code, const char * file, unsigned int line);
+extern CHIP_ERROR MapErrorHRESULT(int32_t code, const char * file, unsigned int line);
+#endif
 #else
 extern CHIP_ERROR MapErrorPOSIX(int code);
+#if defined(_WIN32)
+extern CHIP_ERROR MapErrorWindows(uint32_t code);
+extern CHIP_ERROR MapErrorHRESULT(int32_t code);
+#endif
 #endif
 } // namespace Internal
 
 extern const char * DescribeErrorPOSIX(CHIP_ERROR code);
 extern void RegisterPOSIXErrorFormatter();
 extern bool FormatPOSIXError(char * buf, uint16_t bufSize, CHIP_ERROR err);
+
+#if defined(_WIN32)
+extern const char * DescribeErrorWindows(CHIP_ERROR code);
+
+/**
+ * Reconstruct an unsigned Win32 or WinSock code mapped by CHIP_ERROR_WINDOWS().
+ */
+extern uint32_t GetWindowsError(CHIP_ERROR code);
+
+/**
+ * Reconstruct a failed HRESULT mapped by CHIP_ERROR_HRESULT().
+ *
+ * HRESULT failure severity is implicit in the kPlatformExtended range, leaving
+ * the lower 31 HRESULT bits available for lossless storage.
+ */
+extern int32_t GetHRESULT(CHIP_ERROR code);
+extern void RegisterWindowsErrorFormatter();
+extern bool FormatWindowsError(char * buf, uint16_t bufSize, CHIP_ERROR err);
+#endif
 
 #ifdef __ZEPHYR__
 extern CHIP_ERROR MapErrorZephyr(int code);
