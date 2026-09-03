@@ -42,7 +42,11 @@
 
 // Doxygen is confused by the __attribute__ annotation
 #ifndef DOXYGEN
+#if defined(_MSC_VER) && !defined(__clang__)
+#define NO_INLINE __declspec(noinline)
+#else
 #define NO_INLINE __attribute__((noinline))
+#endif
 #endif // DOXYGEN
 
 // You can enable this block manually to abort on usage of uninitialized writers in

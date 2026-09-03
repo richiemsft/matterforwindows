@@ -845,7 +845,11 @@ static const uint8_t kGroupSecurityInfo[] = { 0x47, 0x72, 0x6f, 0x75, 0x70, 0x4b
 
 /* Group Key Derivation Function, Info: "GroupKeyHash" ” */
 static const uint8_t kGroupKeyHashInfo[]  = { 0x47, 0x72, 0x6f, 0x75, 0x70, 0x4b, 0x65, 0x79, 0x48, 0x61, 0x73, 0x68 };
-static const uint8_t kGroupKeyHashSalt[0] = {};
+// The group-key hash derivation uses a zero-length salt. A zero-length array is
+// a GCC/Clang extension that MSVC rejects, so keep a valid (non-null) pointer
+// via a one-byte placeholder and always pass an explicit salt length of 0.
+static const uint8_t kGroupKeyHashSalt[1] = { 0 };
+constexpr size_t kGroupKeyHashSaltLength  = 0;
 
 /*
     OperationalGroupKey =
@@ -882,7 +886,7 @@ CHIP_ERROR DeriveGroupSessionId(const ByteSpan & operational_key, uint16_t & ses
     uint8_t out_key[sizeof(uint16_t)];
 
     ReturnErrorOnFailure(crypto.HKDF_SHA256(operational_key.data(), operational_key.size(), kGroupKeyHashSalt,
-                                            sizeof(kGroupKeyHashSalt), kGroupKeyHashInfo, sizeof(kGroupKeyHashInfo), out_key,
+                                            kGroupKeyHashSaltLength, kGroupKeyHashInfo, sizeof(kGroupKeyHashInfo), out_key,
                                             sizeof(out_key)));
     session_id = Encoding::BigEndian::Get16(out_key);
     return CHIP_NO_ERROR;
@@ -1320,20 +1324,38 @@ CHIP_ERROR P256Keypair::HazardousOperationLoadKeypairFromRaw(ByteSpan private_ke
     return this->Deserialize(serialized_keypair);
 }
 
-__attribute__((weak)) CHIP_ERROR P256Keypair::InitializeFromBitsOrReject(FixedByteSpan<kP256_PrivateKey_Length> privateKeyBits)
+// InitializeFromBitsOrReject() and ECDSA_sign_msg_det() have default (fallback)
+// implementations here that backends may override with a strong definition
+// (OpenSSL/BoringSSL in P256KeyPairOpenSSL.cpp, PSA in CHIPCryptoPALPSA.cpp).
+// On GCC/Clang the fallbacks use weak linkage so the backend definition wins.
+// MSVC has no weak-symbol linkage, so each fallback is compiled only when the
+// active backend does not provide that specific method.
+#if defined(__GNUC__) || defined(__clang__)
+#define CHIP_CRYPTO_PAL_WEAK __attribute__((weak))
+#else
+#define CHIP_CRYPTO_PAL_WEAK
+#endif
+
+#if defined(__GNUC__) || defined(__clang__) || !(CHIP_CRYPTO_OPENSSL || CHIP_CRYPTO_BORINGSSL || CHIP_CRYPTO_PSA)
+CHIP_CRYPTO_PAL_WEAK CHIP_ERROR P256Keypair::InitializeFromBitsOrReject(FixedByteSpan<kP256_PrivateKey_Length> privateKeyBits)
 {
     IgnoreUnusedVariable(privateKeyBits);
     return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
 }
+#endif
 
-__attribute__((weak)) CHIP_ERROR P256Keypair::ECDSA_sign_msg_det(const uint8_t * msg, size_t msg_length,
-                                                                 P256ECDSASignature & out_signature) const
+#if defined(__GNUC__) || defined(__clang__) || !(CHIP_CRYPTO_OPENSSL || CHIP_CRYPTO_BORINGSSL)
+CHIP_CRYPTO_PAL_WEAK CHIP_ERROR P256Keypair::ECDSA_sign_msg_det(const uint8_t * msg, size_t msg_length,
+                                                                P256ECDSASignature & out_signature) const
 {
     IgnoreUnusedVariable(msg);
     IgnoreUnusedVariable(msg_length);
     IgnoreUnusedVariable(out_signature);
     return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
 }
+#endif
+
+#undef CHIP_CRYPTO_PAL_WEAK
 
 } // namespace Crypto
 } // namespace chip

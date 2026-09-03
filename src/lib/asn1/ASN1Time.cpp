@@ -22,13 +22,17 @@
  *
  */
 
+#if !defined(_WIN32)
 #include <getopt.h>
+#endif
 #include <inttypes.h>
 #include <limits.h>
 #include <memory>
 #include <stdint.h>
 #include <string.h>
+#if !defined(_WIN32)
 #include <unistd.h>
+#endif
 
 #include <ctype.h>
 #include <stdio.h>

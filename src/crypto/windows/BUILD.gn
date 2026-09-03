@@ -1,0 +1,157 @@
+# Copyright (c) 2026 Project CHIP Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import("//build_overrides/chip.gni")
+
+import("${chip_root}/src/crypto/crypto.gni")
+
+assert(current_os == "win")
+assert(chip_crypto == "boringssl",
+       "The Windows CryptoPAL closure builds on the repository-pinned BoringSSL")
+
+# The CryptoPAL headers only pull the generated <crypto/CryptoBuildConfig.h>
+# when CHIP_HAVE_CONFIG_H is defined. Like the other Windows port libraries
+# (which pass their System/Inet config via -D rather than generated build
+# config headers), this closure supplies the crypto selection macros directly
+# and leaves CHIP_HAVE_CONFIG_H undefined so no generated-config cascade is
+# pulled in. The values mirror src/crypto/BUILD.gn for chip_crypto="boringssl"
+# with the raw key store.
+config("crypto-config") {
+  defines = [
+    "CHIP_CRYPTO_MBEDTLS=0",
+    "CHIP_CRYPTO_PSA=0",
+    "CHIP_CRYPTO_OPENSSL=0",
+    "CHIP_CRYPTO_BORINGSSL=1",
+    "CHIP_CRYPTO_PLATFORM=0",
+    "CHIP_CRYPTO_KEYSTORE_PSA=0",
+    "CHIP_CRYPTO_KEYSTORE_RAW=1",
+    "CHIP_CRYPTO_KEYSTORE_APP=0",
+    "CHIP_CRYPTO_SPAKE2P_MBEDTLS=1",
+    "CHIP_CRYPTO_SPAKE2P_PSA=0",
+    "CHIP_CRYPTO_SPAKE2P_CUSTOM=0",
+    "CHIP_CRYPTO_PSA_AEAD_SINGLE_PART=0",
+    "CHIP_OP_KEYSTORE_ELE=0",
+  ]
+}
+
+# The canonical ASN.1 BUILD file currently loads unresolved Pigweed bootstrap
+# dependencies on Windows. Generate the same header into a Windows-specific
+# directory so this focused closure remains isolated without colliding with
+# the canonical generator when both graphs become composable.
+_windows_asn1_include_dir = "${root_gen_dir}/windows/include"
+_asn1oid_header = "${_windows_asn1_include_dir}/asn1/ASN1OID.h"
+
+action("gen_windows_asn1oid") {
+  script = "//src/lib/asn1/gen_asn1oid.py"
+  outputs = [ _asn1oid_header ]
+  args = [ "--output_file=" + rebase_path(_asn1oid_header, root_build_dir) ]
+}
+
+# The shared CryptoPAL and its supporting SDK sources predate the MSVC port and
+# were written for GCC/Clang with -Wconversion. Compiling them under the
+# Windows default /W4 /WX contract surfaces upstream implicit-conversion and
+# unreferenced-parameter diagnostics that are not port defects. Relax the
+# level for these upstream translation units only; the Windows-specific wiring
+# in this file is still built at the strict default level.
+config("upstream-crypto-warnings") {
+  cflags = [
+    "/W3",
+    "/WX-",   # upstream SDK sources are not clean under warnings-as-errors
+    "/wd4244",  # conversion from larger to smaller integral type
+    "/wd4245",  # signed/unsigned mismatch in conversion
+    "/wd4267",  # conversion from size_t to smaller type
+    "/wd4310",  # cast truncates constant value
+    "/wd4324",  # structure padded due to alignment specifier
+    "/wd4389",  # signed/unsigned mismatch in comparison
+  ]
+}
+
+config("public") {
+  include_dirs = [
+    "//config/standalone",
+    "//src",
+    "//src/include",
+    "//src/lib",
+    _windows_asn1_include_dir,
+    "${root_gen_dir}/include",
+  ]
+}
+
+# Repository-pinned BoringSSL CryptoPAL compiled with native MSVC.
+#
+# BoringSSL is built with OPENSSL_NO_ASM (see //third_party/boringssl), matching
+# the documented Windows crypto decision gate: architecture-specific assembly is
+# a later, measured optimization.
+static_library("windows-crypto-boringssl") {
+  sources = [
+    # Backend-agnostic CryptoPAL and Matter key-derivation logic.
+    "../CHIPCryptoPAL.cpp",
+    "../CHIPCryptoPAL.h",
+
+    # BoringSSL/OpenSSL CryptoPAL implementation and P-256 keypair backend.
+    "../CHIPCryptoPALOpenSSL.cpp",
+    "../CHIPCryptoPALOpenSSL.h",
+    "../P256KeyPairOpenSSL.cpp",
+
+    # Random / entropy helpers and the raw-key session keystore.
+    "../DefaultSessionKeystore.h",
+    "../RandUtils.cpp",
+    "../RandUtils.h",
+    "../RawKeySessionKeystore.cpp",
+    "../RawKeySessionKeystore.h",
+    "../SessionKeystore.h",
+
+    # Supporting SDK sources pulled in by the CryptoPAL closure. The canonical
+    # //src/lib/support and //src/lib/asn1 targets do not yet compile as full
+    # Windows closures, so the required translation units are listed explicitly
+    # here, mirroring the other Windows port libraries.
+    "//src/lib/asn1/ASN1Error.cpp",
+    "//src/lib/asn1/ASN1OID.cpp",
+    "//src/lib/asn1/ASN1Reader.cpp",
+    "//src/lib/asn1/ASN1Time.cpp",
+    "//src/lib/asn1/ASN1Writer.cpp",
+    "//src/lib/core/TLVReader.cpp",
+    "//src/lib/core/TLVWriter.cpp",
+    "//src/lib/support/Base64.cpp",
+    "//src/lib/support/BufferReader.cpp",
+    "//src/lib/support/BufferWriter.cpp",
+    "//src/lib/support/BytesToHex.cpp",
+    "//src/lib/support/CHIPMem-Malloc.cpp",
+    "//src/lib/support/CHIPMem.cpp",
+    "//src/lib/support/StringBuilder.cpp",
+    "//src/lib/support/TimeUtils.cpp",
+    "//src/lib/support/logging/TextOnlyLogging.cpp",
+    "//src/lib/support/utf8.cpp",
+  ]
+
+  configs += [ ":upstream-crypto-warnings" ]
+
+  public_configs = [
+    ":public",
+    ":crypto-config",
+    "//src/system/windows:system-config",
+  ]
+
+  public_deps = [
+    ":gen_windows_asn1oid",
+    "//src/lib/core/windows:windows-core-portable",
+    "//third_party/boringssl/repo:boringssl",
+    "//third_party/nlio",
+  ]
+
+  libs = [
+    "advapi32.lib",  # BoringSSL entropy (RtlGenRandom / bcrypt) support
+    "bcrypt.lib",
+  ]
+}

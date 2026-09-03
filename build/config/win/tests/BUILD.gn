@@ -120,3 +120,25 @@ executable("msvc-inet-tcp-endpoint-smoke") {
   output_dir = root_out_dir
   deps = [ "//src/inet/windows:windows-tcp-endpoint" ]
 }
+
+# Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
+# ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
+# selection macros and include paths propagate from the windows-crypto-boringssl
+# public configs.
+config("crypto-test-config") {
+  # The upstream crypto headers this test includes are not /W4-clean (alignment
+  # padding and unreferenced virtual-interface parameters). Build the driver at
+  # /W3, keeping warnings-as-errors for the driver's own code.
+  cflags = [ "/W3" ]
+}
+
+executable("msvc-crypto-boringssl-tests") {
+  sources = [ "msvc_crypto_boringssl_tests.cpp" ]
+  output_dir = root_out_dir
+
+  configs += [ ":crypto-test-config" ]
+  deps = [
+    "//build/config/win/googletest",
+    "//src/crypto/windows:windows-crypto-boringssl",
+  ]
+}
