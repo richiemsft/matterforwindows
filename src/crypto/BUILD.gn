@@ -15,6 +15,7 @@
 import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
 
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/buildconfig_header.gni")
 
 import("crypto.gni")
@@ -104,7 +105,8 @@ if (chip_crypto == "openssl") {
   import("${chip_root}/build_overrides/boringssl.gni")
 
   source_set("cryptopal_boringssl") {
-    # BoringSSL is close enough to OpenSSL that it uses same PAL, with minor #ifdef differences
+    # BoringSSL is close enough to OpenSSL that it uses same PAL, with minor
+    # #ifdef differences
     sources = [
       "CHIPCryptoPALOpenSSL.cpp",
       "CHIPCryptoPALOpenSSL.h",
@@ -203,7 +205,10 @@ static_library("crypto") {
 
   public_configs = []
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [ ":public_headers" ]
 

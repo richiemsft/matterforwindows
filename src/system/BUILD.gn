@@ -287,7 +287,10 @@ static_library("system") {
     ]
   }
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     ":system_config_header",

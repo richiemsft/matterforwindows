@@ -83,11 +83,17 @@ The initial build foundation provides:
     The complete upstream `src/crypto/tests` GoogleTest suites remain blocked
     because the credentials/CHIPCert closure and the Pigweed StringBuilder gtest
     adapters are not yet Windows closures.
+-   The canonical `//src/system:system`, `//src/inet:inet`, and
+    `//src/crypto:crypto` GN targets compile with MSVC for x64 and ARM64 through
+    an opt-in graph probe. The bootstrap graph now defines the Pigweed Python
+    venv label needed while loading canonical BUILD files, without building the
+    venv unless a target actually depends on it.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
-The Matter core libraries remain disabled until Windows System and Inet
-backends exist. This avoids presenting successful GN generation and a
-platform-neutral library build as a usable Matter SDK port.
+The canonical library probe remains opt-in until the upstream System, Inet,
+crypto, credentials, messaging, and Interaction Model test suites are enabled.
+This avoids presenting successful library compilation as a usable Matter SDK
+port.
 
 Work advances only when the preceding phase exit criteria are complete. Phases
 0 and 1 are complete; Phase 2 is the active phase.
@@ -144,6 +150,21 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-inet-tcp-endpoint-smoke.exe
 .\out\win-msvc-smoke\msvc-crypto-boringssl-tests.exe
 ```
+
+## Compile the canonical core libraries
+
+The canonical System, Inet, and BoringSSL CryptoPAL libraries can be added to
+the bootstrap graph as a compile-only probe. Tests and tools are disabled here
+because their broader Windows closure is tracked separately:
+
+```powershell
+gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false'
+ninja -C out\win-canonical-x64
+```
+
+Use the same arguments with `target_cpu="arm64"` after initializing the ARM64
+MSVC environment. The normal bootstrap build leaves
+`chip_windows_canonical_compile_probes` false.
 
 ## Cross-build the ARM64 smoke target
 
@@ -310,14 +331,17 @@ repository-required C++17 standard, so the needed known-answer vectors
 (including `P256_test_vectors.h` and `SPAKE2P_RFC_test_vectors.h`) are
 reproduced locally with C++17 positional aggregate initialization, copied
 verbatim from those sources. Twenty-three tests pass on x64; the
-closure cross-builds and inspects as `AA64` for ARM64. Three surgical MSVC
+closure cross-builds and inspects as `AA64` for ARM64. Additional surgical MSVC
 portability fixes were required in shared upstream sources, each guarded so
 non-Windows behavior is unchanged: a weak-symbol fallback macro for the default
 `P256Keypair` methods in `CHIPCryptoPAL.cpp`, replacing a zero-length group-key
 salt array with a one-byte placeholder plus an explicit length of `0`, an MSVC
 `__declspec` form of `NO_INLINE` in `TLVWriter.cpp`, and `#if !defined(_WIN32)`
 guards on the unused POSIX `<getopt.h>`/`<unistd.h>` includes in
-`ASN1Time.cpp`.
+`ASN1Time.cpp`. Canonical graph compilation additionally uses a portable
+restrict macro, MSVC packing for BLE service data, conforming log-category
+macro expansion in the presence of Windows' `ERROR` macro, and platform guards
+around GCC/Clang-only compiler flags.
 
 Mbed TLS remains a tested fallback and builds in the same dependency smoke.
 OpenSSL is rejected for the initial closure because its current Matter GN
@@ -396,6 +420,7 @@ Phase 0 does not pre-approve runtime correctness.
 | Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Not yet run on native hardware |
+| Canonical System/Inet/CryptoPAL library compile probe | Supported | Compile only | Supported | Compile only |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -420,14 +445,13 @@ Phase 0 does not pre-approve runtime correctness.
 
 ## Known limitations
 
--   The shared System clock and mutex APIs compile and run through a focused
-    Windows target, but the complete System event-loop, timer, packet-buffer,
-    and error closure does not yet compile on Windows.
--   Core, Inet, crypto, Device Layer, controller, and server targets do not yet
-    compile as complete Windows closures. The CryptoPAL primitives build and
-    pass an expanded 23-test correctness suite, but the full upstream
-    `src/crypto/tests` suites and the credential/certificate closure are not yet
-    ported.
+-   The canonical System, Inet, and CryptoPAL libraries compile on Windows, but
+    the complete upstream System/Inet/CryptoPAL tests are not yet enabled.
+-   The aggregate Core SDK, Device Layer, controller, and server targets do not
+    yet compile as complete Windows closures. The CryptoPAL primitives build
+    and pass an expanded 23-test correctness suite, but the full upstream
+    `src/crypto/tests` suites and the credential/certificate closure are not
+    yet ported.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
     hardware.
 -   No Windows CI runner, DNS-SD backend, BLE backend, or persistence provider

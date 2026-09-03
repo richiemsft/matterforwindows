@@ -263,7 +263,7 @@ exit:
 // Constant-time helper: returns (v != 0) ? ~0 : 0
 static inline unsigned int ct_nonzero_mask(unsigned int v)
 {
-    return -((v | -v) >> (std::numeric_limits<decltype(v)>::digits - 1));
+    return 0u - ((v | (0u - v)) >> (std::numeric_limits<decltype(v)>::digits - 1));
 }
 
 // Constant-time buffer comparison: returns (a >= b) ? ~0 : 0
@@ -280,7 +280,7 @@ static unsigned int ct_buffer_gte(const volatile uint8_t * a, const volatile uin
 
     // If a < b, the first byte difference will be negative, i.e. have MSB == 1,
     // so extract the MSB, spread it to all bits via unary minus, and invert.
-    return ~-(diff >> (std::numeric_limits<decltype(diff)>::digits - 1));
+    return ~(0u - (diff >> (std::numeric_limits<decltype(diff)>::digits - 1)));
 }
 
 // HMAC_K(V || sep || x || h1_reduced) -> K, used in RFC 6979 steps d and f.

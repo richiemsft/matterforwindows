@@ -36,6 +36,39 @@ if (chip_build_windows_bootstrap_only) {
   assert(current_os == "win",
          "The Windows bootstrap build requires target_os=\"win\"")
 
+  declare_args() {
+    # Compile the canonical //src/system, //src/inet (and, where the closure is
+    # sound, //src/crypto) libraries as explicit probes on top of the Windows
+    # bootstrap graph. This does not switch the port to the full Matter SDK
+    # graph; it only adds the named canonical libraries as additional compile
+    # targets so their Windows closure is continuously validated.
+    chip_windows_canonical_compile_probes = false
+  }
+
+  # The canonical //src/system, //src/inet and //src/lib/asn1 BUILD files (and
+  # any test BUILD file) transitively pull in Pigweed's own unit-test targets.
+  # Every Pigweed `<test>._run` target depends on the Python build venv named by
+  # pw_build_PYTHON_BUILD_VENV (".gn" pins it to "//:matter_build_venv"). That
+  # target is only defined in the non-bootstrap branch below, so referencing any
+  # canonical library from the bootstrap graph left "//:matter_build_venv._..."
+  # unresolved and failed `gn gen`. Define the venv here so the label resolves
+  # in every toolchain. It is never reached from the bootstrap "default" group,
+  # so Ninja never builds it; it exists only to satisfy GN graph resolution.
+  pw_python_venv("matter_build_venv") {
+    path = "$root_build_dir/python-venv"
+    constraints = pw_build_PIP_CONSTRAINTS
+    requirements = pw_build_PIP_REQUIREMENTS
+
+    # Extra packages required for running tests.
+    requirements += [ "//scripts/tests/requirements.txt" ]
+
+    # Packages available to import within GN's build venv. Kept identical to the
+    # non-bootstrap definition below so the two never drift. Only the target
+    # definition is needed here; the bootstrap "default" group never depends on
+    # it, so Ninja does not build it.
+    source_packages = [ "//integrations/mobly:chip_mobly" ]
+  }
+
   group("default") {
     deps = [
       "//build/config/win/tests:msvc-core-unit-tests",
@@ -53,6 +86,14 @@ if (chip_build_windows_bootstrap_only) {
       "//build/config/win/tests:msvc-toolchain-smoke",
       "//src/system/windows:windows-system-shared-compile",
     ]
+
+    if (chip_windows_canonical_compile_probes) {
+      deps += [
+        "//src/crypto",
+        "//src/inet",
+        "//src/system",
+      ]
+    }
   }
 } else {
   # This build file should not be used in superproject builds.

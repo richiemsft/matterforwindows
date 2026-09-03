@@ -30,6 +30,7 @@ namespace System {
 
 CHIP_ERROR TLVPacketBufferBackingStore::OnInit(chip::TLV::TLVReader & reader, const uint8_t *& bufStart, uint32_t & bufLen)
 {
+    static_cast<void>(reader);
     bufStart = mHeadBuffer->Start();
     VerifyOrReturnError(CanCastTo<uint32_t>(mHeadBuffer->DataLength()), CHIP_ERROR_INVALID_ARGUMENT);
     bufLen = static_cast<uint32_t>(mHeadBuffer->DataLength());
@@ -38,6 +39,7 @@ CHIP_ERROR TLVPacketBufferBackingStore::OnInit(chip::TLV::TLVReader & reader, co
 
 CHIP_ERROR TLVPacketBufferBackingStore::GetNextBuffer(chip::TLV::TLVReader & reader, const uint8_t *& bufStart, uint32_t & bufLen)
 {
+    static_cast<void>(reader);
     if (mUseChainedBuffers)
     {
         mCurrentBuffer.Advance();
@@ -64,6 +66,7 @@ CHIP_ERROR TLVPacketBufferBackingStore::GetNextBuffer(chip::TLV::TLVReader & rea
 
 CHIP_ERROR TLVPacketBufferBackingStore::OnInit(chip::TLV::TLVWriter & writer, uint8_t *& bufStart, uint32_t & bufLen)
 {
+    static_cast<void>(writer);
     bufStart = mHeadBuffer->Start() + mHeadBuffer->DataLength();
     VerifyOrReturnError(CanCastTo<uint32_t>(mHeadBuffer->AvailableDataLength()), CHIP_ERROR_INVALID_ARGUMENT);
     bufLen = static_cast<uint32_t>(mHeadBuffer->AvailableDataLength());
@@ -72,6 +75,7 @@ CHIP_ERROR TLVPacketBufferBackingStore::OnInit(chip::TLV::TLVWriter & writer, ui
 
 CHIP_ERROR TLVPacketBufferBackingStore::FinalizeBuffer(chip::TLV::TLVWriter & writer, uint8_t * bufStart, uint32_t dataLen)
 {
+    static_cast<void>(writer);
     uint8_t * endPtr = bufStart + dataLen;
 
     intptr_t length = endPtr - mCurrentBuffer->Start();
@@ -86,6 +90,7 @@ CHIP_ERROR TLVPacketBufferBackingStore::FinalizeBuffer(chip::TLV::TLVWriter & wr
 
 CHIP_ERROR TLVPacketBufferBackingStore::GetNewBuffer(chip::TLV::TLVWriter & writer, uint8_t *& bufStart, uint32_t & bufLen)
 {
+    static_cast<void>(writer);
     if (!mUseChainedBuffers)
     {
         return CHIP_ERROR_NO_MEMORY;

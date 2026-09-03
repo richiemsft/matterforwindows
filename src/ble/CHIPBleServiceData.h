@@ -34,6 +34,13 @@
 namespace chip {
 namespace Ble {
 
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#define CHIP_BLE_PACKED
+#else
+#define CHIP_BLE_PACKED __attribute__((packed))
+#endif
+
 /**
  * chip data block types that may appear with chip BLE service advertisement data.
  */
@@ -133,7 +140,7 @@ struct ChipBLEDeviceIdentificationInfo
         }
     }
 
-} __attribute__((packed));
+} CHIP_BLE_PACKED;
 
 /**
  * chip BLE Device Proximity Ranging Identification Information Block
@@ -196,10 +203,15 @@ struct ChipBLEProximityRangingIdentificationInfo
         memcpy(ObfuscatedBLEDeviceId, id, sizeof(ObfuscatedBLEDeviceId));
     }
 
-} __attribute__((packed));
+} CHIP_BLE_PACKED;
 
 static_assert(sizeof(ChipBLEProximityRangingIdentificationInfo) == 21,
               "Proximity Ranging identification info must be exactly 21 bytes");
+
+#ifdef _MSC_VER
+#pragma pack(pop)
+#endif
+#undef CHIP_BLE_PACKED
 
 } /* namespace Ble */
 } /* namespace chip */

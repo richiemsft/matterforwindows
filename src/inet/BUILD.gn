@@ -16,6 +16,7 @@ import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
 import("//build_overrides/nlfaultinjection.gni")
 
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/buildconfig_header.gni")
 import("${chip_root}/build/chip/tests.gni")
 import("${chip_root}/src/platform/device.gni")
@@ -88,8 +89,8 @@ source_set("inet_zephyr_socket") {
   public_deps = [ "${chip_root}/src/system:system_config_header" ]
 }
 
-# Standalone inet argument parser - include this explicitly in targets that need it.
-# Provides ParseIPAddress for command-line parsing utilities.
+# Standalone inet argument parser - include this explicitly in targets that need
+# it. Provides ParseIPAddress for command-line parsing utilities.
 source_set("inet_arg_parser") {
   sources = [
     "InetArgParser.cpp",
@@ -213,7 +214,10 @@ static_library("inet") {
     sources += [ "InetInterfaceImplDefault.cpp" ]
   }
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
   if (current_os == "nuttx") {
     cflags -= [ "-Wconversion" ]
   } else if (chip_system_config_use_network_framework) {

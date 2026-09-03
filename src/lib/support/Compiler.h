@@ -34,3 +34,11 @@
 
 // Expands to [[no_unique_address]] on C++20, nothing on C++17.
 #define CHIP_NO_UNIQUE_ADDRESS CHIP_CPP20([[no_unique_address]])
+
+#if defined(_MSC_VER)
+#define CHIP_RESTRICT __restrict
+#elif defined(__GNUC__) || defined(__clang__)
+#define CHIP_RESTRICT __restrict__
+#else
+#define CHIP_RESTRICT
+#endif

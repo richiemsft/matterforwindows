@@ -57,6 +57,8 @@ static std::atomic_int memoryInitialized{ 0 };
 
 static void VerifyInitialized(const char * func)
 {
+    static_cast<void>(func);
+
     // Logging can use Memory::Alloc, so we can't use logging with our
     // VerifyOrDie bits here.
     VerifyOrDieWithoutLogging(memoryInitialized);
@@ -70,6 +72,9 @@ static void VerifyInitialized(const char * func)
 
 CHIP_ERROR MemoryAllocatorInit(void * buf, size_t bufSize)
 {
+    static_cast<void>(buf);
+    static_cast<void>(bufSize);
+
     // Logging can use Memory::Alloc, so we can't use logging with our
     // VerifyOrDie bits here.
 #ifndef NDEBUG
@@ -122,6 +127,7 @@ bool MemoryInternalCheckPointer(const void * p, size_t min_size)
     return CanCastTo<int>(min_size) && (p != nullptr) &&
         (dmalloc_verify_pnt(__FILE__, __LINE__, __func__, p, 1, static_cast<int>(min_size)) == MALLOC_VERIFY_NOERROR);
 #else  // CHIP_CONFIG_MEMORY_DEBUG_DMALLOC
+    static_cast<void>(min_size);
     return (p != nullptr);
 #endif // CHIP_CONFIG_MEMORY_DEBUG_DMALLOC
 }

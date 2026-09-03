@@ -575,7 +575,8 @@ CHIP_ERROR Spake2pVerifier::Deserialize(const ByteSpan & inSerialized)
 CHIP_ERROR Spake2pVerifier::Generate(uint32_t pbkdf2IterCount, const ByteSpan & salt, uint32_t setupPin)
 {
     SensitiveDataFixedBuffer<kSpake2p_WS_Length * 2> serializedWS;
-    ReturnErrorOnFailure(ComputeWS(pbkdf2IterCount, salt, setupPin, serializedWS.Bytes(), serializedWS.Capacity()));
+    ReturnErrorOnFailure(
+        ComputeWS(pbkdf2IterCount, salt, setupPin, serializedWS.Bytes(), static_cast<uint32_t>(serializedWS.Capacity())));
 
     CHIP_ERROR err = CHIP_NO_ERROR;
     size_t len;

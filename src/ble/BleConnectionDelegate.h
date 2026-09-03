@@ -87,9 +87,8 @@ public:
     // The implementation must not assume that the memory backing the "discriminators" argument will
     // outlive this call returning.
     //
-    virtual CHIP_ERROR NewConnection(BleLayer * bleLayer, void * appState, const Span<const SetupDiscriminator> & discriminators,
-                                     OnConnectionByDiscriminatorsCompleteFunct onConnectionComplete,
-                                     OnConnectionErrorFunct onConnectionError)
+    virtual CHIP_ERROR NewConnection(BleLayer *, void *, const Span<const SetupDiscriminator> &,
+                                     OnConnectionByDiscriminatorsCompleteFunct, OnConnectionErrorFunct)
     {
         // Should this handle the case when "discriminators" has length 1 automatically by
         // delegating to the NewConnection overload that takes a single SetupDiscriminator?  It adds

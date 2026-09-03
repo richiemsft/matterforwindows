@@ -134,7 +134,7 @@ enum
  */
 constexpr Tag ProfileTag(uint32_t profileId, uint32_t tagNum)
 {
-    return Tag((static_cast<uint64_t>(~profileId) << Tag::kProfileIdShift) | tagNum);
+    return Tag((~static_cast<uint64_t>(profileId) << Tag::kProfileIdShift) | tagNum);
 }
 
 /**

@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
+
+import("${build_root}/config/compiler/compiler.gni")
 
 action("gen_asn1oid") {
   script = "gen_asn1oid.py"
@@ -42,7 +45,10 @@ static_library("asn1") {
     "ASN1Writer.cpp",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     ":asn1oid_header",

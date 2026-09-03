@@ -496,7 +496,8 @@ void LogVerifyOrReturnErrorWithSource(CHIP_ERROR code, const char * file, int li
 #define ChipInternalLog(...) ChipPlatformLog(__VA_ARGS__)
 #else // CHIP_SYSTEM_CONFIG_PLATFORM_LOG
 #define ChipInternalLog(MOD, CAT, MSG, ...)                                                                                        \
-    if (CHIP_CONFIG_LOG_MODULE_##MOD && IsModuleCategoryEnabled(MOD, CAT))                                                         \
+    if (CHIP_CONFIG_LOG_MODULE_##MOD &&                                                                                             \
+        _IsModuleCategoryEnabled1(CHIP_CONFIG_LOG_MODULE_##MOD##_##CAT, CHIP_##CAT##_LOGGING))                                     \
     {                                                                                                                              \
         ChipInternalLogImpl(MOD, CHIP_LOG_CATEGORY_##CAT, MSG, ##__VA_ARGS__);                                                     \
     }

@@ -20,9 +20,11 @@
 #include <lib/core/CHIPError.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
+#include <lib/support/Compiler.h>
 #include <lib/support/ScopedMemoryBuffer.h>
 #include <lib/support/Span.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -66,7 +68,7 @@ protected:
     ///
     /// buffer MUST NOT point inside "own" buffer as mBuffer may be reallocated
     /// as part of the appending.
-    CHIP_ERROR AppendElementArrayRaw(const void * __restrict__ buffer, size_t numElements);
+    CHIP_ERROR AppendElementArrayRaw(const void * CHIP_RESTRICT buffer, size_t numElements);
 
     /// Appends a list of elements from a raw array.
     ///

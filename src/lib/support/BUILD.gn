@@ -18,6 +18,7 @@ import("//build_overrides/nlfaultinjection.gni")
 import("//build_overrides/pigweed.gni")
 
 import("$dir_pw_build/target_types.gni")
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/chip_version.gni")
 import("${chip_root}/build/chip/java/config.gni")
 import("${chip_root}/build/chip/tests.gni")
@@ -342,7 +343,10 @@ static_library("support") {
 
   libs = []
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     ":assertions",

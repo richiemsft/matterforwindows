@@ -23,6 +23,7 @@
 #include <clusters/Descriptor/Structs.h>
 #include <clusters/shared/Structs.h>
 #include <lib/core/DataModelTypes.h>
+#include <lib/support/Compiler.h>
 
 using namespace chip;
 using namespace chip::app;
@@ -33,7 +34,7 @@ using chip::Protocols::InteractionModel::Status;
 
 namespace {
 /// Figures out if `childId` is a descendant of `parentId` given some specific endpoint entries
-bool IsDescendantOf(const DataModel::EndpointEntry * __restrict__ childEndpoint, const EndpointId parentId,
+bool IsDescendantOf(const DataModel::EndpointEntry * CHIP_RESTRICT childEndpoint, const EndpointId parentId,
                     Span<const DataModel::EndpointEntry> allEndpoints)
 {
     // NOTE: this is not very efficient as we loop through all endpoints for each parent search

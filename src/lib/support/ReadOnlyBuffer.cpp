@@ -118,7 +118,7 @@ CHIP_ERROR GenericAppendOnlyBuffer::AppendSingleElementRaw(const void * buffer)
     return CHIP_NO_ERROR;
 }
 
-CHIP_ERROR GenericAppendOnlyBuffer::AppendElementArrayRaw(const void * __restrict__ buffer, size_t numElements)
+CHIP_ERROR GenericAppendOnlyBuffer::AppendElementArrayRaw(const void * CHIP_RESTRICT buffer, size_t numElements)
 {
     ReturnErrorOnFailure(EnsureAppendCapacity(numElements));
 

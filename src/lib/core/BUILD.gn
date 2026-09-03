@@ -17,6 +17,7 @@ import("//build_overrides/chip.gni")
 import("//build_overrides/nlio.gni")
 import("//build_overrides/pigweed.gni")
 
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/buildconfig_header.gni")
 import("${chip_root}/build/chip/tests.gni")
 import("${chip_root}/src/inet/inet.gni")
@@ -195,7 +196,10 @@ static_library("core") {
     "TLVWriter.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     ":chip_config_header",
@@ -226,7 +230,10 @@ source_set("vectortlv") {
     "TLVVectorWriter.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [ ":core" ]
 }
