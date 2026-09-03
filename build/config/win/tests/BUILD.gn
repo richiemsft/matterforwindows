@@ -102,3 +102,9 @@ executable("msvc-socket-smoke") {
   output_dir = root_out_dir
   deps = [ "//src/inet/windows:windows-socket" ]
 }
+
+executable("msvc-inet-interface-smoke") {
+  sources = [ "msvc_inet_interface_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [ "//src/inet/windows:windows-interface" ]
+}

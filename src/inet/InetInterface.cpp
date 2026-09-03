@@ -33,6 +33,13 @@
 #include <lib/support/DLLUtil.h>
 #include <lib/support/SafeInt.h>
 
+#if defined(_WIN32)
+#include <Windows.h>
+#include <ifdef.h>
+#include <iphlpapi.h>
+#include <netioapi.h>
+#endif
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
 #include <lwip/netif.h>
 #include <lwip/sys.h>
@@ -66,6 +73,370 @@
 
 namespace chip {
 namespace Inet {
+
+#if defined(_WIN32)
+
+namespace {
+
+IP_ADAPTER_ADDRESSES * GetWindowsAdapters()
+{
+    ULONG bufferSize = 15 * 1024;
+    constexpr ULONG flags =
+        GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+
+    for (unsigned int attempt = 0; attempt < 3; ++attempt)
+    {
+        auto * adapters = static_cast<IP_ADAPTER_ADDRESSES *>(HeapAlloc(GetProcessHeap(), 0, bufferSize));
+        if (adapters == nullptr)
+        {
+            return nullptr;
+        }
+
+        const ULONG result = GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, adapters, &bufferSize);
+        if (result == NO_ERROR)
+        {
+            return adapters;
+        }
+        HeapFree(GetProcessHeap(), 0, adapters);
+        if (result != ERROR_BUFFER_OVERFLOW)
+        {
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+IP_ADAPTER_ADDRESSES * AsAdapter(void * adapter)
+{
+    return static_cast<IP_ADAPTER_ADDRESSES *>(adapter);
+}
+
+IP_ADAPTER_UNICAST_ADDRESS * AsAddress(void * address)
+{
+    return static_cast<IP_ADAPTER_UNICAST_ADDRESS *>(address);
+}
+
+bool IsSupportedAddress(const IP_ADAPTER_UNICAST_ADDRESS * address)
+{
+    return address != nullptr && address->Address.lpSockaddr != nullptr &&
+        (address->Address.lpSockaddr->sa_family == AF_INET6
+#if INET_CONFIG_ENABLE_IPV4
+         || address->Address.lpSockaddr->sa_family == AF_INET
+#endif
+        );
+}
+
+bool AdapterHasIPv4Address(const IP_ADAPTER_ADDRESSES * adapter)
+{
+#if INET_CONFIG_ENABLE_IPV4
+    for (auto * address = adapter->FirstUnicastAddress; address != nullptr; address = address->Next)
+    {
+        if (address->Address.lpSockaddr != nullptr && address->Address.lpSockaddr->sa_family == AF_INET)
+        {
+            return true;
+        }
+    }
+#else
+    (void) adapter;
+#endif
+    return false;
+}
+
+InterfaceType GetWindowsInterfaceType(ULONG type)
+{
+    switch (type)
+    {
+    case IF_TYPE_IEEE80211:
+        return InterfaceType::WiFi;
+    case IF_TYPE_ETHERNET_CSMACD:
+    case IF_TYPE_ISO88025_TOKENRING:
+        return InterfaceType::Ethernet;
+    case IF_TYPE_WWANPP:
+    case IF_TYPE_WWANPP2:
+        return InterfaceType::Cellular;
+    default:
+        return InterfaceType::Unknown;
+    }
+}
+
+bool AdapterHasBroadcastAddress(const IP_ADAPTER_ADDRESSES * adapter)
+{
+    if (!AdapterHasIPv4Address(adapter))
+    {
+        return false;
+    }
+
+    MIB_IF_ROW2 row = {};
+    row.InterfaceLuid = adapter->Luid;
+    return GetIfEntry2(&row) == NO_ERROR && row.AccessType == NET_IF_ACCESS_BROADCAST;
+}
+
+} // namespace
+
+CHIP_ERROR InterfaceId::GetInterfaceName(char * nameBuf, size_t nameBufSize) const
+{
+    VerifyOrReturnError(nameBuf != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+    if (!IsPresent())
+    {
+        VerifyOrReturnError(nameBufSize > 0, CHIP_ERROR_BUFFER_TOO_SMALL);
+        nameBuf[0] = '\0';
+        return CHIP_NO_ERROR;
+    }
+
+    NET_LUID luid = {};
+    luid.Value    = mPlatformInterface;
+
+    char interfaceName[InterfaceId::kMaxIfNameLength];
+    VerifyOrReturnError(ConvertInterfaceLuidToNameA(&luid, interfaceName, sizeof(interfaceName)) == NO_ERROR,
+                        INET_ERROR_UNKNOWN_INTERFACE);
+    const size_t length = strlen(interfaceName);
+    VerifyOrReturnError(length < nameBufSize, CHIP_ERROR_BUFFER_TOO_SMALL);
+    memcpy(nameBuf, interfaceName, length + 1);
+    return CHIP_NO_ERROR;
+}
+
+uint32_t InterfaceId::GetInterfaceIndex() const
+{
+    if (!IsPresent())
+    {
+        return 0;
+    }
+
+    NET_LUID luid = {};
+    luid.Value    = mPlatformInterface;
+    NET_IFINDEX index;
+    return ConvertInterfaceLuidToIndex(&luid, &index) == NO_ERROR ? index : 0;
+}
+
+CHIP_ERROR InterfaceId::InterfaceNameToId(const char * intfName, InterfaceId & interface)
+{
+    VerifyOrReturnError(intfName != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    char * parseEnd          = nullptr;
+    const unsigned long value = strtoul(intfName, &parseEnd, 10);
+    if (*intfName != '\0' && *parseEnd == '\0')
+    {
+        VerifyOrReturnError(value > 0 && value <= UINT32_MAX, INET_ERROR_UNKNOWN_INTERFACE);
+        NET_LUID luid;
+        VerifyOrReturnError(ConvertInterfaceIndexToLuid(static_cast<NET_IFINDEX>(value), &luid) == NO_ERROR,
+                            INET_ERROR_UNKNOWN_INTERFACE);
+        interface = InterfaceId(luid.Value);
+        return CHIP_NO_ERROR;
+    }
+
+    NET_LUID luid;
+    if (ConvertInterfaceNameToLuidA(intfName, &luid) != NO_ERROR)
+    {
+        interface = InterfaceId::Null();
+        return INET_ERROR_UNKNOWN_INTERFACE;
+    }
+    interface = InterfaceId(luid.Value);
+    return CHIP_NO_ERROR;
+}
+
+InterfaceIterator::InterfaceIterator()
+{
+    mAdapterList    = GetWindowsAdapters();
+    mCurrentAdapter = mAdapterList;
+}
+
+InterfaceIterator::~InterfaceIterator()
+{
+    if (mAdapterList != nullptr)
+    {
+        HeapFree(GetProcessHeap(), 0, mAdapterList);
+    }
+}
+
+bool InterfaceIterator::HasCurrent()
+{
+    return mCurrentAdapter != nullptr;
+}
+
+bool InterfaceIterator::Next()
+{
+    if (mCurrentAdapter != nullptr)
+    {
+        mCurrentAdapter = AsAdapter(mCurrentAdapter)->Next;
+    }
+    return HasCurrent();
+}
+
+InterfaceId InterfaceIterator::GetInterfaceId()
+{
+    if (!HasCurrent())
+    {
+        return InterfaceId::Null();
+    }
+    const auto * adapter = AsAdapter(mCurrentAdapter);
+    return InterfaceId(adapter->Luid.Value);
+}
+
+CHIP_ERROR InterfaceIterator::GetInterfaceName(char * nameBuf, size_t nameBufSize)
+{
+    VerifyOrReturnError(HasCurrent(), CHIP_ERROR_INCORRECT_STATE);
+    return GetInterfaceId().GetInterfaceName(nameBuf, nameBufSize);
+}
+
+bool InterfaceIterator::IsUp()
+{
+    return HasCurrent() && AsAdapter(mCurrentAdapter)->OperStatus == IfOperStatusUp;
+}
+
+bool InterfaceIterator::IsLoopback()
+{
+    return HasCurrent() && AsAdapter(mCurrentAdapter)->IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+}
+
+bool InterfaceIterator::SupportsMulticast()
+{
+    return HasCurrent() && (AsAdapter(mCurrentAdapter)->Flags & IP_ADAPTER_NO_MULTICAST) == 0;
+}
+
+bool InterfaceIterator::HasBroadcastAddress()
+{
+    return HasCurrent() && AdapterHasBroadcastAddress(AsAdapter(mCurrentAdapter));
+}
+
+CHIP_ERROR InterfaceIterator::GetInterfaceType(InterfaceType & type)
+{
+    VerifyOrReturnError(HasCurrent(), CHIP_ERROR_INCORRECT_STATE);
+    type = GetWindowsInterfaceType(AsAdapter(mCurrentAdapter)->IfType);
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR InterfaceIterator::GetHardwareAddress(uint8_t * addressBuffer, uint8_t & addressSize, uint8_t addressBufferSize)
+{
+    VerifyOrReturnError(HasCurrent(), CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(addressBuffer != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    const auto * adapter = AsAdapter(mCurrentAdapter);
+    VerifyOrReturnError(adapter->PhysicalAddressLength <= addressBufferSize, CHIP_ERROR_BUFFER_TOO_SMALL);
+    addressSize = static_cast<uint8_t>(adapter->PhysicalAddressLength);
+    memcpy(addressBuffer, adapter->PhysicalAddress, addressSize);
+    return CHIP_NO_ERROR;
+}
+
+InterfaceAddressIterator::InterfaceAddressIterator()
+{
+    mAdapterList    = GetWindowsAdapters();
+    mCurrentAdapter = mAdapterList;
+}
+
+InterfaceAddressIterator::~InterfaceAddressIterator()
+{
+    if (mAdapterList != nullptr)
+    {
+        HeapFree(GetProcessHeap(), 0, mAdapterList);
+    }
+}
+
+bool InterfaceAddressIterator::HasCurrent()
+{
+    return mCurrentAddress != nullptr || Next();
+}
+
+bool InterfaceAddressIterator::Next()
+{
+    auto * adapter = AsAdapter(mCurrentAdapter);
+    auto * address = AsAddress(mCurrentAddress);
+    if (address != nullptr)
+    {
+        address = address->Next;
+    }
+    else if (adapter != nullptr)
+    {
+        address = adapter->FirstUnicastAddress;
+    }
+
+    while (adapter != nullptr)
+    {
+        while (address != nullptr)
+        {
+            if (IsSupportedAddress(address))
+            {
+                mCurrentAdapter = adapter;
+                mCurrentAddress = address;
+                return true;
+            }
+            address = address->Next;
+        }
+        adapter = adapter->Next;
+        address = adapter != nullptr ? adapter->FirstUnicastAddress : nullptr;
+    }
+
+    mCurrentAdapter = nullptr;
+    mCurrentAddress = nullptr;
+    return false;
+}
+
+CHIP_ERROR InterfaceAddressIterator::GetAddress(IPAddress & outIPAddress)
+{
+    VerifyOrReturnError(HasCurrent(), CHIP_ERROR_SENTINEL);
+    return IPAddress::GetIPAddressFromSockAddr(*AsAddress(mCurrentAddress)->Address.lpSockaddr, outIPAddress);
+}
+
+uint8_t InterfaceAddressIterator::GetPrefixLength()
+{
+    return HasCurrent() ? AsAddress(mCurrentAddress)->OnLinkPrefixLength : 0;
+}
+
+InterfaceId InterfaceAddressIterator::GetInterfaceId()
+{
+    if (!HasCurrent())
+    {
+        return InterfaceId::Null();
+    }
+    const auto * adapter = AsAdapter(mCurrentAdapter);
+    return InterfaceId(adapter->Luid.Value);
+}
+
+CHIP_ERROR InterfaceAddressIterator::GetInterfaceName(char * nameBuf, size_t nameBufSize)
+{
+    VerifyOrReturnError(HasCurrent(), CHIP_ERROR_INCORRECT_STATE);
+    return GetInterfaceId().GetInterfaceName(nameBuf, nameBufSize);
+}
+
+bool InterfaceAddressIterator::IsUp()
+{
+    return HasCurrent() && AsAdapter(mCurrentAdapter)->OperStatus == IfOperStatusUp;
+}
+
+bool InterfaceAddressIterator::IsLoopback()
+{
+    return HasCurrent() && AsAdapter(mCurrentAdapter)->IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+}
+
+bool InterfaceAddressIterator::SupportsMulticast()
+{
+    return HasCurrent() && (AsAdapter(mCurrentAdapter)->Flags & IP_ADAPTER_NO_MULTICAST) == 0;
+}
+
+bool InterfaceAddressIterator::HasBroadcastAddress()
+{
+    return HasCurrent() && AdapterHasBroadcastAddress(AsAdapter(mCurrentAdapter));
+}
+
+CHIP_ERROR InterfaceId::GetLinkLocalAddr(IPAddress * llAddr) const
+{
+    VerifyOrReturnError(llAddr != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    InterfaceAddressIterator iterator;
+    while (iterator.HasCurrent())
+    {
+        IPAddress address;
+        if ((!IsPresent() || iterator.GetInterfaceId() == *this) && iterator.GetAddress(address) == CHIP_NO_ERROR &&
+            address.IsIPv6LinkLocal())
+        {
+            *llAddr = address;
+            return CHIP_NO_ERROR;
+        }
+        iterator.Next();
+    }
+    return INET_ERROR_ADDRESS_NOT_FOUND;
+}
+
+#endif // defined(_WIN32)
 
 #if CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
 CHIP_ERROR InterfaceId::GetInterfaceName(char * nameBuf, size_t nameBufSize) const

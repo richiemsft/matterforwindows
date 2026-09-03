@@ -80,6 +80,11 @@ enum class InterfaceType
 class InterfaceId
 {
 public:
+#if defined(_WIN32)
+    using PlatformType                       = uint64_t;
+    static constexpr size_t kMaxIfNameLength = 257;
+#endif
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
     using PlatformType                       = struct netif *;
     static constexpr size_t kMaxIfNameLength = 13; // Names are formatted as %c%c%d
@@ -199,6 +204,10 @@ public:
     CHIP_ERROR GetLinkLocalAddr(IPAddress * llAddr) const;
 
 private:
+#if defined(_WIN32)
+    static constexpr PlatformType kPlatformNull = 0;
+#endif
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
     static constexpr PlatformType kPlatformNull = nullptr;
 #endif // CHIP_SYSTEM_CONFIG_USE_LWIP
@@ -357,6 +366,11 @@ public:
     CHIP_ERROR GetHardwareAddress(uint8_t * addressBuffer, uint8_t & addressSize, uint8_t addressBufferSize);
 
 protected:
+#if defined(_WIN32)
+    void * mAdapterList    = nullptr;
+    void * mCurrentAdapter = nullptr;
+#endif
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
     struct netif * mCurNetif;
 #endif // CHIP_SYSTEM_CONFIG_USE_LWIP
@@ -543,6 +557,12 @@ public:
     bool HasBroadcastAddress();
 
 private:
+#if defined(_WIN32)
+    void * mAdapterList      = nullptr;
+    void * mCurrentAdapter   = nullptr;
+    void * mCurrentAddress   = nullptr;
+#endif
+
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT
     enum
     {

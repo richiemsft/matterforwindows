@@ -35,16 +35,20 @@
 
 // The nlio headers use [inout] instead of [in,out], which makes the clang
 // documentation warning unhappy.  Suppress it for those headers.
+#if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #ifdef __clang__
 #pragma GCC diagnostic ignored "-Wdocumentation"
 #endif // __clang__
+#endif
 
 #include <nlbyteorder.hpp>
 #include <nlio-byteorder.hpp>
 #include <nlio.hpp>
 
+#if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
 
 #include <stdint.h>
 

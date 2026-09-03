@@ -24,6 +24,33 @@ static_library("windows-socket") {
   public_configs = [ ":public" ]
 }
 
+static_library("windows-interface") {
+  sources = [
+    "../IPAddress.cpp",
+    "../IPAddress.h",
+    "../IPPrefix.cpp",
+    "../IPPrefix.h",
+    "../InetInterface.cpp",
+    "../InetInterface.h",
+  ]
+
+  deps = [
+    "//src/lib/core/windows:windows-core-portable",
+    "//third_party/nlio",
+  ]
+  libs = [
+    "Iphlpapi.lib",
+    "Ws2_32.lib",
+  ]
+  public_configs = [
+    ":public",
+    "//src/system/windows:system-config",
+  ]
+}
+
 config("public") {
-  include_dirs = [ "//src" ]
+  include_dirs = [
+    "//src",
+    "//src/include",
+  ]
 }

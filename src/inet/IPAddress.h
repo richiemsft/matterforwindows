@@ -40,6 +40,11 @@
 #include <inet/InetConfig.h>
 #include <inet/InetError.h>
 
+#if defined(_WIN32)
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#endif
+
 #include "inet/IANAConstants.h"
 
 #if CHIP_SYSTEM_CONFIG_USE_LWIP && !CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT

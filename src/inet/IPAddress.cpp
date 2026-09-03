@@ -516,6 +516,8 @@ IPAddress IPAddress::Loopback(IPAddressType type)
         address.Addr[3] = htonl(0x7F000001);
     }
     else
+#else
+    static_cast<void>(type);
 #endif
     {
         address.Addr[0] = 0;

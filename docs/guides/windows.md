@@ -35,6 +35,11 @@ The initial build foundation provides:
     wake, socket-read dispatch, shutdown, and reinitialization run on x64.
 -   A typed WinSock handle with bounded IPv6 UDP and `WSAPoll` runtime
     coverage on x64 and ARM64 cross-build coverage.
+-   Native adapter and unicast-address enumeration using
+    `GetAdaptersAddresses`, protocol-independent interface LUIDs, interface
+    name/index conversion, link state and type classification, hardware
+    addresses, prefix lengths, and IPv6 link-local lookup. This has x64 runtime
+    and ARM64 cross-build coverage.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
@@ -74,7 +79,7 @@ Initialize the dependencies exercised by the Windows bootstrap graph:
 ```powershell
 git submodule update --init third_party/boringssl/repo/src `
     third_party/mbedtls/repo third_party/jsoncpp/repo `
-    third_party/googletest
+    third_party/googletest third_party/nlio/repo
 ```
 
 ## Build the x64 smoke target
@@ -86,6 +91,7 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-sdk-smoke.exe
 .\out\win-msvc-smoke\msvc-dependency-smoke.exe
 .\out\win-msvc-smoke\msvc-core-unit-tests.exe
+.\out\win-msvc-smoke\msvc-inet-interface-smoke.exe
 .\out\win-msvc-smoke\msvc-system-error-source-smoke.exe
 .\out\win-msvc-smoke\msvc-system-layer-smoke.exe
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe

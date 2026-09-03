@@ -22,6 +22,7 @@ config("default") {
     "CHIP_STATIC_LIBRARY=1",
     "NOMINMAX",
     "WIN32_LEAN_AND_MEAN",
+    "__LITTLE_ENDIAN__=1",
     "_CRT_SECURE_NO_WARNINGS",
     "_HAS_EXCEPTIONS=0",
   ]
