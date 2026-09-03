@@ -69,11 +69,20 @@ The initial build foundation provides:
     `CHIPCryptoPAL.cpp` against the pinned BoringSSL, together with the raw key
     store and the supporting ASN1/TLV/support translation units. A focused
     GoogleTest driver drives the real PAL for SHA-256 (one-shot and streaming),
-    HMAC-SHA256, HKDF-SHA256, PBKDF2-SHA256, AES-CCM-128 AEAD, ECDSA P-256
-    signatures and keypairs, deterministic ECDSA (RFC 6979), ECDH key
-    agreement, and the DRBG, checking published NIST/RFC known-answer vectors
-    and correctness properties. Ten tests pass on x64 and the closure
-    cross-builds and inspects as `AA64` for ARM64.
+    HMAC-SHA256, HKDF-SHA256, PBKDF2-SHA256, AES-CCM-128 AEAD, AES-CTR-128,
+    ECDSA P-256 signatures and keypairs, deterministic ECDSA (RFC 6979), ECDH
+    key agreement, the DRBG, constant-time comparison, P-256 keypair
+    serialization/deserialization and raw-bit import, PKCS#10 CSR generation and
+    verification, X.509 public-key extraction, the SPAKE2+ handshake (RFC
+    known-answer and full mutual agreement), the DefaultSessionKeystore
+    derive/export/destroy surface, and negative input boundaries. Vectors are
+    checked against published NIST/RFC known-answer data (including the SPAKE2+
+    draft-01 and NIST ECDSA2VS vectors reproduced from the `src/crypto/tests`
+    headers) and algebraic correctness properties. Twenty-three tests
+    pass on x64 and the closure cross-builds and inspects as `AA64` for ARM64.
+    The complete upstream `src/crypto/tests` GoogleTest suites remain blocked
+    because the credentials/CHIPCert closure and the Pigweed StringBuilder gtest
+    adapters are not yet Windows closures.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
@@ -185,7 +194,7 @@ does not hide missing runtime behavior behind stubs.
 | Core and support | TLV, data model types, encoders, containers, and most protocol logic | GNU-only flags and attributes, POSIX headers in transitive targets, and untested dependency closures | Compiler and build syntax |
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
-| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled), and a focused CryptoPAL correctness suite runs on x64; the full upstream credential/certificate closure and its GoogleTest suites remain | Dependency |
+| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled), and an expanded CryptoPAL correctness suite (23 tests: hash/HMAC/HKDF/PBKDF2/AES-CCM/AES-CTR/ECDSA/ECDH/DRBG/constant-time/CSR/keypair-serialize/SPAKE2+/session-keystore/X.509-pubkey/negative-boundaries) runs on x64; the full upstream credential/certificate closure and its GoogleTest suites remain | Dependency |
 | Device Layer | Generic static-polymorphism mixins | No Windows platform composition, lifecycle, connectivity, storage, diagnostics, logging, or reset implementation | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
@@ -287,16 +296,28 @@ x64 and ARM64, and a focused GoogleTest driver
 (`msvc-crypto-boringssl-tests`) exercises the real PAL primitives against
 published NIST/RFC known-answer vectors and correctness properties: SHA-256
 (one-shot and streaming), HMAC-SHA256, HKDF-SHA256, PBKDF2-SHA256,
-AES-CCM-128 AEAD (round-trip, determinism, and authentication), ECDSA P-256
-sign/verify and keypairs, deterministic ECDSA (RFC 6979), ECDH key agreement,
-and the DRBG. Ten tests pass on x64; the closure cross-builds and inspects as
-`AA64` for ARM64. Three surgical MSVC portability fixes were required in
-shared upstream sources, each guarded so non-Windows behavior is unchanged: a
-weak-symbol fallback macro for the default `P256Keypair` methods in
-`CHIPCryptoPAL.cpp`, replacing a zero-length group-key salt array with a
-one-byte placeholder plus an explicit length of `0`, an MSVC `__declspec`
-form of `NO_INLINE` in `TLVWriter.cpp`, and `#if !defined(_WIN32)` guards on
-the unused POSIX `<getopt.h>`/`<unistd.h>` includes in `ASN1Time.cpp`.
+AES-CCM-128 AEAD (round-trip, determinism, and authentication), AES-CTR-128
+(RFC 3686), ECDSA P-256 sign/verify and keypairs, deterministic ECDSA
+(RFC 6979), ECDH key agreement, the DRBG, constant-time comparison, P-256
+keypair serialization/deserialization and raw-bit import (NIST ECDSA2VS),
+PKCS#10 CSR generation/verification, X.509 public-key extraction from a
+self-contained certificate, the SPAKE2+ handshake (draft-01 RFC known-answer
+plus a full mutual-agreement run), the `DefaultSessionKeystore`
+derive/export/destroy surface, and negative input boundaries. The upstream
+`src/crypto/tests` vector headers express their data with C++20 designated
+initializers (and some use zero-length arrays), which MSVC rejects under the
+repository-required C++17 standard, so the needed known-answer vectors
+(including `P256_test_vectors.h` and `SPAKE2P_RFC_test_vectors.h`) are
+reproduced locally with C++17 positional aggregate initialization, copied
+verbatim from those sources. Twenty-three tests pass on x64; the
+closure cross-builds and inspects as `AA64` for ARM64. Three surgical MSVC
+portability fixes were required in shared upstream sources, each guarded so
+non-Windows behavior is unchanged: a weak-symbol fallback macro for the default
+`P256Keypair` methods in `CHIPCryptoPAL.cpp`, replacing a zero-length group-key
+salt array with a one-byte placeholder plus an explicit length of `0`, an MSVC
+`__declspec` form of `NO_INLINE` in `TLVWriter.cpp`, and `#if !defined(_WIN32)`
+guards on the unused POSIX `<getopt.h>`/`<unistd.h>` includes in
+`ASN1Time.cpp`.
 
 Mbed TLS remains a tested fallback and builds in the same dependency smoke.
 OpenSSL is rejected for the initial closure because its current Matter GN
@@ -309,10 +330,11 @@ upstream `src/crypto/tests` GoogleTest suites are still blocked on Windows by
 the credentials/CHIPCert closure and the Pigweed `pw_string`
 `StringBuilderAdapters` dependency, and their vectors use GCC/Clang
 zero-length-array and C++20 designated-initializer extensions that MSVC
-rejects under `/std:c++17 /permissive-`), binary-size measurement, and an
-explicit enterprise/FIPS deployment statement before Windows crypto support is
-claimed. Selecting the build dependency in Phase 0 does not pre-approve
-runtime correctness.
+rejects under `/std:c++17 /permissive-`, so the focused driver reproduces the
+needed vectors locally with C++17 positional initialization instead),
+binary-size measurement, and an explicit enterprise/FIPS deployment statement
+before Windows crypto support is claimed. Selecting the build dependency in
+Phase 0 does not pre-approve runtime correctness.
 
 ### Dependency decision record
 
@@ -331,7 +353,7 @@ runtime correctness.
 |---|---|---|
 | WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains canonical | Accepted and built |
 | WIN-002 | Use the dynamic CRT: `/MDd` for debug and `/MD` for release | Accepted |
-| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64 with a passing focused correctness suite on x64; full upstream suite still required |
+| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64 with an expanded 23-test correctness suite passing on x64 (hash/HMAC/HKDF/PBKDF2/AES-CCM/AES-CTR/ECDSA/ECDH/DRBG/constant-time/CSR/keypair-serialize/SPAKE2+/session-keystore/X.509-pubkey/negative-boundaries); full upstream suite still blocked on the credentials closure |
 | WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
 | WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted |
@@ -373,7 +395,7 @@ runtime correctness.
 | Inet interface/address enumeration (`GetAdaptersAddresses`) | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
-| BoringSSL CryptoPAL closure and focused correctness suite | Supported | 10 tests pass | Supported | Not yet run on native hardware |
+| BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -403,8 +425,9 @@ runtime correctness.
     and error closure does not yet compile on Windows.
 -   Core, Inet, crypto, Device Layer, controller, and server targets do not yet
     compile as complete Windows closures. The CryptoPAL primitives build and
-    pass a focused correctness suite, but the full upstream `src/crypto/tests`
-    suites and the credential/certificate closure are not yet ported.
+    pass an expanded 23-test correctness suite, but the full upstream
+    `src/crypto/tests` suites and the credential/certificate closure are not yet
+    ported.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
     hardware.
 -   No Windows CI runner, DNS-SD backend, BLE backend, or persistence provider
