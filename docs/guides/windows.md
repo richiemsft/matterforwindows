@@ -80,9 +80,24 @@ The initial build foundation provides:
     draft-01 and NIST ECDSA2VS vectors reproduced from the `src/crypto/tests`
     headers) and algebraic correctness properties. Twenty-three tests
     pass on x64 and the closure cross-builds and inspects as `AA64` for ARM64.
-    The complete upstream `src/crypto/tests` GoogleTest suites remain blocked
-    because the credentials/CHIPCert closure and the Pigweed StringBuilder gtest
-    adapters are not yet Windows closures.
+-   The real upstream `src/crypto/tests` GoogleTest suites run against the
+    canonical `//src/crypto:crypto` library under native MSVC at the repository
+    `/std:c++17` default. `msvc-crypto-upstream-tests` runs `TestSessionKeystore`,
+    `TestGroupOperationalCredentials`, and `TestPersistentStorageOpKeyStore`
+    (7 tests); `msvc-crypto-pal-tests` runs the full `TestChipCryptoPAL`
+    CryptoPAL suite (73 tests), linking a focused
+    `//src/credentials/windows:windows-chip-cert` CHIPCert/attestation subset and
+    the upstream certificate test vectors. All 80 tests pass on x64 and both
+    executables cross-build and inspect as `AA64` for ARM64. The upstream test
+    bodies and vector headers use GCC/Clang C++17 extensions (designated
+    initializers, compound literals) that MSVC does not accept at `/std:c++17`,
+    so a build-time transform emits `/std:c++17` positional-initialization copies
+    into a gen directory (the upstream files are untouched); the known-answer
+    assertions validate every rewrite at runtime. The Pigweed `pw_string`
+    `StringBuilderAdapters` dependency is satisfied by a GoogleTest-only
+    `lib/core/StringBuilderAdapters.h` facade (the upstream header otherwise
+    pulls the pw_string / Fuchsia stdcompat closure, which uses GCC builtins MSVC
+    lacks). Details are in the crypto decision gate.
 -   The canonical `//src/system:system`, `//src/inet:inet`, and
     `//src/crypto:crypto` GN targets compile with MSVC for x64 and ARM64 through
     an opt-in graph probe. The bootstrap graph now defines the Pigweed Python
@@ -151,6 +166,35 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-crypto-boringssl-tests.exe
 ```
 
+## Run the upstream crypto test suites
+
+The `msvc-crypto-upstream-tests` and `msvc-crypto-pal-tests` executables run the
+real `src/crypto/tests` GoogleTest suites against the canonical
+`//src/crypto:crypto` library at the repository `/std:c++17` default (the
+upstream sources are adapted to C++17 by a build-time transform; see the crypto
+decision gate). Because they link the canonical crypto library (and a focused
+CHIPCert subset), they are built with the canonical probe graph below rather
+than the restricted plain bootstrap:
+
+```powershell
+gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false'
+ninja -C out\win-canonical-x64
+.\out\win-canonical-x64\msvc-crypto-upstream-tests.exe
+.\out\win-canonical-x64\msvc-crypto-pal-tests.exe
+```
+
+`msvc-crypto-upstream-tests` links only `//src/crypto:crypto` and runs
+`TestSessionKeystore`, `TestGroupOperationalCredentials`, and
+`TestPersistentStorageOpKeyStore` (7 tests). `msvc-crypto-pal-tests` also links
+the focused `//src/credentials/windows:windows-chip-cert` CHIPCert subset and
+runs the full `TestChipCryptoPAL` CryptoPAL suite (73 tests) including the
+certificate, DAC-attestation, and SPAKE2+ coverage. All 80 tests pass on x64.
+
+These reuse the existing GoogleTest `pw_unit_test/framework.h` facade and add a
+Pigweed-free `lib/core/StringBuilderAdapters.h` facade so the upstream sources
+compile without the pw_string closure. See the crypto decision gate for the
+portability fixes applied to the shared test vectors and the CHIPCert closure.
+
 ## Compile the canonical core libraries
 
 The canonical System, Inet, and BoringSSL CryptoPAL libraries can be added to
@@ -215,7 +259,7 @@ does not hide missing runtime behavior behind stubs.
 | Core and support | TLV, data model types, encoders, containers, and most protocol logic | GNU-only flags and attributes, POSIX headers in transitive targets, and untested dependency closures | Compiler and build syntax |
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
-| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled), and an expanded CryptoPAL correctness suite (23 tests: hash/HMAC/HKDF/PBKDF2/AES-CCM/AES-CTR/ECDSA/ECDH/DRBG/constant-time/CSR/keypair-serialize/SPAKE2+/session-keystore/X.509-pubkey/negative-boundaries) runs on x64; the full upstream credential/certificate closure and its GoogleTest suites remain | Dependency |
+| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
 | Device Layer | Generic static-polymorphism mixins | No Windows platform composition, lifecycle, connectivity, storage, diagnostics, logging, or reset implementation | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
@@ -237,7 +281,7 @@ bootstrap graph as the finished SDK:
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
 | Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE | Phases 3–5 |
 | Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
-| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the full Pigweed facade still contains GNU inline assembly and attributes that block the complete suite | Phase 2 |
+| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` suites (80 tests) run on x64 via a GoogleTest facade; the full Pigweed light-framework facade still contains GNU inline assembly and attributes that block other complete suites | Phase 2 |
 
 Failures are tracked in six categories:
 
@@ -349,16 +393,60 @@ integration imports Linux `pkg-config` and provides no repository-pinned
 Windows acquisition path. A machine-global OpenSSL installation would violate
 the clean-machine and reproducibility requirements.
 
-The Phase 2 crypto gate still requires the complete CryptoPAL test suite (the
-upstream `src/crypto/tests` GoogleTest suites are still blocked on Windows by
-the credentials/CHIPCert closure and the Pigweed `pw_string`
-`StringBuilderAdapters` dependency, and their vectors use GCC/Clang
-zero-length-array and C++20 designated-initializer extensions that MSVC
-rejects under `/std:c++17 /permissive-`, so the focused driver reproduces the
-needed vectors locally with C++17 positional initialization instead),
-binary-size measurement, and an explicit enterprise/FIPS deployment statement
-before Windows crypto support is claimed. Selecting the build dependency in
-Phase 0 does not pre-approve runtime correctness.
+The Phase 2 crypto gate now runs the complete upstream `src/crypto/tests`
+GoogleTest suites (80 tests: `TestSessionKeystore`,
+`TestGroupOperationalCredentials`, `TestPersistentStorageOpKeyStore`, and the
+full `TestChipCryptoPAL` CryptoPAL suite) against the canonical
+`//src/crypto:crypto` library on x64 at the repository `/std:c++17` default,
+with both executables cross-building and inspecting as `AA64` for ARM64.
+Enabling them required surgical, portable Windows fixes, each preserving
+non-Windows behavior and the C++17 contract:
+
+-   A GoogleTest-only `lib/core/StringBuilderAdapters.h` facade (in
+    `build/config/win/tests/crypto_test_support`) plus a matching `PrintTo`
+    implementation, so the upstream test sources compile without the Pigweed
+    `pw_string` closure (which reaches Fuchsia `stdcompat` `<bit>` and GCC
+    builtins such as `__builtin_clzll` that MSVC does not provide). The
+    GoogleTest `pw_unit_test/framework.h` facade is reused unchanged, and an
+    empty `<unistd.h>` shim satisfies the upstream test's unused POSIX include.
+-   The upstream test bodies and their vector headers use GCC/Clang extensions
+    that MSVC accepts only under `/std:c++20` or not at all: C++20
+    designated-initializer aggregates (used in both the vector data and the test
+    bodies' local test-case tables), C99/GCC compound literals, and unsized empty
+    arrays. Rather than override the standard or edit the upstream files,
+    `build/config/win/tests/gen_msvc_cxx17_source.py` produces `/std:c++17`
+    build-artifact copies of the test bodies and vector headers into a private
+    gen directory: designated initializers become equivalent positional
+    aggregate initialization, compound literals become named arrays, and unsized
+    empty arrays get an unused placeholder element with any `sizeof` of that
+    array rewritten to `0`. The transformed test bodies are compiled from the gen
+    directory so their quoted `"..._test_vectors.h"` includes resolve to the
+    transformed vectors beside them (MSVC does not let `/I` override a quoted
+    include found in the source file's own directory). Every rewrite is
+    mechanical and semantics-preserving, and is validated at runtime by the
+    known-answer assertions in the test bodies. The upstream files are untouched.
+-   A focused `//src/credentials/windows:windows-chip-cert` subset compiles just
+    the CHIPCert / attestation translation units `TestChipCryptoPAL` needs at
+    `/std:c++17`, avoiding the monolithic `//src/credentials:credentials` library
+    whose `FabricTable` / `LastKnownGoodTime` / `GroupDataProvider` /
+    `PersistentStorageOpCertStore` sources pull the unported Windows Device
+    Layer. `//src/credentials/windows:windows-cert-test-vectors` compiles the
+    already-C++17-compatible `CHIPAttCert_test_vectors.cpp` as-is and the
+    compound-literal `CHIPCert_test_vectors.cpp` / `TestPAAStore.cpp` through the
+    same C++17 transform. Both reuse a shared
+    `//build/config/win:upstream_sdk_warnings` relaxation (`/W3 /WX-` with
+    specific `/wdNNNN` mappings) rather than the strict `/W4 /WX` default -- a
+    narrowly justified warning mapping for verbatim GCC/Clang sources. The one
+    genuine SDK change is `CHIPCert_Internal.h`, whose GCC compound-literal
+    constant is rewritten to a portable named array (valid on every compiler).
+
+The focused `msvc-crypto-boringssl-tests` driver and its locally reproduced
+vectors are retained as an independent correctness check. The remaining crypto
+gate items are the full monolithic credentials/Device-Layer closure (deferred
+to the Device Layer phase), binary-size measurement, and an explicit
+enterprise/FIPS deployment statement before Windows crypto support is claimed.
+Selecting the build dependency in Phase 0 does not pre-approve runtime
+correctness.
 
 ### Dependency decision record
 
@@ -377,7 +465,7 @@ Phase 0 does not pre-approve runtime correctness.
 |---|---|---|
 | WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains canonical | Accepted and built |
 | WIN-002 | Use the dynamic CRT: `/MDd` for debug and `/MD` for release | Accepted |
-| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64 with an expanded 23-test correctness suite passing on x64 (hash/HMAC/HKDF/PBKDF2/AES-CCM/AES-CTR/ECDSA/ECDH/DRBG/constant-time/CSR/keypair-serialize/SPAKE2+/session-keystore/X.509-pubkey/negative-boundaries); full upstream suite still blocked on the credentials closure |
+| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset, and cross-build as `AA64`; the monolithic credentials/Device-Layer closure is deferred |
 | WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
 | WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted |
@@ -420,6 +508,7 @@ Phase 0 does not pre-approve runtime correctness.
 | Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Not yet run on native hardware |
+| Upstream `src/crypto/tests` GoogleTest suites | Supported | 80 tests pass | Supported | Not yet run on native hardware |
 | Canonical System/Inet/CryptoPAL library compile probe | Supported | Compile only | Supported | Compile only |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -445,13 +534,16 @@ Phase 0 does not pre-approve runtime correctness.
 
 ## Known limitations
 
--   The canonical System, Inet, and CryptoPAL libraries compile on Windows, but
-    the complete upstream System/Inet/CryptoPAL tests are not yet enabled.
+-   The canonical System, Inet, and CryptoPAL libraries compile on Windows, and
+    the upstream `src/crypto/tests` GoogleTest suites run on x64, but the
+    complete upstream System/Inet tests are not yet enabled.
 -   The aggregate Core SDK, Device Layer, controller, and server targets do not
-    yet compile as complete Windows closures. The CryptoPAL primitives build
-    and pass an expanded 23-test correctness suite, but the full upstream
-    `src/crypto/tests` suites and the credential/certificate closure are not
-    yet ported.
+    yet compile as complete Windows closures. The full upstream
+    `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
+    the canonical crypto library and a focused CHIPCert subset, but the
+    monolithic `//src/credentials:credentials` library (`FabricTable`,
+    `LastKnownGoodTime`, `GroupDataProvider`, `PersistentStorageOpCertStore`) is
+    not yet ported because it pulls the unported Windows Device Layer.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
     hardware.
 -   No Windows CI runner, DNS-SD backend, BLE backend, or persistence provider

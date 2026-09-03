@@ -142,3 +142,146 @@ executable("msvc-crypto-boringssl-tests") {
     "//src/crypto/windows:windows-crypto-boringssl",
   ]
 }
+
+# Real upstream src/crypto/tests GoogleTest suites, run against the canonical
+# //src/crypto:crypto library under native MSVC at the repository /std:c++17
+# default.
+#
+# The upstream test bodies and their vector headers use GCC/Clang extensions
+# (C++20 designated-initializer aggregates, C99 compound literals, unsized empty
+# arrays) that MSVC rejects under /std:c++17. Rather than override the standard
+# or edit the upstream files, gen_msvc_cxx17_source.py produces C++17
+# build-artifact copies (positional aggregate initialization) into a private gen
+# directory; the transformed test bodies are compiled from there so their quoted
+# "..._test_vectors.h" includes resolve to the transformed vectors alongside
+# them. The upstream files are untouched, and the known-answer assertions in the
+# test bodies validate every rewrite at runtime.
+_crypto_test_srcs = [
+  "TestChipCryptoPAL.cpp",
+  "TestGroupOperationalCredentials.cpp",
+  "TestPersistentStorageOpKeyStore.cpp",
+  "TestSessionKeystore.cpp",
+]
+_crypto_vector_hdrs = [
+  "AES_CCM_128_test_vectors.h",
+  "DacValidationExplicitVectors.h",
+  "DerSigConversion_test_vectors.h",
+  "ECDH_P256_test_vectors.h",
+  "ECDSA_det_test_vectors.h",
+  "HKDF_SHA256_test_vectors.h",
+  "HMAC_SHA256_test_vectors.h",
+  "Hash_SHA256_test_vectors.h",
+  "P256_test_vectors.h",
+  "PBKDF2_SHA256_test_vectors.h",
+  "RawIntegerToDer_test_vectors.h",
+  "SPAKE2P_FE_MUL_test_vectors.h",
+  "SPAKE2P_FE_RW_test_vectors.h",
+  "SPAKE2P_HMAC_test_vectors.h",
+  "SPAKE2P_POINT_MUL_ADD_test_vectors.h",
+  "SPAKE2P_POINT_MUL_test_vectors.h",
+  "SPAKE2P_POINT_RW_test_vectors.h",
+  "SPAKE2P_POINT_VALID_test_vectors.h",
+  "SPAKE2P_RFC_test_vectors.h",
+  "TestCryptoLayer.h",
+]
+_crypto_cxx17_dir = "$target_gen_dir/crypto_cxx17"
+
+action_foreach("gen_crypto_cxx17") {
+  script = "gen_msvc_cxx17_source.py"
+  sources = []
+  foreach(f, _crypto_test_srcs + _crypto_vector_hdrs) {
+    sources += [ "//src/crypto/tests/$f" ]
+  }
+  outputs = [ "$_crypto_cxx17_dir/{{source_file_part}}" ]
+  args = [
+    "{{source}}",
+    rebase_path("$_crypto_cxx17_dir/{{source_file_part}}", root_build_dir),
+  ]
+}
+
+config("crypto-upstream-test-config") {
+  include_dirs = [
+    # Shadow lib/core/StringBuilderAdapters.h with the GoogleTest-only facade
+    # and provide a <unistd.h> shim for the (unused) POSIX include.
+    "crypto_test_support",
+
+    # Shadow pw_unit_test/framework.h with GoogleTest.
+    "pw_unit_test_override",
+  ]
+}
+
+source_set("msvc-crypto-upstream-test-sources") {
+  sources = [
+    # C++17 build-artifact copies of the upstream test suites.
+    "$_crypto_cxx17_dir/TestGroupOperationalCredentials.cpp",
+    "$_crypto_cxx17_dir/TestPersistentStorageOpKeyStore.cpp",
+    "$_crypto_cxx17_dir/TestSessionKeystore.cpp",
+  ]
+
+  configs += [
+    ":crypto-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    ":gen_crypto_cxx17",
+    "//build/config/win/googletest",
+    "//src/crypto",
+  ]
+}
+
+executable("msvc-crypto-upstream-tests") {
+  sources = [
+    "msvc_crypto_test_main.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [ ":crypto-upstream-test-config" ]
+
+  deps = [
+    ":msvc-crypto-upstream-test-sources",
+    "//build/config/win/googletest",
+    "//src/crypto",
+  ]
+}
+
+# The upstream CryptoPAL suite (TestChipCryptoPAL.cpp) additionally exercises
+# the credentials/CHIPCert certificate and DAC-attestation surface. It links the
+# focused //src/credentials/windows:windows-chip-cert subset (which avoids the
+# unported Device Layer) and the upstream certificate test vectors compiled as a
+# C++17 Windows-local reproduction.
+source_set("msvc-crypto-pal-test-sources") {
+  sources = [
+    # C++17 build-artifact copy of the upstream CryptoPAL test suite.
+    "$_crypto_cxx17_dir/TestChipCryptoPAL.cpp",
+  ]
+
+  configs += [
+    ":crypto-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    ":gen_crypto_cxx17",
+    "//build/config/win/googletest",
+    "//src/credentials/windows:windows-cert-test-vectors",
+    "//src/credentials/windows:windows-chip-cert",
+  ]
+}
+
+executable("msvc-crypto-pal-tests") {
+  sources = [
+    "msvc_crypto_test_main.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [ ":crypto-upstream-test-config" ]
+
+  deps = [
+    ":msvc-crypto-pal-test-sources",
+    "//build/config/win/googletest",
+    "//src/crypto",
+  ]
+}

@@ -33,7 +33,10 @@ inline constexpr size_t kNetworkIdentityTBSLength = 244;
 // Authentication with Per-Device Credentials) of the Matter spec.
 inline constexpr CharSpan kNetworkIdentityCN                = "*"_span;
 inline constexpr uint8_t kNetworkIdentitySerialNumber       = 1;
-inline constexpr ByteSpan kNetworkIdentitySerialNumberBytes = ByteSpan((uint8_t[1]){ kNetworkIdentitySerialNumber });
+// Note: a GCC/Clang compound literal ((uint8_t[1]){ ... }) is not portable to
+// MSVC, so use a named array that all compilers accept in a constexpr context.
+inline constexpr uint8_t kNetworkIdentitySerialNumberBytesArray[1] = { kNetworkIdentitySerialNumber };
+inline constexpr ByteSpan kNetworkIdentitySerialNumberBytes = ByteSpan(kNetworkIdentitySerialNumberBytesArray);
 
 inline constexpr uint32_t kNetworkIdentityNotBeforeTime = 1;
 inline constexpr uint32_t kNetworkIdentityNotAfterTime  = kNullCertTime;

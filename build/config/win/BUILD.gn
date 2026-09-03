@@ -71,3 +71,24 @@ config("executable") {
     ldflags += [ "/OPT:ICF" ]
   }
 }
+
+# Relaxes /W4 /WX for upstream, GCC/Clang-authored SDK translation units that
+# the Windows port reuses verbatim (e.g. the credentials / CHIPCert closure).
+# These sources predate the MSVC port and surface implicit-conversion,
+# unreachable-code, and signed/unsigned diagnostics that are not port defects.
+# Windows-specific port code is not built with this config and stays at the
+# strict /W4 /WX default. Apply only under is_msvc.
+config("upstream_sdk_warnings") {
+  cflags = [
+    "/W3",
+    "/WX-",  # upstream SDK sources are not clean under warnings-as-errors
+    "/wd4244",  # conversion from larger to smaller integral type
+    "/wd4245",  # signed/unsigned mismatch in conversion
+    "/wd4267",  # conversion from size_t to smaller type
+    "/wd4310",  # cast truncates constant value
+    "/wd4324",  # structure padded due to alignment specifier
+    "/wd4389",  # signed/unsigned mismatch in comparison
+    "/wd4702",  # unreachable code
+    "/wd4146",  # unary minus applied to unsigned type
+  ]
+}

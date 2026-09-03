@@ -88,7 +88,15 @@ if (chip_build_windows_bootstrap_only) {
     ]
 
     if (chip_windows_canonical_compile_probes) {
+      # The upstream src/crypto/tests GoogleTest executables link the canonical
+      # //src/crypto:crypto library (and a focused CHIPCert subset), so they are
+      # built with the canonical probe, whose documented arguments also set
+      # chip_build_tests=false. That keeps the restricted plain bootstrap graph
+      # from pulling test-only closures (e.g. nlfaultinjection) that are not yet
+      # Windows closures.
       deps += [
+        "//build/config/win/tests:msvc-crypto-pal-tests",
+        "//build/config/win/tests:msvc-crypto-upstream-tests",
         "//src/crypto",
         "//src/inet",
         "//src/system",
