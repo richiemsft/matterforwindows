@@ -17,6 +17,8 @@ The initial build foundation provides:
 -   MSVC GN toolchains for x64 and ARM64.
 -   Windows-specific compiler and linker defaults.
 -   A native PowerShell setup script.
+-   Reproducible BoringSSL, Mbed TLS, and JsonCpp dependency prototypes that
+    build on x64 and ARM64 and run on x64.
 -   Toolchain and Base64 SDK-library smoke executables that build on both
     architectures and run on x64.
 -   Native QPC/FILETIME clock and SRW-lock primitives wired through the shared
@@ -29,6 +31,11 @@ The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
 backends exist. This avoids presenting successful GN generation and a
 platform-neutral library build as a usable Matter SDK port.
+
+Work advances only when the preceding phase exit criteria are complete. Phase
+0 is complete; Phase 1 is the active phase. The System and WinSock prototypes
+already developed for Phase 2 are retained, but no additional Phase 2 scope is
+started until the Phase 1 core-library and representative-test gate passes.
 
 ## Prerequisites
 
@@ -52,6 +59,13 @@ Ninja from Chromium's CIPD service into `.environment\windows` when they are
 not already installed. The downloads use content-addressed CIPD instance IDs
 recorded in the script so separate workstations acquire the same tool binaries.
 
+Initialize the dependencies exercised by the Windows bootstrap graph:
+
+```powershell
+git submodule update --init third_party/boringssl/repo/src `
+    third_party/mbedtls/repo third_party/jsoncpp/repo
+```
+
 ## Build the x64 smoke target
 
 ```powershell
@@ -59,6 +73,7 @@ gn gen out\win-msvc-smoke --args='target_os="win" target_cpu="x64" chip_device_p
 ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-toolchain-smoke.exe
 .\out\win-msvc-smoke\msvc-sdk-smoke.exe
+.\out\win-msvc-smoke\msvc-dependency-smoke.exe
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe
 ```
@@ -112,7 +127,7 @@ does not hide missing runtime behavior behind stubs.
 | Core and support | TLV, data model types, encoders, containers, and most protocol logic | GNU-only flags and attributes, POSIX headers in transitive targets, and untested dependency closures | Compiler and build syntax |
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
-| Crypto | CryptoPAL API and credential logic | No selected MSVC x64/ARM64 backend closure | Dependency |
+| Crypto | CryptoPAL API and credential logic | BoringSSL dependency selected and compiled; CryptoPAL closure and tests remain | Dependency |
 | Device Layer | Generic static-polymorphism mixins | No Windows platform composition, lifecycle, connectivity, storage, diagnostics, logging, or reset implementation | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
@@ -123,6 +138,29 @@ does not hide missing runtime behavior behind stubs.
 The port must not cast a WinSock `SOCKET` to `int`. `SOCKET` is pointer-sized
 on 64-bit Windows, while the existing POSIX endpoint implementation frequently
 stores descriptors as signed integers.
+
+### Target-closure inventory
+
+The Phase 0 inventory uses the eventual product roots rather than treating the
+bootstrap graph as the finished SDK:
+
+| Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
+|---|---|---|---|---|
+| Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE | Phases 3–5 |
+| Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
+| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Pigweed unit-test facade and existing test bodies | Root `pigweed_environment.gni` generation, MSVC test toolchain wiring, executable suffixes, and transitive platform logging | Phase 1 |
+
+Failures are tracked in six categories:
+
+| Category | Confirmed examples |
+|---|---|
+| Build syntax | GNU warning flags passed to MSVC; duplicate object outputs when one source belongs to multiple targets |
+| Compiler/language | GNU attributes, MSVC warnings-as-errors, and missing explicit C11 mode |
+| POSIX API | `pthread`, POSIX clocks, pipes, `ifaddrs`, signals, `errno`, and filesystem assumptions |
+| Dependency | Linux-only OpenSSL `pkg-config` acquisition and an ungenerated Pigweed environment override |
+| Platform contract | WinSock handle width, event wakeups, DNS-SD, BLE, storage, diagnostics, and interface monitoring |
+| Test harness | Pigweed backend/toolchain configuration, process control, executable naming, and ARM64 runtime hardware |
 
 ## Architecture decisions
 
@@ -175,18 +213,47 @@ and applied consistently to all dependencies.
 
 ### Crypto decision gate
 
-The crypto ABI is not selected yet. BoringSSL, OpenSSL, and Mbed TLS must each
-be evaluated for:
+**BoringSSL is selected for the initial Windows CryptoPAL closure.** The
+repository-pinned source builds with MSVC for x64 and ARM64, matches the Darwin
+backend choice, and does not require a machine-global package manager.
+Assembly is disabled initially; enabling architecture-specific assembly is a
+later measured optimization.
 
--   MSVC x64 and ARM64 build support.
--   Complete CryptoPAL test behavior.
--   Binary size and runtime dependencies.
--   FIPS or enterprise deployment implications.
--   Repository-managed acquisition, patching, licensing, and security updates.
+Mbed TLS remains a tested fallback and builds in the same dependency smoke.
+OpenSSL is rejected for the initial closure because its current Matter GN
+integration imports Linux `pkg-config` and provides no repository-pinned
+Windows acquisition path. A machine-global OpenSSL installation would violate
+the clean-machine and reproducibility requirements.
 
-BoringSSL is the leading compatibility candidate because it is already used by
-Darwin, but Windows support will not be claimed until the comparison and tests
-are complete.
+The Phase 2 crypto gate still requires the complete CryptoPAL test suite,
+binary-size measurement, and an explicit enterprise/FIPS deployment statement
+before Windows crypto support is claimed. Selecting the build dependency in
+Phase 0 does not pre-approve runtime correctness.
+
+### Dependency decision record
+
+| Dependency | Decision and owner | License | Reproducible acquisition | x64 | ARM64 |
+|---|---|---|---|---|---|
+| BoringSSL | Selected crypto backend; Windows port maintainers own GN integration and servicing | ISC/OpenSSL/SSLeay plus per-directory third-party licenses | Gitlink `9cac8a6b38c1cbd45c77aee108411d588da006fe` at `third_party/boringssl/repo/src` | Build and runtime SHA-256 check | Build and `AA64` inspection |
+| Mbed TLS | Retained fallback; Windows port maintainers own compatibility | Apache-2.0 option from the dual license | Gitlink `6a58fa8122c9bb8ee1644733d21b5677c93f1169` at `third_party/mbedtls/repo` | Build and runtime SHA-256 comparison | Build and `AA64` inspection |
+| OpenSSL | Rejected for the initial Windows closure | Apache-2.0 for current upstream releases | No repository-pinned Windows path in the current GN integration | Not eligible | Not eligible |
+| JsonCpp | Selected existing controller JSON dependency | Public Domain/MIT | Gitlink `8519b8381f3c741ad1421f88237b1deda0b11412` at `third_party/jsoncpp/repo` | Build and runtime parse check | Build and `AA64` inspection |
+| Argument parsing | Keep the repository-owned non-interactive `chip-tool` command parser; defer editline interactive mode | Matter SDK Apache-2.0 | Current source tree | Closure inventory complete | Closure inventory complete |
+| Pigweed unit tests | Keep the existing facade; Phase 1 owns native environment/toolchain integration | Apache-2.0 | Existing pinned Pigweed gitlink | Prototype identified missing generated environment override | Same blocker |
+
+### Architecture decision record
+
+| ID | Decision | Status |
+|---|---|---|
+| WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains canonical | Accepted and built |
+| WIN-002 | Use the dynamic CRT: `/MDd` for debug and `/MD` for release | Accepted |
+| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; Phase 2 tests required |
+| WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
+| WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
+| WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted |
+| WIN-007 | Use C++/WinRT BLE and marshal completions onto the Matter event loop | Accepted |
+| WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted |
+| WIN-009 | Support unpackaged and packaged desktop applications; surface capability differences explicitly | Accepted |
 
 ## Delivery phases and exit criteria
 
@@ -214,6 +281,7 @@ are complete.
 |---|---|---|---|---|
 | MSVC toolchain smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | Base64 SDK library smoke | Supported | Supported | Supported | Not yet run on native hardware |
+| BoringSSL/Mbed TLS/JsonCpp dependency smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Not yet run on native hardware |
 | Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |

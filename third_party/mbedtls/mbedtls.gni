@@ -23,22 +23,29 @@ template("mbedtls_target") {
   _mbedtls_root = "${mbedtls_repo}/repo"
 
   config("${mbedtls_target_name}_warnings") {
-    cflags = [
-      "-Wno-maybe-uninitialized",
-      "-Wno-string-concatenation",
-      "-Wno-unused-but-set-parameter",
-      "-Wno-format-nonliteral",  # Because of mbedtls_debug_print_msg
-      "-Wno-conversion",  # Lots of -Wconversion warnings, sadly.
-      "-Wno-undef",  # At least MBEDTLS_AESNI_HAVE_CODE is used without being
-                     # defined.
-    ]
-
-    if (is_clang) {
-      cflags += [
-        "-Wno-shorten-64-to-32",
-        "-Wno-unused-but-set-variable",  # bignum.c: variable 't' set but not
-                                         # used
+    if (is_msvc) {
+      cflags = [
+        "/W0",
+        "/WX-",
       ]
+    } else {
+      cflags = [
+        "-Wno-maybe-uninitialized",
+        "-Wno-string-concatenation",
+        "-Wno-unused-but-set-parameter",
+        "-Wno-format-nonliteral",  # Because of mbedtls_debug_print_msg
+        "-Wno-conversion",  # Lots of -Wconversion warnings, sadly.
+        "-Wno-undef",  # At least MBEDTLS_AESNI_HAVE_CODE is used without being
+                       # defined.
+      ]
+
+      if (is_clang) {
+        cflags += [
+          "-Wno-shorten-64-to-32",
+          "-Wno-unused-but-set-variable",  # bignum.c: variable 't' set but not
+                                           # used
+        ]
+      }
     }
   }
 

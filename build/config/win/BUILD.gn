@@ -41,6 +41,7 @@ config("default") {
   ]
 
   cflags_cc = [ "/std:c++17" ]
+  cflags_c = [ "/std:c11" ]
 
   if (is_debug) {
     cflags += [

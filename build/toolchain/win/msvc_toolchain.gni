@@ -20,7 +20,9 @@ template("msvc_toolchain") {
     tool("cc") {
       command = "cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
       description = "CC {{output}}"
-      outputs = [ "{{source_out_dir}}/{{source_name_part}}.obj" ]
+      outputs = [
+        "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
+      ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{defines}} {{include_dirs}} {{cflags}} {{cflags_c}}"
       depsformat = "msvc"
@@ -29,7 +31,9 @@ template("msvc_toolchain") {
     tool("cxx") {
       command = "cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
       description = "CXX {{output}}"
-      outputs = [ "{{source_out_dir}}/{{source_name_part}}.obj" ]
+      outputs = [
+        "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
+      ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}}"
       depsformat = "msvc"

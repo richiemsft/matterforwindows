@@ -24,6 +24,15 @@ executable("msvc-sdk-smoke") {
   deps = [ "//src/lib/support/base64" ]
 }
 
+executable("msvc-dependency-smoke") {
+  sources = [ "msvc_dependency_smoke.cpp" ]
+  deps = [
+    "//third_party/boringssl/repo:boringssl",
+    "//third_party/jsoncpp",
+    "//third_party/mbedtls",
+  ]
+}
+
 executable("msvc-system-primitives-smoke") {
   sources = [ "msvc_system_primitives_smoke.cpp" ]
   deps = [ "//src/system/windows:windows-system-shared-compile" ]

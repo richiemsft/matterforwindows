@@ -20,22 +20,29 @@ import("BUILD.generated.gni")
 config("boringssl_config") {
   include_dirs = [ "src/include" ]
 
-  # We want the basic crypto impl with no asm primitives until we hook-up platform-based
-  # support to the build later.
+  # We want the basic crypto impl with no asm primitives until we hook-up
+  # platform-based support to the build later.
   defines = [ "OPENSSL_NO_ASM=1" ]
 }
 
 config("boringssl_config_disable_warnings") {
-  cflags = [
-    "-Wno-cast-function-type-mismatch",
-    "-Wno-conversion",
-    "-Wno-unused-variable",
-  ]
+  if (is_msvc) {
+    cflags = [
+      "/W0",
+      "/WX-",
+    ]
+  } else {
+    cflags = [
+      "-Wno-cast-function-type-mismatch",
+      "-Wno-conversion",
+      "-Wno-unused-variable",
+    ]
 
-  cflags_c = [ "-Wno-unterminated-string-initialization" ]
+    cflags_c = [ "-Wno-unterminated-string-initialization" ]
 
-  if (is_clang) {
-    cflags += [ "-Wno-shorten-64-to-32" ]
+    if (is_clang) {
+      cflags += [ "-Wno-shorten-64-to-32" ]
+    }
   }
 }
 
@@ -45,7 +52,9 @@ all_headers = crypto_headers
 
 # Core BoringSSL library used by the SDK
 static_library("boringssl") {
-  cflags = [ "-O2" ]
+  if (!is_msvc) {
+    cflags = [ "-O2" ]
+  }
 
   public = all_headers
 
@@ -61,7 +70,9 @@ static_library("boringssl") {
 
 # Extended version of BoringSSL with additional SSL sources (for optional tools)
 static_library("boringssl_with_ssl_sources") {
-  cflags = [ "-O2" ]
+  if (!is_msvc) {
+    cflags = [ "-O2" ]
+  }
 
   public = crypto_headers + ssl_headers
   sources = crypto_sources + ssl_sources
