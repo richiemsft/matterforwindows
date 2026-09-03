@@ -167,13 +167,16 @@ The initial build foundation provides:
     transport / secure-channel test section below.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
-The canonical library probe remains opt-in until the upstream System, Inet,
-crypto, credentials, messaging, and Interaction Model test suites are enabled.
-This avoids presenting successful library compilation as a usable Matter SDK
-port.
+The canonical library probe remains opt-in until the Windows Device Layer can
+compose the full messaging, credentials, and Interaction Model closures. This
+avoids presenting successful host-neutral library compilation as a usable
+Matter SDK port.
 
-Work advances only when the preceding phase exit criteria are complete. Phases
-0 and 1 are complete; Phase 2 is the active phase.
+Work advances only when the preceding implementation phase is complete. Phases
+0 through 2 are complete; Phase 3 (Windows Device Layer and IP discovery) is
+active. Native ARM64 execution remains a release-support requirement and is
+tracked for the hardware-backed CI phase; cross-compilation alone is not
+presented as ARM64 runtime support.
 
 ## Prerequisites
 
@@ -925,7 +928,9 @@ are deliberate submodule bumps.
 | Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Not yet run on native hardware |
 | Upstream `src/crypto/tests` GoogleTest suites | Supported | 80 tests pass | Supported | Not yet run on native hardware |
-| Canonical System/Inet/CryptoPAL library compile probe | Supported | Compile only | Supported | Compile only |
+| Upstream System and Inet suites | Supported | 93 tests pass | Supported | Not yet run on native hardware |
+| Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
+| Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -950,14 +955,14 @@ are deliberate submodule bumps.
 
 ## Known limitations
 
--   The canonical System, Inet, and CryptoPAL libraries compile on Windows, and
-    the upstream `src/crypto/tests` GoogleTest suites run on x64, but the
-    complete upstream System/Inet tests are not yet enabled.
--   The aggregate Core SDK, Device Layer, controller, and server targets do not
-    yet compile as complete Windows closures. The full upstream
+-   The canonical System, Inet, CryptoPAL, and host-neutral transport/Secure
+    Channel components compile on Windows. The aggregate Core SDK, Device Layer,
+    controller, and server targets do not yet compile as complete Windows
+    closures. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
-    the canonical crypto library and a focused CHIPCert subset, but the
-    monolithic `//src/credentials:credentials` library (`FabricTable`,
+    the canonical crypto library and a focused CHIPCert subset; 93 selected
+    upstream System/Inet tests and 40 host-neutral transport/Secure Channel
+    tests also pass. The monolithic `//src/credentials:credentials` library (`FabricTable`,
     `LastKnownGoodTime`, `GroupDataProvider`, `PersistentStorageOpCertStore`) is
     not yet ported because it pulls the unported Windows Device Layer.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
