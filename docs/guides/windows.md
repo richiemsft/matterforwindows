@@ -19,6 +19,9 @@ The initial build foundation provides:
 -   A native PowerShell setup script.
 -   Reproducible BoringSSL, Mbed TLS, and JsonCpp dependency prototypes that
     build on x64 and ARM64 and run on x64.
+-   A static library built from shared core error and key-ID sources, with 23
+    existing core tests running through GoogleTest on x64 and cross-building
+    for ARM64.
 -   Toolchain and Base64 SDK-library smoke executables that build on both
     architectures and run on x64.
 -   Native QPC/FILETIME clock and SRW-lock primitives wired through the shared
@@ -32,16 +35,15 @@ The Matter core libraries remain disabled until Windows System and Inet
 backends exist. This avoids presenting successful GN generation and a
 platform-neutral library build as a usable Matter SDK port.
 
-Work advances only when the preceding phase exit criteria are complete. Phase
-0 is complete; Phase 1 is the active phase. The System and WinSock prototypes
-already developed for Phase 2 are retained, but no additional Phase 2 scope is
-started until the Phase 1 core-library and representative-test gate passes.
+Work advances only when the preceding phase exit criteria are complete. Phases
+0 and 1 are complete; Phase 2 is the active phase.
 
 ## Prerequisites
 
 -   Windows 11.
 -   Visual Studio with the **Desktop development with C++** workload and the
     MSVC x64 and ARM64 build tools.
+-   Python 3.11 or newer available as `python3.exe` or `python.exe` on `PATH`.
 -   PowerShell 5.1 or newer.
 -   Git with long paths enabled for this checkout.
 
@@ -58,12 +60,15 @@ The script discovers Visual Studio through `vswhere.exe` and downloads GN and
 Ninja from Chromium's CIPD service into `.environment\windows` when they are
 not already installed. The downloads use content-addressed CIPD instance IDs
 recorded in the script so separate workstations acquire the same tool binaries.
+It also creates an isolated Python environment under `.environment\windows`
+and installs the repository's constrained build requirements when they change.
 
 Initialize the dependencies exercised by the Windows bootstrap graph:
 
 ```powershell
 git submodule update --init third_party/boringssl/repo/src `
-    third_party/mbedtls/repo third_party/jsoncpp/repo
+    third_party/mbedtls/repo third_party/jsoncpp/repo `
+    third_party/googletest
 ```
 
 ## Build the x64 smoke target
@@ -74,6 +79,7 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-toolchain-smoke.exe
 .\out\win-msvc-smoke\msvc-sdk-smoke.exe
 .\out\win-msvc-smoke\msvc-dependency-smoke.exe
+.\out\win-msvc-smoke\msvc-core-unit-tests.exe
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe
 ```
@@ -149,7 +155,7 @@ bootstrap graph as the finished SDK:
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
 | Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE | Phases 3–5 |
 | Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
-| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Pigweed unit-test facade and existing test bodies | Root `pigweed_environment.gni` generation, MSVC test toolchain wiring, executable suffixes, and transitive platform logging | Phase 1 |
+| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the full Pigweed facade still contains GNU inline assembly and attributes that block the complete suite | Phase 2 |
 
 Failures are tracked in six categories:
 
@@ -239,7 +245,7 @@ Phase 0 does not pre-approve runtime correctness.
 | OpenSSL | Rejected for the initial Windows closure | Apache-2.0 for current upstream releases | No repository-pinned Windows path in the current GN integration | Not eligible | Not eligible |
 | JsonCpp | Selected existing controller JSON dependency | Public Domain/MIT | Gitlink `8519b8381f3c741ad1421f88237b1deda0b11412` at `third_party/jsoncpp/repo` | Build and runtime parse check | Build and `AA64` inspection |
 | Argument parsing | Keep the repository-owned non-interactive `chip-tool` command parser; defer editline interactive mode | Matter SDK Apache-2.0 | Current source tree | Closure inventory complete | Closure inventory complete |
-| Pigweed unit tests | Keep the existing facade; Phase 1 owns native environment/toolchain integration | Apache-2.0 | Existing pinned Pigweed gitlink | Prototype identified missing generated environment override | Same blocker |
+| Unit-test harness | Reuse existing test bodies through a Windows `pw_unit_test` compatibility include backed by GoogleTest; port the full Pigweed facade with the complete test closure | Pigweed Apache-2.0; GoogleTest BSD-3-Clause | Existing pinned gitlinks; native setup generates the required Python environment override | 23 core tests pass | Same tests build and inspect as `AA64` |
 
 ### Architecture decision record
 
@@ -282,6 +288,7 @@ Phase 0 does not pre-approve runtime correctness.
 | MSVC toolchain smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | Base64 SDK library smoke | Supported | Supported | Supported | Not yet run on native hardware |
 | BoringSSL/Mbed TLS/JsonCpp dependency smoke | Supported | Supported | Supported | Not yet run on native hardware |
+| Shared core error/key-ID library and tests | Supported subset | 23 tests pass | Supported subset | Not yet run on native hardware |
 | QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Not yet run on native hardware |
 | Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |

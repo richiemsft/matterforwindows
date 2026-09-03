@@ -53,7 +53,8 @@ if (chip_crypto == "") {
       current_os == "zephyr" || current_os == "webos" ||
       current_os == "cmsis-rtos") {
     chip_crypto = "mbedtls"
-  } else if (current_os == "mac" || current_os == "ios") {
+  } else if (current_os == "mac" || current_os == "ios" ||
+             current_os == "win") {
     chip_crypto = "boringssl"
   } else {
     chip_crypto = "openssl"

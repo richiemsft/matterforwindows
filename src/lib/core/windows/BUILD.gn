@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Project CHIP Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+assert(current_os == "win")
+
+static_library("windows-core-portable") {
+  sources = [
+    "../CHIPError.cpp",
+    "../CHIPError.h",
+    "../CHIPKeyIds.cpp",
+    "../CHIPKeyIds.h",
+    "../ErrorStr.cpp",
+    "../ErrorStr.h",
+  ]
+
+  public_configs = [ ":public" ]
+}
+
+config("public") {
+  include_dirs = [
+    "//config/standalone",
+    "//src",
+  ]
+
+  defines = [
+    "CHIP_AUTOMATION_LOGGING=0",
+    "CHIP_CONFIG_TEST=1",
+    "CHIP_DETAIL_LOGGING=0",
+    "CHIP_ERROR_LOGGING=0",
+    "CHIP_PROGRESS_LOGGING=0",
+    "CHIP_SYSTEM_CONFIG_PLATFORM_PROVIDES_TIME=0",
+    "CHIP_SYSTEM_CONFIG_USE_LWIP=0",
+    "CHIP_SYSTEM_CONFIG_USE_NETWORK_FRAMEWORK=0",
+    "CHIP_SYSTEM_CONFIG_USE_OPENTHREAD_ENDPOINT=0",
+    "CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS=0",
+    "CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS=0",
+    "CHIP_SYSTEM_CONFIG_USE_SOCKETS=1",
+  ]
+}

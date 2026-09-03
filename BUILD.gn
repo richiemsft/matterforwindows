@@ -38,6 +38,7 @@ if (chip_build_windows_bootstrap_only) {
 
   group("default") {
     deps = [
+      "//build/config/win/tests:msvc-core-unit-tests",
       "//build/config/win/tests:msvc-dependency-smoke",
       "//build/config/win/tests:msvc-sdk-smoke",
       "//build/config/win/tests:msvc-socket-smoke",

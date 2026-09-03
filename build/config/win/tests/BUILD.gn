@@ -16,16 +16,19 @@ assert(current_os == "win")
 
 executable("msvc-toolchain-smoke") {
   sources = [ "msvc_toolchain_smoke.cpp" ]
+  output_dir = root_out_dir
 }
 
 executable("msvc-sdk-smoke") {
   sources = [ "msvc_sdk_smoke.cpp" ]
+  output_dir = root_out_dir
   include_dirs = [ "//src" ]
   deps = [ "//src/lib/support/base64" ]
 }
 
 executable("msvc-dependency-smoke") {
   sources = [ "msvc_dependency_smoke.cpp" ]
+  output_dir = root_out_dir
   deps = [
     "//third_party/boringssl/repo:boringssl",
     "//third_party/jsoncpp",
@@ -33,12 +36,34 @@ executable("msvc-dependency-smoke") {
   ]
 }
 
+executable("msvc-core-unit-tests") {
+  sources = [
+    "../../../../src/lib/core/tests/TestCHIPError.cpp",
+    "../../../../src/lib/core/tests/TestCHIPKeyIds.cpp",
+    "msvc_core_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [ ":pw-unit-test-override" ]
+  deps = [
+    "//build/config/win/googletest",
+    "//src/lib/core/windows:windows-core-portable",
+  ]
+}
+
+config("pw-unit-test-override") {
+  include_dirs = [ "pw_unit_test_override" ]
+  cflags = [ "/wd4389" ]
+}
+
 executable("msvc-system-primitives-smoke") {
   sources = [ "msvc_system_primitives_smoke.cpp" ]
+  output_dir = root_out_dir
   deps = [ "//src/system/windows:windows-system-shared-compile" ]
 }
 
 executable("msvc-socket-smoke") {
   sources = [ "msvc_socket_smoke.cpp" ]
+  output_dir = root_out_dir
   deps = [ "//src/inet/windows:windows-socket" ]
 }

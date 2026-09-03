@@ -56,13 +56,13 @@ template("msvc_toolchain") {
       default_output_extension = ".dll"
       output_prefix = ""
       outputs = [
-        "{{root_out_dir}}/{{target_output_name}}{{output_extension}}",
+        "{{output_dir}}/{{target_output_name}}{{output_extension}}",
         "{{target_out_dir}}/{{target_output_name}}.lib",
       ]
       link_output = "{{target_out_dir}}/{{target_output_name}}.lib"
       depend_output = "{{target_out_dir}}/{{target_output_name}}.lib"
       runtime_outputs =
-          [ "{{root_out_dir}}/{{target_output_name}}{{output_extension}}" ]
+          [ "{{output_dir}}/{{target_output_name}}{{output_extension}}" ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{inputs}} {{solibs}} {{libs}} {{rlibs}} {{ldflags}}"
       lib_switch = ""
@@ -74,8 +74,7 @@ template("msvc_toolchain") {
       description = "LINK {{output}}"
       default_output_extension = ".exe"
       output_prefix = ""
-      outputs =
-          [ "{{root_out_dir}}/{{target_output_name}}{{output_extension}}" ]
+      outputs = [ "{{output_dir}}/{{target_output_name}}{{output_extension}}" ]
       rspfile = "{{output}}.rsp"
       rspfile_content = "{{inputs}} {{solibs}} {{libs}} {{rlibs}} {{ldflags}}"
       lib_switch = ""
