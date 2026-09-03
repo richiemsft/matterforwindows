@@ -30,6 +30,9 @@ The initial build foundation provides:
 -   Native Win32, WinSock, and HRESULT error mapping with UTF-8 system
     descriptions, plus a nonblocking IPv6 loopback wake-socket primitive.
     Both have x64 runtime and ARM64 cross-build coverage.
+-   A pointer-width shared System socket-watch contract and a native
+    `LayerImplWindows` event loop using `WSAPoll`. Timer expiry, cross-thread
+    wake, socket-read dispatch, shutdown, and reinitialization run on x64.
 -   A typed WinSock handle with bounded IPv6 UDP and `WSAPoll` runtime
     coverage on x64 and ARM64 cross-build coverage.
 
@@ -84,6 +87,7 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-dependency-smoke.exe
 .\out\win-msvc-smoke\msvc-core-unit-tests.exe
 .\out\win-msvc-smoke\msvc-system-error-source-smoke.exe
+.\out\win-msvc-smoke\msvc-system-layer-smoke.exe
 .\out\win-msvc-smoke\msvc-system-primitives-smoke.exe
 .\out\win-msvc-smoke\msvc-system-wake-event-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe

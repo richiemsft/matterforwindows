@@ -18,6 +18,10 @@
 
 #include <lib/support/BitFlags.h>
 
+#if defined(_WIN32)
+#include <WinSock2.h>
+#endif
+
 namespace chip {
 namespace System {
 
@@ -33,6 +37,14 @@ using SocketEvents = BitFlags<SocketEventFlags>;
 
 using SocketWatchToken    = intptr_t;
 using SocketWatchCallback = void (*)(SocketEvents events, intptr_t data);
+
+#if defined(_WIN32)
+using SocketHandle = SOCKET;
+inline constexpr SocketHandle kInvalidSocketHandle = INVALID_SOCKET;
+#else
+using SocketHandle = int;
+inline constexpr SocketHandle kInvalidSocketHandle = -1;
+#endif
 
 inline constexpr int kInvalidFd = -1;
 

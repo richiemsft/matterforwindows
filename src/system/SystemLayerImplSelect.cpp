@@ -306,7 +306,7 @@ CriticalFailure LayerImplSelect::ScheduleWork(TimerCompleteCallback onComplete, 
 }
 
 #if CHIP_SYSTEM_CONFIG_USE_SOCKETS
-CHIP_ERROR LayerImplSelect::StartWatchingSocket(int fd, SocketWatchToken * tokenOut)
+CHIP_ERROR LayerImplSelect::StartWatchingSocket(SocketHandle fd, SocketWatchToken * tokenOut)
 {
     // Find a free slot.
     SocketWatch * watch = nullptr;
@@ -476,7 +476,7 @@ CHIP_ERROR LayerImplSelect::StopWatchingSocket(SocketWatchToken * tokenInOut)
  *
  *  @param[in]    exceptfds  A pointer to the set of file descriptors with errors.
  */
-SocketEvents LayerImplSelect::SocketEventsFromFDs(int socket, const fd_set & readfds, const fd_set & writefds,
+SocketEvents LayerImplSelect::SocketEventsFromFDs(SocketHandle socket, const fd_set & readfds, const fd_set & writefds,
                                                   const fd_set & exceptfds)
 {
     SocketEvents res;

@@ -994,7 +994,7 @@ CHIP_ERROR TCPEndPointImplSockets::HandleIncomingConnection()
     socklen_t saLen = sizeof(sa);
 
     // Accept the new connection.
-    int conSocket       = accept(mSocket, &sa.any, &saLen);
+    System::SocketHandle conSocket = accept(mSocket, &sa.any, &saLen);
     auto failureCleanup = ScopeExit([&] {
         if (conSocket != -1)
         {

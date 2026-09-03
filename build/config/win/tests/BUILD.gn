@@ -87,6 +87,12 @@ executable("msvc-system-wake-event-smoke") {
   ]
 }
 
+executable("msvc-system-layer-smoke") {
+  sources = [ "msvc_system_layer_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [ "//src/system/windows:windows-system-layer" ]
+}
+
 config("error-source") {
   defines = [ "CHIP_CONFIG_ERROR_SOURCE=1" ]
 }

@@ -62,6 +62,30 @@ static_library("windows-system-shared-compile") {
   ]
 }
 
+static_library("windows-system-layer") {
+  sources = [
+    "../../lib/support/Pool.cpp",
+    "../../lib/support/Pool.h",
+    "../../lib/support/TimeUtils.cpp",
+    "../SystemClock.cpp",
+    "../SystemClock.h",
+    "../SystemTimer.cpp",
+    "../SystemTimer.h",
+    "SystemLayerImplWindows.cpp",
+    "SystemLayerImplWindows.h",
+  ]
+
+  deps = [
+    ":windows-system-errors",
+    ":windows-system-primitives",
+    "//src/lib/core/windows:windows-core-portable",
+  ]
+  public_configs = [
+    ":public",
+    ":system-config",
+  ]
+}
+
 config("system-config") {
   defines = [
     "CHIP_DEVICE_LAYER_USE_ATOMICS_FOR_CLOCK=0",
@@ -76,9 +100,16 @@ config("system-config") {
     "CHIP_SYSTEM_CONFIG_USE_POSIX_SOCKETS=0",
     "CHIP_SYSTEM_CONFIG_USE_POSIX_TIME_FUNCTS=0",
     "CHIP_SYSTEM_CONFIG_USE_SOCKETS=1",
+    "INET_CONFIG_ENABLE_TCP_ENDPOINT=1",
+    "INET_CONFIG_ENABLE_UDP_ENDPOINT=1",
+    "INET_CONFIG_NUM_TCP_ENDPOINTS=4",
+    "INET_CONFIG_NUM_UDP_ENDPOINTS=4",
   ]
 }
 
 config("public") {
-  include_dirs = [ "//src" ]
+  include_dirs = [
+    "//src",
+    "//src/include",
+  ]
 }

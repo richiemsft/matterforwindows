@@ -247,7 +247,7 @@ public:
      * Multiple calls to start watching the same file descriptor will return the same token.
      * StopWatchingSocket() must be called before closing the file descriptor.
      */
-    virtual CHIP_ERROR StartWatchingSocket(int fd, SocketWatchToken * tokenOut) = 0;
+    virtual CHIP_ERROR StartWatchingSocket(SocketHandle socket, SocketWatchToken * tokenOut) = 0;
 
     /**
      * Register a callback function.

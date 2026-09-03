@@ -16,6 +16,7 @@
  */
 
 #include <inet/windows/WindowsSocket.h>
+#include <system/SocketEvents.h>
 
 #include <WS2tcpip.h>
 
@@ -48,6 +49,9 @@ bool BindToLoopback(WindowsSocket & socket, sockaddr_in6 & address)
 int main()
 {
     using chip::Inet::Internal::WindowsSocketSystem;
+
+    static_assert(sizeof(chip::System::SocketHandle) == sizeof(SOCKET), "System socket handles must retain pointer width");
+    static_assert(chip::System::kInvalidSocketHandle == INVALID_SOCKET, "System socket invalid value must match WinSock");
 
     WindowsSocketSystem socketSystem;
     if (!socketSystem.IsInitialized())

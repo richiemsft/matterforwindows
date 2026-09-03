@@ -36,10 +36,10 @@ namespace Inet {
 class DLL_EXPORT EndPointStateSockets
 {
 protected:
-    EndPointStateSockets() : mSocket(kInvalidSocketFd) {}
+    EndPointStateSockets() : mSocket(System::kInvalidSocketHandle) {}
 
-    static constexpr int kInvalidSocketFd = -1;
-    int mSocket;                     /**< Encapsulated socket descriptor. */
+    static constexpr System::SocketHandle kInvalidSocketFd = System::kInvalidSocketHandle;
+    System::SocketHandle mSocket;    /**< Encapsulated socket descriptor. */
     IPAddressType mAddrType;         /**< Protocol family, i.e. IPv4 or IPv6. */
     System::SocketWatchToken mWatch; /**< Socket event watcher */
 };

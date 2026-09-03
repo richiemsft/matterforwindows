@@ -26,6 +26,8 @@
 
 #ifdef CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE
 #include CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE
+#elif defined(_WIN32)
+#include <system/windows/SystemLayerImplWindows.h>
 #else // CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE
 #include <system/SystemLayerImplSelect.h>
 #endif // CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE

@@ -43,6 +43,7 @@ if (chip_build_windows_bootstrap_only) {
       "//build/config/win/tests:msvc-sdk-smoke",
       "//build/config/win/tests:msvc-socket-smoke",
       "//build/config/win/tests:msvc-system-error-source-smoke",
+      "//build/config/win/tests:msvc-system-layer-smoke",
       "//build/config/win/tests:msvc-system-primitives-smoke",
       "//build/config/win/tests:msvc-system-wake-event-smoke",
       "//build/config/win/tests:msvc-toolchain-smoke",

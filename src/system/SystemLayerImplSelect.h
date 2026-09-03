@@ -69,7 +69,7 @@ public:
 
 #if CHIP_SYSTEM_CONFIG_USE_SOCKETS
     // LayerSocket overrides.
-    CHIP_ERROR StartWatchingSocket(int fd, SocketWatchToken * tokenOut) override;
+    CHIP_ERROR StartWatchingSocket(SocketHandle socket, SocketWatchToken * tokenOut) override;
     CHIP_ERROR SetCallback(SocketWatchToken token, SocketWatchCallback callback, intptr_t data) override;
     CHIP_ERROR RequestCallbackOnPendingRead(SocketWatchToken token) override;
     CHIP_ERROR RequestCallbackOnPendingWrite(SocketWatchToken token) override;
@@ -208,7 +208,8 @@ public:
 protected:
     IntrusiveList<EventSource> mSources;
 #if CHIP_SYSTEM_CONFIG_USE_SOCKETS
-    static SocketEvents SocketEventsFromFDs(int socket, const fd_set & readfds, const fd_set & writefds, const fd_set & exceptfds);
+    static SocketEvents SocketEventsFromFDs(SocketHandle socket, const fd_set & readfds, const fd_set & writefds,
+                                            const fd_set & exceptfds);
 
     static constexpr int kSocketWatchMax = (INET_CONFIG_ENABLE_TCP_ENDPOINT ? INET_CONFIG_NUM_TCP_ENDPOINTS : 0) +
         (INET_CONFIG_ENABLE_UDP_ENDPOINT ? INET_CONFIG_NUM_UDP_ENDPOINTS : 0);
@@ -216,7 +217,7 @@ protected:
     struct SocketWatch
     {
         void Clear();
-        int mFD;
+        SocketHandle mFD;
         SocketEvents mPendingIO;
         SocketWatchCallback mCallback;
 #if CHIP_SYSTEM_CONFIG_USE_LIBEV

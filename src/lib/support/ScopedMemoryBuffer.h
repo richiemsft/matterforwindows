@@ -174,7 +174,7 @@ public:
 
 private:
     template <typename U = T, std::enable_if_t<std::is_trivial<U>::value, int> = 0>
-    void ExecuteConstructors(size_t elementCount)
+    void ExecuteConstructors(size_t)
     {
         // Do nothing if our type is trivial.  In particular, if we are a buffer
         // of integers, we should not go zero-initializing them here: either

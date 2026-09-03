@@ -230,6 +230,8 @@ inline bool MemoryDebugCheckPointer(const void * p, size_t min_size = 0)
 #if CHIP_CONFIG_MEMORY_DEBUG_CHECKS
     return MemoryInternalCheckPointer(p, min_size);
 #else  // CHIP_CONFIG_MEMORY_DEBUG_CHECKS
+    (void) p;
+    (void) min_size;
     return true;
 #endif // CHIP_CONFIG_MEMORY_DEBUG_CHECKS
 }
