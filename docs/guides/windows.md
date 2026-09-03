@@ -99,10 +99,22 @@ The initial build foundation provides:
     pulls the pw_string / Fuchsia stdcompat closure, which uses GCC builtins MSVC
     lacks). Details are in the crypto decision gate.
 -   The canonical `//src/system:system`, `//src/inet:inet`, and
-    `//src/crypto:crypto` GN targets compile with MSVC for x64 and ARM64 through
-    an opt-in graph probe. The bootstrap graph now defines the Pigweed Python
-    venv label needed while loading canonical BUILD files, without building the
-    venv unless a target actually depends on it.
+    `//src/crypto:crypto` GN targets, together with the host-neutral canonical
+    splits of `//src/transport`, `//src/protocols/secure_channel`, and
+    `//src/messaging` (`//src/transport:crypto-context`,
+    `//src/transport:group-peer-message-counter`,
+    `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`,
+    `:session-resumption-storage`, and `//src/messaging:configurations`), compile
+    with MSVC for x64 and ARM64 through an opt-in graph probe. The canonical
+    `-Wconversion` flags these targets pass (which `cl.exe` rejects as an invalid
+    numeric argument) are guarded under `!is_msvc`, and the upstream bodies that
+    are not clean under the strict `/W4 /WX` Windows default reuse the
+    `//build/config/win:upstream_sdk_warnings` isolation only under `is_msvc`; the
+    transport / secure-channel translation units that reach the Device Layer via
+    `//src/platform` stay out of the split and are deferred to Phase 3. The
+    bootstrap graph now defines the Pigweed Python venv label needed while loading
+    canonical BUILD files, without building the venv unless a target actually
+    depends on it.
 -   The real upstream `src/system/tests` and `src/inet/tests` GoogleTest suites
     run against the canonical `//src/system:system` and `//src/inet:inet`
     libraries under native MSVC. `msvc-system-upstream-tests` runs the packet
@@ -124,11 +136,19 @@ The initial build foundation provides:
     Inet test section below for the enabled/skipped inventory and the port fixes
     the tests surfaced.
 -   The host-neutral upstream `src/transport/tests` and
-    `src/protocols/secure_channel/tests` GoogleTest suites run against focused
-    Windows-local subsets of `//src/transport` and
-    `//src/protocols/secure_channel` (see `//src/transport/windows` and
-    `//src/protocols/secure_channel/windows`) linked to the canonical
-    `//src/crypto`, `//src/inet`, `//src/system`, and `//src/lib` libraries.
+    `src/protocols/secure_channel/tests` GoogleTest suites run against
+    host-neutral canonical splits of `//src/transport` and
+    `//src/protocols/secure_channel` -- `//src/transport:crypto-context`,
+    `//src/transport:group-peer-message-counter`,
+    `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`, and
+    `:session-resumption-storage` -- linked to the canonical `//src/crypto`,
+    `//src/inet`, `//src/system`, and `//src/lib` libraries. These `source_set`s
+    live in the canonical `BUILD.gn` files (not a Windows-only directory) and are
+    public dependencies of the monolithic `//src/transport:transport` /
+    `//src/protocols/secure_channel:secure_channel` targets, so every platform
+    builds the same translation units into `libTransportLayer` / `libSecureChannel`;
+    the split only lets the Windows port compile the host-neutral portion without
+    the Device Layer that the full targets pull in via `//src/platform`.
     `msvc-transport-crypto-context-tests` runs `TestCryptoContext` (1 test);
     `msvc-transport-tests` runs `TestSecureSession`, `TestPeerMessageCounter`,
     and `TestGroupMessageCounter` (22 tests); `msvc-secure-channel-tests` runs
@@ -354,9 +374,11 @@ POSIX-only harness and are tracked for a later phase:
 The `msvc-transport-*` and `msvc-secure-channel-*` executables run the
 host-neutral upstream `src/transport/tests` and
 `src/protocols/secure_channel/tests` GoogleTest suites under native MSVC. They
-link focused, host-neutral subsets of `//src/transport` and
-`//src/protocols/secure_channel` (see `//src/transport/windows` and
-`//src/protocols/secure_channel/windows`) against the canonical `//src/crypto`,
+link host-neutral canonical splits of `//src/transport` and
+`//src/protocols/secure_channel` (`//src/transport:crypto-context`,
+`//src/transport:group-peer-message-counter`,
+`//src/protocols/secure_channel:type_definitions`, `:check-in-counter`, and
+`:session-resumption-storage`) against the canonical `//src/crypto`,
 `//src/inet`, `//src/system`, and `//src/lib` libraries -- no Device Layer.
 They are built with the canonical probe graph:
 
@@ -397,20 +419,41 @@ per-suite `MemoryInit`/`MemoryShutdown` (`TestCryptoContext`, `TestStatusReport`
 use the no-init `msvc_system_inet_test_main.cpp`; the remaining suites use the
 memory-initializing `msvc_crypto_test_main.cpp`.
 
-### Windows-local library subsets
+### Canonical library splits
 
-The canonical `//src/transport:transport` and
-`//src/protocols/secure_channel:secure_channel` targets pass the GCC/Clang
-`-Wconversion` flag (which cl.exe rejects as an invalid numeric argument) and
-build at the strict `/W4 /WX` default. Rather than modify those upstream BUILD
-files, the Windows tests link small `source_set`s under
-`//src/transport/windows` and `//src/protocols/secure_channel/windows` that list
-exactly the host-neutral translation units the enabled suites need and add
-`//build/config/win:upstream_sdk_warnings` (which both relaxes `/W4 /WX` for the
-GCC/Clang-authored bodies and omits `-Wconversion`). The upstream `.cpp` sources
-are compiled verbatim. `credentials/FabricTable.h` and
-`messaging/ReliableMessageProtocolConfig.h` are reached only as headers through
-`//src:includes`.
+The canonical `//src/transport:transport`,
+`//src/protocols/secure_channel:secure_channel`, and `//src/messaging:messaging`
+targets pass the GCC/Clang `-Wconversion` flag (which cl.exe rejects as an
+invalid numeric argument) and build at the strict `/W4 /WX` default. The
+portability fix lives in the canonical `BUILD.gn` files rather than in
+Windows-only test copies:
+
+-   Every `-Wconversion` is guarded under `!is_msvc`, so non-Windows builds are
+    unchanged and cl.exe never sees the flag.
+-   The host-neutral, Phase-2 translation units are factored into narrowly named
+    canonical `source_set`s -- `//src/transport/raw:message-header`,
+    `//src/transport:crypto-context`,
+    `//src/transport:group-peer-message-counter`, and
+    `//src/protocols/secure_channel:session-resumption-storage` -- and the
+    already-standalone `:type_definitions` (StatusReport) and `:check-in-counter`
+    targets are reused. Each is a public dependency of its monolithic parent
+    library, so every platform still builds the same objects into
+    `libTransportLayer` / `libSecureChannel`; the split only lets the Windows
+    port compile the host-neutral portion without the Device Layer.
+-   Under `is_msvc` these splits add `//build/config/win:upstream_sdk_warnings`
+    (which relaxes `/W4 /WX` for the GCC/Clang-authored bodies) only where the
+    upstream sources are not clean under the strict default. The upstream `.cpp`
+    sources are compiled verbatim. `credentials/FabricTable.h` and
+    `messaging/ReliableMessageProtocolConfig.h` are reached only as headers
+    through `//src:includes`.
+
+The session-establishment / exchange / MRP translation units (`PASESession`,
+`CASESession`, `ExchangeMgr`, `ReliableMessageMgr`, ...) that include
+`platform/ConnectivityManager.h` stay in the monolithic libraries and are
+deferred to Phase 3. `//src/messaging` has no host-neutral compilable unit
+beyond the header-only `//src/messaging:configurations` (its
+`ReliableMessageProtocolConfig.cpp` includes `platform/CHIPDeviceLayer.h`), so
+only its `-Wconversion` is guarded and `:configurations` is added to the probe.
 
 ### Port fixes surfaced by the tests
 
@@ -456,9 +499,14 @@ unported Windows Device Layer and are tracked for a later phase:
 
 ## Compile the canonical core libraries
 
-The canonical System, Inet, and BoringSSL CryptoPAL libraries can be added to
-the bootstrap graph as a compile-only probe. Tests and tools are disabled here
-because their broader Windows closure is tracked separately:
+The canonical System, Inet, and BoringSSL CryptoPAL libraries, plus the
+host-neutral canonical splits of Transport, SecureChannel, and Messaging
+(`//src/transport:crypto-context`,
+`//src/transport:group-peer-message-counter`,
+`//src/protocols/secure_channel:type_definitions`, `:check-in-counter`,
+`:session-resumption-storage`, and `//src/messaging:configurations`), can be
+added to the bootstrap graph as a compile-only probe. Tests and tools are
+disabled here because their broader Windows closure is tracked separately:
 
 ```powershell
 gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false'

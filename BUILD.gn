@@ -37,11 +37,14 @@ if (chip_build_windows_bootstrap_only) {
          "The Windows bootstrap build requires target_os=\"win\"")
 
   declare_args() {
-    # Compile the canonical //src/system, //src/inet (and, where the closure is
-    # sound, //src/crypto) libraries as explicit probes on top of the Windows
-    # bootstrap graph. This does not switch the port to the full Matter SDK
-    # graph; it only adds the named canonical libraries as additional compile
-    # targets so their Windows closure is continuously validated.
+    # Compile the canonical //src/system, //src/inet, //src/crypto libraries and
+    # the host-neutral canonical splits of //src/transport,
+    # //src/protocols/secure_channel, and //src/messaging as explicit probes on
+    # top of the Windows bootstrap graph. This does not switch the port to the
+    # full Matter SDK graph; it only adds the named canonical targets as
+    # additional compile targets so their Windows closure is continuously
+    # validated. Targets whose closure reaches the unported Device Layer
+    # (//src/platform) are excluded until Phase 3.
     chip_windows_canonical_compile_probes = false
   }
 
@@ -106,7 +109,13 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-transport-tests",
         "//src/crypto",
         "//src/inet",
+        "//src/messaging:configurations",
+        "//src/protocols/secure_channel:check-in-counter",
+        "//src/protocols/secure_channel:session-resumption-storage",
+        "//src/protocols/secure_channel:type_definitions",
         "//src/system",
+        "//src/transport:crypto-context",
+        "//src/transport:group-peer-message-counter",
       ]
     }
   }

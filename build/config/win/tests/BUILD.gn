@@ -408,12 +408,14 @@ executable("msvc-inet-endpoint-tests") {
 }
 
 # Real upstream src/transport/tests and src/protocols/secure_channel/tests
-# GoogleTest suites, run against focused host-neutral subsets of //src/transport
-# and //src/protocols/secure_channel compiled with native MSVC (see
-# //src/transport/windows and //src/protocols/secure_channel/windows). They link
-# only the canonical //src/crypto, //src/inet, //src/system, and //src/lib
-# libraries; the session-establishment / exchange / MRP closures that reach the
-# Device Layer (platform/ConnectivityManager.h) are out of scope for Phase 2.
+# GoogleTest suites, run against host-neutral canonical splits of
+# //src/transport and //src/protocols/secure_channel compiled with native MSVC
+# (//src/transport:crypto-context, //src/transport:group-peer-message-counter,
+# //src/protocols/secure_channel:type_definitions, :check-in-counter, and
+# :session-resumption-storage). They link only the canonical //src/crypto,
+# //src/inet, //src/system, and //src/lib libraries; the session-establishment /
+# exchange / MRP closures that reach the Device Layer
+# (platform/ConnectivityManager.h) are out of scope for Phase 2.
 # See //docs/guides/windows.md for the enabled/deferred inventory.
 
 # A handful of upstream transport/secure_channel test bodies and vector headers
@@ -462,8 +464,8 @@ executable("msvc-secure-channel-tests") {
 
   deps = [
     "//build/config/win/googletest",
-    "//src/protocols/secure_channel/windows:windows-sc-checkin-counter",
-    "//src/protocols/secure_channel/windows:windows-sc-resumption-storage",
+    "//src/protocols/secure_channel:check-in-counter",
+    "//src/protocols/secure_channel:session-resumption-storage",
   ]
 }
 
@@ -486,7 +488,7 @@ executable("msvc-transport-crypto-context-tests") {
   deps = [
     ":gen_transport_cxx17",
     "//build/config/win/googletest",
-    "//src/transport/windows:windows-transport-crypto-context",
+    "//src/transport:crypto-context",
   ]
 }
 
@@ -513,8 +515,8 @@ executable("msvc-transport-tests") {
 
   deps = [
     "//build/config/win/googletest",
-    "//src/transport/windows:windows-transport-crypto-context",
-    "//src/transport/windows:windows-transport-group-counter",
+    "//src/transport:crypto-context",
+    "//src/transport:group-peer-message-counter",
   ]
 }
 
@@ -539,6 +541,6 @@ executable("msvc-secure-channel-status-report-tests") {
 
   deps = [
     "//build/config/win/googletest",
-    "//src/protocols/secure_channel/windows:windows-sc-status-report",
+    "//src/protocols/secure_channel:type_definitions",
   ]
 }

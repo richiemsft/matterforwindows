@@ -12,19 +12,85 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
 import("//build_overrides/pigweed.gni")
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/src/ble/ble.gni")
 import("${chip_root}/src/lib/core/core.gni")
+
+# Host-neutral message-layer crypto: the CryptoContext AEAD key schedule /
+# privacy nonce transform (and the raw MessageHeader it encrypts around). Split
+# out of the monolithic :transport target so the native Windows port can compile
+# and unit-test it without the Device Layer that the full //src/transport target
+# pulls in via //src/platform. It is a public dependency of :transport, so every
+# platform still builds these translation units into libTransportLayer.
+source_set("crypto-context") {
+  sources = [
+    "CryptoContext.cpp",
+    "CryptoContext.h",
+  ]
+
+  # This host-neutral split reaches sibling transport headers via //src:includes
+  # without depending on the full :transport target, which would pull in
+  # //src/platform. Skip the gn-check include lint here; :transport itself
+  # remains checked.
+  check_includes = false
+
+  cflags = []
+  if (is_msvc) {
+    # cl.exe rejects the GCC/Clang -Wconversion numeric flag, and this upstream
+    # body is not clean under the strict /W4 /WX Windows default; relax it to
+    # the shared upstream-SDK warning isolation.
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else {
+    cflags += [ "-Wconversion" ]
+  }
+
+  public_deps = [
+    "${chip_root}/src/crypto",
+    "${chip_root}/src/inet",
+    "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support",
+    "${chip_root}/src/system",
+    "${chip_root}/src/transport/raw:message-header",
+  ]
+}
+
+# Host-neutral group peer message-counter window / table. Split out of
+# :transport for the same reason as :crypto-context and folded back into it.
+source_set("group-peer-message-counter") {
+  sources = [
+    "GroupPeerMessageCounter.cpp",
+    "GroupPeerMessageCounter.h",
+  ]
+
+  # Host-neutral split of :transport that includes the sibling
+  # transport/PeerMessageCounter.h header via //src:includes without depending
+  # on the full :transport target (which would pull in //src/platform). Skip the
+  # gn-check include lint here; :transport itself remains checked.
+  check_includes = false
+
+  cflags = []
+  if (is_msvc) {
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else {
+    cflags += [ "-Wconversion" ]
+  }
+
+  public_deps = [
+    "${chip_root}/src/crypto",
+    "${chip_root}/src/inet",
+    "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support",
+    "${chip_root}/src/system",
+  ]
+}
 
 static_library("transport") {
   output_name = "libTransportLayer"
 
   sources = [
-    "CryptoContext.cpp",
-    "CryptoContext.h",
-    "GroupPeerMessageCounter.cpp",
-    "GroupPeerMessageCounter.h",
     "GroupSession.h",
     "MessageCounter.h",
     "MessageCounterManagerInterface.h",
@@ -54,9 +120,14 @@ static_library("transport") {
     "UnauthenticatedSessionTable.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
+    ":crypto-context",
+    ":group-peer-message-counter",
     "${chip_root}/src/access",
     "${chip_root}/src/credentials",
     "${chip_root}/src/crypto",

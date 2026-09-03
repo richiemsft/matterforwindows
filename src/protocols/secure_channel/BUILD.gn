@@ -1,10 +1,20 @@
+import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
+import("${build_root}/config/compiler/compiler.gni")
 
 source_set("check-in-counter") {
   sources = [
     "CheckInCounter.cpp",
     "CheckInCounter.h",
   ]
+
+  if (is_msvc) {
+    # cl.exe rejects the GCC/Clang -Wconversion flag other secure_channel
+    # targets pass, and this upstream body is not clean under the strict
+    # /W4 /WX Windows default; relax it to the shared upstream-SDK isolation so
+    # the Windows port can compile and unit-test the check-in counter.
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  }
 
   public_deps = [
     "${chip_root}/src/lib/core",
@@ -39,7 +49,15 @@ static_library("type_definitions") {
     "StatusReport.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (is_msvc) {
+    # cl.exe rejects the GCC/Clang -Wconversion flag and this upstream body is
+    # not clean under the strict /W4 /WX Windows default; relax it to the shared
+    # upstream-SDK isolation for the Windows port.
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     "${chip_root}/src/lib/support:type-traits",
@@ -48,6 +66,37 @@ static_library("type_definitions") {
   ]
 
   deps = [ "${chip_root}/src/lib/support" ]
+}
+
+# Host-neutral session-resumption record storage (the abstract default and the
+# simple in-storage implementation). Split out of the monolithic :secure_channel
+# target so the native Windows port can compile and unit-test it without the
+# session-establishment / exchange closure that reaches //src/platform (the
+# Device Layer). It is a public dependency of :secure_channel, so every platform
+# still builds these translation units into libSecureChannel.
+source_set("session-resumption-storage") {
+  sources = [
+    "DefaultSessionResumptionStorage.cpp",
+    "DefaultSessionResumptionStorage.h",
+    "SessionResumptionStorage.h",
+    "SimpleSessionResumptionStorage.cpp",
+    "SimpleSessionResumptionStorage.h",
+  ]
+
+  cflags = []
+  if (is_msvc) {
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else {
+    cflags += [ "-Wconversion" ]
+  }
+
+  public_deps = [
+    "${chip_root}/src/crypto",
+    "${chip_root}/src/inet",
+    "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support",
+    "${chip_root}/src/system",
+  ]
 }
 
 static_library("secure_channel") {
@@ -60,8 +109,6 @@ static_library("secure_channel") {
     "CASEServer.h",
     "CASESession.cpp",
     "CASESession.h",
-    "DefaultSessionResumptionStorage.cpp",
-    "DefaultSessionResumptionStorage.h",
     "PASESession.cpp",
     "PASESession.h",
     "PairingSession.cpp",
@@ -70,17 +117,18 @@ static_library("secure_channel") {
     "SessionEstablishmentDelegate.h",
     "SessionEstablishmentExchangeDispatch.cpp",
     "SessionEstablishmentExchangeDispatch.h",
-    "SessionResumptionStorage.h",
-    "SimpleSessionResumptionStorage.cpp",
-    "SimpleSessionResumptionStorage.h",
     "UnsolicitedStatusHandler.cpp",
     "UnsolicitedStatusHandler.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
     ":check-in-message",
+    ":session-resumption-storage",
     ":type_definitions",
     "${chip_root}/src/crypto",
     "${chip_root}/src/lib/core",

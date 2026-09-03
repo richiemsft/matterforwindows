@@ -12,13 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/src/ble/ble.gni")
 import("${chip_root}/src/inet/inet.gni")
 import("${chip_root}/src/platform/device.gni")
 
 source_set("nfc-application-delegate") {
   sources = [ "NfcApplicationDelegate.h" ]
+}
+
+# Host-neutral message header encoding is split from the raw transport closure
+# so users such as //src/transport:crypto-context do not inherit Device Layer.
+source_set("message-header") {
+  sources = [
+    "MessageHeader.cpp",
+    "MessageHeader.h",
+  ]
+
+  cflags = []
+  if (is_msvc) {
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else {
+    cflags += [ "-Wconversion" ]
+  }
+
+  public_deps = [
+    "${chip_root}/src/crypto:public_headers",
+    "${chip_root}/src/inet",
+    "${chip_root}/src/lib/core",
+    "${chip_root}/src/lib/support",
+    "${chip_root}/src/protocols:type_definitions",
+    "${chip_root}/src/system",
+  ]
 }
 
 static_library("raw") {
@@ -28,8 +55,6 @@ static_library("raw") {
     "Base.h",
     "GroupcastTesting.cpp",
     "GroupcastTesting.h",
-    "MessageHeader.cpp",
-    "MessageHeader.h",
     "PeerAddress.cpp",
     "PeerAddress.h",
     "Tuple.h",
@@ -74,9 +99,13 @@ static_library("raw") {
     "ProxyTransport.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  cflags = []
+  if (!is_msvc) {
+    cflags += [ "-Wconversion" ]
+  }
 
   public_deps = [
+    ":message-header",
     "${chip_root}/src/crypto",
     "${chip_root}/src/inet",
     "${chip_root}/src/lib/core",
