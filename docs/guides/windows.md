@@ -174,7 +174,10 @@ Matter SDK port.
 
 Work advances only when the preceding implementation phase is complete. Phases
 0 through 2 are complete; Phase 3 (Windows Device Layer and IP discovery) is
-active. Native ARM64 execution remains a release-support requirement and is
+active. The first Phase 3 milestone -- a native Windows Device Layer
+`PlatformManager` foundation -- has landed as an opt-in probe (see
+[The Windows Device Layer foundation](#the-windows-device-layer-foundation)
+below). Native ARM64 execution remains a release-support requirement and is
 tracked for the hardware-backed CI phase; cross-compilation alone is not
 presented as ARM64 runtime support.
 
@@ -520,6 +523,99 @@ Use the same arguments with `target_cpu="arm64"` after initializing the ARM64
 MSVC environment. The normal bootstrap build leaves
 `chip_windows_canonical_compile_probes` false.
 
+## The Windows Device Layer foundation
+
+The first Phase 3 milestone adds a native Windows Device Layer `PlatformManager`
+foundation. It is the first `src/platform` code compiled for the Windows port
+and composes the native `System::LayerImplWindows` event loop
+(`WSAPoll` + WinSock wake socket) with the standard `DeviceLayer::PlatformMgr()`
+contract:
+
+-   `InitChipStack()` registers the CHIP error formatter and initializes the
+    native System Layer.
+-   `RunEventLoop()` / `StartEventLoopTask()` drive the loop directly or on a
+    dedicated `std::thread`, and `StopEventLoopTask()` stops it (safely both
+    from another thread and from within a work item on the loop thread).
+-   `ScheduleWork()` / `PostEvent()` post work and events from any thread; a
+    `DeviceSafeQueue` holds them and the native wake socket signals the loop.
+-   `AddEventHandler()` / `RemoveEventHandler()` register application handlers
+    that receive posted public events.
+-   `Shutdown()` tears the System Layer down after the loop has stopped.
+
+The foundation is deliberately scoped. It does **not** pull the full Device
+Layer manager closure (`ConfigurationManager`, `ConnectivityManager`,
+`KeyValueStoreManager`, DNS-SD, BLE, Thread): those are later phases and are not
+stubbed. The disabled features are expressed with concrete
+feature-off configuration macros in
+`src/platform/Windows/CHIPDevicePlatformConfig.h`
+(`CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE 0`, `CHIP_DEVICE_CONFIG_ENABLE_THREAD 0`,
+`CHIP_DEVICE_CONFIG_ENABLE_WIFI_STATION 0`), not success-shaped fakes.
+
+New files:
+
+-   `src/platform/Windows/PlatformManagerImpl.{h,cpp}` -- the concrete
+    singleton.
+-   `src/include/platform/internal/GenericPlatformManagerImpl_Windows.{h,ipp}`
+    -- the self-contained generic manager (std::thread / std::mutex /
+    std::condition_variable, no pthreads); event dispatch handles no-op, lambda,
+    and scheduled-work events plus application handlers. Device Layer component
+    dispatch is added when those managers are ported.
+-   `src/platform/Windows/SystemLayerGlobals.cpp` -- a focused analogue of
+    `src/platform/Globals.cpp` that supplies `DeviceLayer::SystemLayer()` backed
+    by `System::LayerImplWindows` without the full manager closure.
+-   `src/platform/Windows/{System,Inet,CHIP,CHIPDevice,Ble}PlatformConfig.h` and
+    `CHIPDevicePlatformEvent.h` -- the platform configuration header set wired by
+    `chip_device_platform="windows"` (`_chip_device_layer = "Windows"`) in
+    `src/platform/device.gni`.
+
+The milestone is built as an opt-in probe
+(`chip_windows_device_layer_probe`, default `false`) that is independent of the
+canonical library probe, so the normal bootstrap graph is not broadened. A
+runtime smoke (`msvc-platform-manager-smoke`) exercises the full lifecycle and
+cross-thread work/event posting on x64:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-platform-manager-smoke.exe
+.\out\win-devlayer-x64\msvc-platform-manager-smoke.exe
+```
+
+Cross-build the same target for ARM64 in a new PowerShell process initialized
+for the ARM64 compiler:
+
+```powershell
+. .\scripts\setup\windows.ps1 -Architecture arm64
+gn gen out\win-devlayer-arm64 --args='target_os="win" target_cpu="arm64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-arm64 msvc-platform-manager-smoke.exe
+dumpbin /headers out\win-devlayer-arm64\msvc-platform-manager-smoke.exe |
+    Select-String "machine \(ARM64\)"
+```
+
+The foundation builds for x64 and ARM64 under the strict `/W4 /WX` Windows
+default and the smoke passes on x64; the ARM64 executable inspects as `AA64` and
+is not yet run on native hardware.
+
+### Foundation limitations
+
+-   No `ConfigurationManager`, `ConnectivityManager`, `KeyValueStoreManager`,
+    DNS-SD, BLE, or Thread. `PlatformManager::HandleServerStarted()` reports the
+    compile-time `CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION` because no
+    configuration manager exists yet.
+-   `src/platform/PlatformEventSupport.cpp` (which routes System Layer
+    `ScheduleLambda` / timer bridging through `PlatformMgr()`) is **not** part
+    of the foundation target: it includes
+    `platform/internal/CHIPDeviceLayerInternal.h`, which pulls the full manager
+    header set. It is added once those managers exist. The foundation therefore
+    provides `PlatformMgr().ScheduleWork()` / `PostEvent()` directly rather than
+    `System::Layer::ScheduleLambda()`.
+-   The device-layer error formatter (`RegisterDeviceLayerErrorFormatter()`,
+    part of `GeneralUtils.cpp`) is registered with the rest of that translation
+    unit in a later phase, since it also reaches the full manager closure.
+-   The target links the focused `windows-system-layer` and
+    `windows-core-portable` libraries rather than the canonical
+    `//src/system:system`, keeping it free of the `PlatformEventing` symbols the
+    canonical library references.
+
 ## Cross-build the ARM64 smoke target
 
 Initialize a new PowerShell process for the ARM64 compiler environment:
@@ -570,7 +666,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | No Windows platform composition, lifecycle, connectivity, storage, diagnostics, logging, or reset implementation | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 foundation lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting) composed on `System::LayerImplWindows`; connectivity, storage, diagnostics, logging, and reset are not yet implemented | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -931,6 +1027,7 @@ are deliberate submodule bumps.
 | Upstream System and Inet suites | Supported | 93 tests pass | Supported | Not yet run on native hardware |
 | Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
 | Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
+| Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -956,9 +1053,11 @@ are deliberate submodule bumps.
 ## Known limitations
 
 -   The canonical System, Inet, CryptoPAL, and host-neutral transport/Secure
-    Channel components compile on Windows. The aggregate Core SDK, Device Layer,
-    controller, and server targets do not yet compile as complete Windows
-    closures. The full upstream
+    Channel components compile on Windows, and the Phase 3 Device Layer
+    `PlatformManager` foundation compiles for x64/ARM64 with its lifecycle smoke
+    passing on x64. The aggregate Core SDK, the full Device Layer (connectivity,
+    storage, DNS-SD, BLE), controller, and server targets do not yet compile as
+    complete Windows closures. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
     upstream System/Inet tests and 40 host-neutral transport/Secure Channel

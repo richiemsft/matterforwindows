@@ -51,6 +51,8 @@ group("default") {
       deps += [ "${chip_root}/src/platform/silabs/SiWx:logging" ]
     } else if (chip_device_platform == "linux") {
       deps += [ ":stdio" ]
+    } else if (chip_device_platform == "windows") {
+      deps += [ ":stdio" ]
     } else if (chip_device_platform == "tizen") {
       deps += [ "${chip_root}/src/platform/Tizen:logging" ]
     } else if (chip_device_platform == "qpg") {

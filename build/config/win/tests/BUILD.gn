@@ -121,6 +121,12 @@ executable("msvc-inet-tcp-endpoint-smoke") {
   deps = [ "//src/inet/windows:windows-tcp-endpoint" ]
 }
 
+executable("msvc-platform-manager-smoke") {
+  sources = [ "msvc_platform_manager_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [ "//src/platform/Windows:windows-platform-manager" ]
+}
+
 # Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
 # ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
 # selection macros and include paths propagate from the windows-crypto-boringssl

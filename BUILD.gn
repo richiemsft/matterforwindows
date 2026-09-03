@@ -46,6 +46,15 @@ if (chip_build_windows_bootstrap_only) {
     # validated. Targets whose closure reaches the unported Device Layer
     # (//src/platform) are excluded until Phase 3.
     chip_windows_canonical_compile_probes = false
+
+    # Compile the Phase 3 native Windows Device Layer foundation
+    # (//src/platform/Windows:windows-platform-manager) and its runtime smoke on
+    # top of the Windows bootstrap graph. This is opt-in and independent of the
+    # canonical library probe above so that the normal bootstrap build is not
+    # broadened. It composes the native System::LayerImplWindows event loop with
+    # the standard PlatformManager lifecycle and cross-thread work posting; it
+    # does not pull the full Device Layer manager closure.
+    chip_windows_device_layer_probe = false
   }
 
   # The canonical //src/system, //src/inet and //src/lib/asn1 BUILD files (and
@@ -116,6 +125,13 @@ if (chip_build_windows_bootstrap_only) {
         "//src/system",
         "//src/transport:crypto-context",
         "//src/transport:group-peer-message-counter",
+      ]
+    }
+
+    if (chip_windows_device_layer_probe) {
+      deps += [
+        "//build/config/win/tests:msvc-platform-manager-smoke",
+        "//src/platform/Windows:windows-platform-manager",
       ]
     }
   }
