@@ -34,6 +34,17 @@
 #include <string.h>
 #include <utility>
 
+#if defined(_WIN32)
+// Native WinSock TCP endpoint. WinSock headers must precede any socket option,
+// interface-index, or TCP option usage below.
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#include <ws2ipdef.h>
+#include <mstcpip.h>
+#include <iphlpapi.h>
+
+#include <cerrno>
+#else  // defined(_WIN32)
 #include <errno.h>
 #include <fcntl.h>
 #include <net/if.h>
@@ -42,6 +53,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif // defined(_WIN32)
 
 // SOCK_CLOEXEC not defined on all platforms, e.g. iOS/macOS:
 #ifndef SOCK_CLOEXEC
@@ -67,6 +79,95 @@
 namespace chip {
 namespace Inet {
 
+namespace {
+
+#if defined(_WIN32)
+
+// Maps the most recent WinSock error into the CHIP OS error range. This is the
+// WinSock analogue of CHIP_ERROR_POSIX(errno) used by the POSIX paths.
+inline CHIP_ERROR LastSocketError()
+{
+    return CHIP_ERROR_WINDOWS(static_cast<uint32_t>(WSAGetLastError()));
+}
+
+// WinSock setsockopt/getsockopt take the option buffer as char *; wrap the
+// pointer/length casts so the shared call sites read identically to POSIX.
+inline int SetSocketOption(System::SocketHandle socket, int level, int optionName, const void * optionValue, size_t optionLength)
+{
+    return setsockopt(socket, level, optionName, static_cast<const char *>(optionValue), static_cast<int>(optionLength));
+}
+
+inline int GetSocketOption(System::SocketHandle socket, int level, int optionName, void * optionValue, socklen_t * optionLength)
+{
+    return getsockopt(socket, level, optionName, static_cast<char *>(optionValue), optionLength);
+}
+
+inline void CloseSocket(System::SocketHandle socket)
+{
+    closesocket(socket);
+}
+
+// Reconstitutes an InterfaceId from a Windows interface index carried in a
+// scoped IPv6 sockaddr. InterfaceId stores a NET_LUID.Value on Windows, so the
+// scope index must be converted back to a LUID.
+inline InterfaceId InterfaceIdFromScopeIndex(uint32_t index)
+{
+    if (index == 0)
+    {
+        return InterfaceId::Null();
+    }
+    NET_LUID luid;
+    if (ConvertInterfaceIndexToLuid(static_cast<NET_IFINDEX>(index), &luid) != NO_ERROR)
+    {
+        return InterfaceId::Null();
+    }
+    return InterfaceId(luid.Value);
+}
+
+#else // defined(_WIN32)
+
+inline CHIP_ERROR LastSocketError()
+{
+    return CHIP_ERROR_POSIX(errno);
+}
+
+inline int SetSocketOption(int socket, int level, int optionName, const void * optionValue, size_t optionLength)
+{
+    return setsockopt(socket, level, optionName, optionValue, static_cast<socklen_t>(optionLength));
+}
+
+inline int GetSocketOption(int socket, int level, int optionName, void * optionValue, socklen_t * optionLength)
+{
+    return getsockopt(socket, level, optionName, optionValue, optionLength);
+}
+
+inline void CloseSocket(int socket)
+{
+    close(socket);
+}
+
+#endif // defined(_WIN32)
+
+// Enables non-blocking mode on the endpoint's socket. On POSIX the fcntl result
+// is intentionally not surfaced (matching historical behavior); on Windows an
+// ioctlsocket failure is propagated.
+inline CHIP_ERROR SetSocketNonBlocking(System::SocketHandle socket)
+{
+#if defined(_WIN32)
+    u_long nonBlocking = 1;
+    if (ioctlsocket(socket, static_cast<long>(FIONBIO), &nonBlocking) == SOCKET_ERROR)
+    {
+        return LastSocketError();
+    }
+#else
+    int flags = fcntl(socket, F_GETFL, 0);
+    fcntl(socket, F_SETFL, flags | O_NONBLOCK);
+#endif // defined(_WIN32)
+    return CHIP_NO_ERROR;
+}
+
+} // namespace
+
 CHIP_ERROR TCPEndPointImplSockets::BindImpl(IPAddressType addrType, const IPAddress & addr, uint16_t port, bool reuseAddr)
 {
     CHIP_ERROR res = GetSocket(addrType);
@@ -74,7 +175,7 @@ CHIP_ERROR TCPEndPointImplSockets::BindImpl(IPAddressType addrType, const IPAddr
     if (res == CHIP_NO_ERROR && reuseAddr)
     {
         int n = 1;
-        setsockopt(mSocket, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
+        SetSocketOption(mSocket, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n));
 
 #ifdef SO_REUSEPORT
         // Enable SO_REUSEPORT.  This permits coexistence between an
@@ -108,7 +209,7 @@ CHIP_ERROR TCPEndPointImplSockets::BindImpl(IPAddressType addrType, const IPAddr
             sa.in6.sin6_addr     = addr.ToIPv6();
             sa.in6.sin6_scope_id = 0;
 
-            sockaddrsize = sizeof(sa.in6);
+            sockaddrsize = static_cast<socklen_t>(sizeof(sa.in6));
         }
 #if INET_CONFIG_ENABLE_IPV4
         else if (addrType == IPAddressType::kIPv4)
@@ -117,7 +218,7 @@ CHIP_ERROR TCPEndPointImplSockets::BindImpl(IPAddressType addrType, const IPAddr
             sa.in.sin_port   = htons(port);
             sa.in.sin_addr   = addr.ToIPv4();
 
-            sockaddrsize = sizeof(sa.in);
+            sockaddrsize = static_cast<socklen_t>(sizeof(sa.in));
         }
 #endif // INET_CONFIG_ENABLE_IPV4
         else
@@ -130,7 +231,7 @@ CHIP_ERROR TCPEndPointImplSockets::BindImpl(IPAddressType addrType, const IPAddr
             // NOLINTNEXTLINE(clang-analyzer-unix.StdCLibraryFunctions): GetSocket calls ensure mSocket is valid
             if (bind(mSocket, &sa.any, sockaddrsize) != 0)
             {
-                res = CHIP_ERROR_POSIX(errno);
+                res = LastSocketError();
             }
         }
     }
@@ -142,12 +243,11 @@ CHIP_ERROR TCPEndPointImplSockets::ListenImpl(uint16_t backlog)
 {
     if (listen(mSocket, backlog) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     // Enable non-blocking mode for the socket.
-    int flags = fcntl(mSocket, F_GETFL, 0);
-    fcntl(mSocket, F_SETFL, flags | O_NONBLOCK);
+    ReturnErrorOnFailure(SetSocketNonBlocking(mSocket));
 
     // Wait for ability to read on this endpoint.
     CHIP_ERROR res = static_cast<System::LayerSockets &>(GetSystemLayer())
@@ -218,8 +318,7 @@ CHIP_ERROR TCPEndPointImplSockets::ConnectImpl(const IPAddress & addr, uint16_t 
 #endif // defined(SO_NOSIGPIPE)
 
     // Enable non-blocking mode for the socket.
-    int flags = fcntl(mSocket, F_GETFL, 0);
-    fcntl(mSocket, F_SETFL, flags | O_NONBLOCK);
+    ReturnErrorOnFailure(SetSocketNonBlocking(mSocket));
 
     socklen_t sockaddrsize = 0;
 
@@ -232,8 +331,13 @@ CHIP_ERROR TCPEndPointImplSockets::ConnectImpl(const IPAddress & addr, uint16_t 
         sa.in6.sin6_port     = htons(port);
         sa.in6.sin6_flowinfo = 0;
         sa.in6.sin6_addr     = addr.ToIPv6();
+#if defined(_WIN32)
+        // sin6_scope_id is a Windows interface index; InterfaceId stores a LUID.
+        sa.in6.sin6_scope_id = intfId.GetInterfaceIndex();
+#else
         sa.in6.sin6_scope_id = intfId.GetPlatformInterface();
-        sockaddrsize         = sizeof(sockaddr_in6);
+#endif
+        sockaddrsize         = static_cast<socklen_t>(sizeof(sockaddr_in6));
     }
 #if INET_CONFIG_ENABLE_IPV4
     else if (addrType == IPAddressType::kIPv4)
@@ -241,7 +345,7 @@ CHIP_ERROR TCPEndPointImplSockets::ConnectImpl(const IPAddress & addr, uint16_t 
         sa.in.sin_family = AF_INET;
         sa.in.sin_port   = htons(port);
         sa.in.sin_addr   = addr.ToIPv4();
-        sockaddrsize     = sizeof(sockaddr_in);
+        sockaddrsize     = static_cast<socklen_t>(sizeof(sockaddr_in));
     }
 #endif // INET_CONFIG_ENABLE_IPV4
     else
@@ -252,12 +356,28 @@ CHIP_ERROR TCPEndPointImplSockets::ConnectImpl(const IPAddress & addr, uint16_t 
     // NOLINTNEXTLINE(clang-analyzer-unix.StdCLibraryFunctions): GetSocket calls ensure mSocket is valid
     int conRes = connect(mSocket, &sa.any, sockaddrsize);
 
+#if defined(_WIN32)
+    // A non-blocking WinSock connect reports WSAEWOULDBLOCK while it proceeds;
+    // normalize that to the POSIX EINPROGRESS "connection pending" path below.
+    if (conRes == SOCKET_ERROR)
+    {
+        int wsaError = WSAGetLastError();
+        if (wsaError != WSAEWOULDBLOCK)
+        {
+            CHIP_ERROR res = CHIP_ERROR_WINDOWS(static_cast<uint32_t>(wsaError));
+            DoClose(res, true);
+            return res;
+        }
+        conRes = -1;
+    }
+#else
     if (conRes == -1 && errno != EINPROGRESS)
     {
         CHIP_ERROR res = CHIP_ERROR_POSIX(errno);
         DoClose(res, true);
         return res;
     }
+#endif // defined(_WIN32)
 
     ReturnErrorOnFailure(static_cast<System::LayerSockets &>(GetSystemLayer())
                              .SetCallback(mWatch, HandlePendingIO, reinterpret_cast<intptr_t>(this)));
@@ -293,18 +413,23 @@ CHIP_ERROR TCPEndPointImplSockets::GetLocalInfo(IPAddress * retAddr, uint16_t * 
     return GetSocketInfo(getsockname, retAddr, retPort);
 }
 
-CHIP_ERROR TCPEndPointImplSockets::GetSocketInfo(int getname(int, sockaddr *, socklen_t *), IPAddress * retAddr,
-                                                 uint16_t * retPort) const
+CHIP_ERROR TCPEndPointImplSockets::GetSocketInfo(
+#if defined(_WIN32)
+    decltype(&::getsockname) getname,
+#else
+    int getname(int, sockaddr *, socklen_t *),
+#endif
+    IPAddress * retAddr, uint16_t * retPort) const
 {
     VerifyOrReturnError(IsConnected(), CHIP_ERROR_INCORRECT_STATE);
 
     SockAddr sa;
     memset(&sa, 0, sizeof(sa));
-    socklen_t saLen = sizeof(sa);
+    socklen_t saLen = static_cast<socklen_t>(sizeof(sa));
 
     if (getname(mSocket, &sa.any, &saLen) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     if (sa.any.sa_family == AF_INET6)
@@ -332,18 +457,22 @@ CHIP_ERROR TCPEndPointImplSockets::GetInterfaceId(InterfaceId * retInterface)
 
     SockAddr sa;
     memset(&sa, 0, sizeof(sa));
-    socklen_t saLen = sizeof(sa);
+    socklen_t saLen = static_cast<socklen_t>(sizeof(sa));
 
     if (getpeername(mSocket, &sa.any, &saLen) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     if (sa.any.sa_family == AF_INET6)
     {
         if (IPAddress(sa.in6.sin6_addr).IsIPv6LinkLocal())
         {
+#if defined(_WIN32)
+            *retInterface = InterfaceIdFromScopeIndex(sa.in6.sin6_scope_id);
+#else
             *retInterface = InterfaceId(sa.in6.sin6_scope_id);
+#endif
         }
         else
         {
@@ -383,9 +512,9 @@ CHIP_ERROR TCPEndPointImplSockets::EnableNoDelay()
 #ifdef TCP_NODELAY
     // Disable TCP Nagle buffering by setting TCP_NODELAY socket option to true
     int val = 1;
-    if (setsockopt(mSocket, TCP_SOCKOPT_LEVEL, TCP_NODELAY, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, TCP_SOCKOPT_LEVEL, TCP_NODELAY, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 #endif // defined(TCP_NODELAY)
 
@@ -398,30 +527,30 @@ CHIP_ERROR TCPEndPointImplSockets::EnableKeepAlive(uint16_t interval, uint16_t t
 
     // Set the idle interval
     int val = interval;
-    if (setsockopt(mSocket, TCP_SOCKOPT_LEVEL, TCP_IDLE_INTERVAL_OPT_NAME, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, TCP_SOCKOPT_LEVEL, TCP_IDLE_INTERVAL_OPT_NAME, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     // Set the probe retransmission interval.
     val = interval;
-    if (setsockopt(mSocket, TCP_SOCKOPT_LEVEL, TCP_KEEPINTVL, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, TCP_SOCKOPT_LEVEL, TCP_KEEPINTVL, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     // Set the probe timeout count
     val = timeoutCount;
-    if (setsockopt(mSocket, TCP_SOCKOPT_LEVEL, TCP_KEEPCNT, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, TCP_SOCKOPT_LEVEL, TCP_KEEPCNT, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     // Enable keepalives for the connection.
     val = 1; // enable
-    if (setsockopt(mSocket, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     return CHIP_NO_ERROR;
@@ -433,9 +562,9 @@ CHIP_ERROR TCPEndPointImplSockets::DisableKeepAlive()
 
     // Disable keepalives on the connection.
     int val = 0; // disable
-    if (setsockopt(mSocket, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) != 0)
+    if (SetSocketOption(mSocket, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) != 0)
     {
-        return CHIP_ERROR_POSIX(errno);
+        return LastSocketError();
     }
 
     return CHIP_NO_ERROR;
@@ -445,6 +574,7 @@ CHIP_ERROR TCPEndPointImplSockets::AckReceive(size_t len)
 {
     VerifyOrReturnError(IsConnected(), CHIP_ERROR_INCORRECT_STATE);
 
+    (void) len;
     // nothing to do for sockets case
     return CHIP_NO_ERROR;
 }
@@ -460,6 +590,7 @@ CHIP_ERROR TCPEndPointImplSockets::SetUserTimeoutImpl(uint32_t userTimeoutMillis
     }
     return CHIP_NO_ERROR;
 #else  // TCP_USER_TIMEOUT
+    (void) userTimeoutMillis;
     return CHIP_ERROR_NOT_IMPLEMENTED;
 #endif // defined(TCP_USER_TIMEOUT)
 }
@@ -486,6 +617,21 @@ CHIP_ERROR TCPEndPointImplSockets::DriveSendingImpl()
     {
         size_t bufLen = mSendQueue->DataLength();
 
+#if defined(_WIN32)
+        int lenSentRaw = send(mSocket, reinterpret_cast<const char *>(mSendQueue->Start()), static_cast<int>(bufLen), sendFlags);
+
+        if (lenSentRaw == SOCKET_ERROR)
+        {
+            int wsaError = WSAGetLastError();
+            if (wsaError != WSAEWOULDBLOCK)
+            {
+                err = (wsaError == WSAECONNRESET || wsaError == WSAECONNABORTED)
+                    ? INET_ERROR_PEER_DISCONNECTED
+                    : CHIP_ERROR_WINDOWS(static_cast<uint32_t>(wsaError));
+            }
+            break;
+        }
+#else
         ssize_t lenSentRaw = send(mSocket, mSendQueue->Start(), bufLen, sendFlags);
 
         if (lenSentRaw == -1)
@@ -496,6 +642,7 @@ CHIP_ERROR TCPEndPointImplSockets::DriveSendingImpl()
             }
             break;
         }
+#endif // defined(_WIN32)
 
         if (lenSentRaw < 0 || bufLen < static_cast<size_t>(lenSentRaw))
         {
@@ -569,9 +716,13 @@ CHIP_ERROR TCPEndPointImplSockets::DriveSendingImpl()
         // If we're in the SendShutdown state and the send queue is now empty, shutdown writing on the socket.
         if (mState == State::kSendShutdown && mSendQueue.IsNull())
         {
+#if defined(_WIN32)
+            if (shutdown(mSocket, SD_SEND) != 0)
+#else
             if (shutdown(mSocket, SHUT_WR) != 0)
+#endif
             {
-                err = CHIP_ERROR_POSIX(errno);
+                err = LastSocketError();
             }
         }
     }
@@ -581,11 +732,20 @@ CHIP_ERROR TCPEndPointImplSockets::DriveSendingImpl()
 
 void TCPEndPointImplSockets::HandleConnectCompleteImpl()
 {
-    // Wait for ability to read or write on this endpoint.
+    // A connected socket is normally always writable. Watch it only when
+    // queued data needs to be drained so an idle connection cannot spin a
+    // level-triggered event loop.
     CHIP_ERROR err = static_cast<System::LayerSockets &>(GetSystemLayer()).RequestCallbackOnPendingRead(mWatch);
     if (err == CHIP_NO_ERROR)
     {
-        err = static_cast<System::LayerSockets &>(GetSystemLayer()).RequestCallbackOnPendingWrite(mWatch);
+        if (mSendQueue.IsNull())
+        {
+            err = static_cast<System::LayerSockets &>(GetSystemLayer()).ClearCallbackOnPendingWrite(mWatch);
+        }
+        else
+        {
+            err = static_cast<System::LayerSockets &>(GetSystemLayer()).RequestCallbackOnPendingWrite(mWatch);
+        }
     }
     if (err != CHIP_NO_ERROR)
     {
@@ -612,14 +772,18 @@ void TCPEndPointImplSockets::DoCloseImpl(CHIP_ERROR err, State oldState)
                 lingerStruct.l_onoff  = 1;
                 lingerStruct.l_linger = 0;
 
-                if (setsockopt(mSocket, SOL_SOCKET, SO_LINGER, &lingerStruct, sizeof(lingerStruct)) != 0)
+                if (SetSocketOption(mSocket, SOL_SOCKET, SO_LINGER, &lingerStruct, sizeof(lingerStruct)) != 0)
                 {
+#if defined(_WIN32)
+                    ChipLogError(Inet, "SO_LINGER: %d", WSAGetLastError());
+#else
                     ChipLogError(Inet, "SO_LINGER: %d", errno);
+#endif
                 }
             }
 
             TEMPORARY_RETURN_IGNORED static_cast<System::LayerSockets &>(GetSystemLayer()).StopWatchingSocket(&mWatch);
-            close(mSocket);
+            CloseSocket(mSocket);
             mSocket = kInvalidSocketFd;
         }
     }
@@ -731,13 +895,21 @@ CHIP_ERROR TCPEndPointImplSockets::GetSocket(IPAddressType addrType)
         {
             return INET_ERROR_WRONG_ADDRESS_TYPE;
         }
+#if defined(_WIN32)
+        mSocket = ::WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+        if (mSocket == INVALID_SOCKET)
+        {
+            return LastSocketError();
+        }
+#else
         mSocket = ::socket(family, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (mSocket == -1)
         {
             return CHIP_ERROR_POSIX(errno);
         }
+#endif // defined(_WIN32)
         auto connectionCleanup = ScopeExit([&]() {
-            close(mSocket);
+            CloseSocket(mSocket);
             mSocket = kInvalidSocketFd;
         });
         ReturnErrorOnFailure(static_cast<System::LayerSockets &>(GetSystemLayer()).StartWatchingSocket(mSocket, &mWatch));
@@ -751,7 +923,7 @@ CHIP_ERROR TCPEndPointImplSockets::GetSocket(IPAddressType addrType)
         if (family == PF_INET6)
         {
             int one = 1;
-            setsockopt(mSocket, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
+            SetSocketOption(mSocket, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one));
         }
 #endif // defined(IPV6_V6ONLY)
 
@@ -809,22 +981,38 @@ void TCPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
     else if (mState == State::kConnecting)
     {
         // The socket being writable indicates the connection has completed (successfully or otherwise).
-        if (events.Has(System::SocketEventFlags::kWrite))
+        bool connectionResolved = events.Has(System::SocketEventFlags::kWrite);
+#if defined(_WIN32)
+        // WSAPoll reports a failed non-blocking connect through POLLERR/POLLHUP
+        // (mapped to kError) instead of writability, so treat those as connect
+        // completion too and let SO_ERROR surface the specific failure.
+        connectionResolved = connectionResolved || events.Has(System::SocketEventFlags::kError) ||
+            events.Has(System::SocketEventFlags::kExcept);
+#endif // defined(_WIN32)
+        if (connectionResolved)
         {
 #ifndef __MBED__
             // Get the connection result from the socket.
             int osConRes;
-            socklen_t optLen = sizeof(osConRes);
-            if (getsockopt(mSocket, SOL_SOCKET, SO_ERROR, &osConRes, &optLen) != 0)
+            socklen_t optLen = static_cast<socklen_t>(sizeof(osConRes));
+            if (GetSocketOption(mSocket, SOL_SOCKET, SO_ERROR, &osConRes, &optLen) != 0)
             {
+#if defined(_WIN32)
+                osConRes = WSAGetLastError();
+#else
                 osConRes = errno;
+#endif
             }
 #else  // __MBED__
        // On Mbed OS, connect blocks and never returns EINPROGRESS
        // The socket option SO_ERROR is not available.
             int osConRes = 0;
 #endif // !__MBED__
+#if defined(_WIN32)
+            CHIP_ERROR conRes = (osConRes == 0) ? CHIP_NO_ERROR : CHIP_ERROR_WINDOWS(static_cast<uint32_t>(osConRes));
+#else
             CHIP_ERROR conRes = CHIP_ERROR_POSIX(osConRes);
+#endif
 
             // Process the connection result.
             HandleConnectComplete(conRes);
@@ -880,7 +1068,12 @@ void TCPEndPointImplSockets::ReceiveData()
     }
 
     // Attempt to receive data from the socket.
+#if defined(_WIN32)
+    int rcvLen = recv(mSocket, reinterpret_cast<char *>(rcvBuf->Start() + rcvBuf->DataLength()),
+                      static_cast<int>(rcvBuf->AvailableDataLength()), 0);
+#else
     ssize_t rcvLen = recv(mSocket, rcvBuf->Start() + rcvBuf->DataLength(), rcvBuf->AvailableDataLength(), 0);
+#endif // defined(_WIN32)
 
 #if INET_CONFIG_OVERRIDE_SYSTEM_TCP_USER_TIMEOUT
     CHIP_ERROR err;
@@ -911,6 +1104,19 @@ void TCPEndPointImplSockets::ReceiveData()
     // If an error occurred, abort the connection.
     if (rcvLen < 0)
     {
+#if defined(_WIN32)
+        int wsaError = WSAGetLastError();
+        if (wsaError == WSAEWOULDBLOCK)
+        {
+            // Note: in this case, we opt to not retry the recv call, and instead we expect that the read
+            // flags will get reset correctly upon a subsequent return from the poll call.
+            ChipLogError(Inet, "recv: WSAEWOULDBLOCK, will retry");
+
+            return;
+        }
+
+        DoClose(CHIP_ERROR_WINDOWS(static_cast<uint32_t>(wsaError)), false);
+#else
         int systemErrno = errno;
         if (systemErrno == EAGAIN)
         {
@@ -924,6 +1130,7 @@ void TCPEndPointImplSockets::ReceiveData()
         }
 
         DoClose(CHIP_ERROR_POSIX(systemErrno), false);
+#endif // defined(_WIN32)
     }
     else
     {
@@ -991,25 +1198,35 @@ CHIP_ERROR TCPEndPointImplSockets::HandleIncomingConnection()
 
     SockAddr sa;
     memset(&sa, 0, sizeof(sa));
-    socklen_t saLen = sizeof(sa);
+    socklen_t saLen = static_cast<socklen_t>(sizeof(sa));
 
     // Accept the new connection.
     System::SocketHandle conSocket = accept(mSocket, &sa.any, &saLen);
     auto failureCleanup = ScopeExit([&] {
-        if (conSocket != -1)
+        if (conSocket != kInvalidSocketFd)
         {
-            close(conSocket);
+            CloseSocket(conSocket);
         }
     });
 
-    if (conSocket == -1)
+    if (conSocket == kInvalidSocketFd)
     {
+#if defined(_WIN32)
+        int wsaError = WSAGetLastError();
+        if (wsaError == WSAEWOULDBLOCK)
+        {
+            return CHIP_NO_ERROR;
+        }
+
+        return CHIP_ERROR_WINDOWS(static_cast<uint32_t>(wsaError));
+#else
         if (errno == EAGAIN || errno == EWOULDBLOCK)
         {
             return CHIP_NO_ERROR;
         }
 
         return CHIP_ERROR_POSIX(errno);
+#endif // defined(_WIN32)
     }
 
 #ifdef __APPLE__

@@ -106,3 +106,56 @@ static_library("windows-udp-endpoint") {
     "//src/system/windows:system-config",
   ]
 }
+
+# Native WinSock TCP endpoint: exercises the shared TCPEndPointImplSockets.cpp
+# _WIN32 branches on top of the Windows system layer. The Linux/BSD kernel
+# send-queue probe used by the TCP user-timeout override (TIOCOUTQ / SO_NWRITE)
+# has no Windows equivalent, so that override is disabled for this port.
+config("tcp-endpoint-config") {
+  defines = [
+    "INET_CONFIG_ENABLE_IPV4=1",
+    "INET_CONFIG_OVERRIDE_SYSTEM_TCP_USER_TIMEOUT=0",
+    "INET_TCP_END_POINT_IMPL_CONFIG_FILE=<inet/TCPEndPointImplSockets.h>",
+  ]
+}
+
+static_library("windows-tcp-endpoint") {
+  sources = [
+    "../EndPointBasis.h",
+    "../EndPointStateSockets.h",
+    "../IANAConstants.h",
+    "../IPAddress-StringFuncts.cpp",
+    "../IPAddress.cpp",
+    "../IPAddress.h",
+    "../IPPrefix.cpp",
+    "../IPPrefix.h",
+    "../InetError.cpp",
+    "../InetError.h",
+    "../InetInterface.cpp",
+    "../InetInterface.h",
+    "../TCPEndPoint.cpp",
+    "../TCPEndPoint.h",
+    "../TCPEndPointImpl.h",
+    "../TCPEndPointImplSockets.cpp",
+    "../TCPEndPointImplSockets.h",
+    "//src/lib/support/BufferWriter.cpp",
+    "//src/lib/support/BufferWriter.h",
+    "//src/system/SystemPacketBuffer.cpp",
+    "//src/system/SystemPacketBuffer.h",
+  ]
+
+  deps = [
+    "//src/lib/core/windows:windows-core-portable",
+    "//src/system/windows:windows-system-layer",
+    "//third_party/nlio",
+  ]
+  libs = [
+    "Iphlpapi.lib",
+    "Ws2_32.lib",
+  ]
+  public_configs = [
+    ":public",
+    ":tcp-endpoint-config",
+    "//src/system/windows:system-config",
+  ]
+}

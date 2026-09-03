@@ -114,3 +114,9 @@ executable("msvc-inet-udp-endpoint-smoke") {
   output_dir = root_out_dir
   deps = [ "//src/inet/windows:windows-udp-endpoint" ]
 }
+
+executable("msvc-inet-tcp-endpoint-smoke") {
+  sources = [ "msvc_inet_tcp_endpoint_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [ "//src/inet/windows:windows-tcp-endpoint" ]
+}

@@ -48,6 +48,20 @@ The initial build foundation provides:
     IPv6 via Windows interface indices. Ephemeral bind, packet-info
     send/receive over IPv4 and IPv6 loopback, multicast, and clean shutdown
     through `LayerImplWindows` have x64 runtime and ARM64 cross-build coverage.
+-   The shared Inet TCP socket endpoint (`TCPEndPointImplSockets.cpp`) ported to
+    native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
+    `closesocket`, `ioctlsocket(FIONBIO)` non-blocking sockets,
+    `WSAGetLastError` mapping, WinSock `char *`/`int` socket-option argument
+    handling, IPv4 and IPv6 ephemeral bind, listen, non-blocking connect,
+    accept, bidirectional send/receive, `TCP_NODELAY`/keepalive options, and
+    scoped IPv6 via Windows interface indices. A `POLLERR`/`POLLHUP` branch in
+    the connecting state lets a `WSAPoll`-reported connect failure complete.
+    The Linux/BSD send-queue probe used by the optional TCP user-timeout
+    override (`TIOCOUTQ`/`SO_NWRITE`) has no Windows equivalent, so that
+    override is disabled for this port. Ephemeral bind/listen/connect/accept,
+    peer-address reporting, bidirectional loopback exchange over IPv4 and IPv6,
+    and clean shutdown through `LayerImplWindows` have x64 runtime and ARM64
+    cross-build coverage.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The Matter core libraries remain disabled until Windows System and Inet
@@ -106,6 +120,7 @@ ninja -C out\win-msvc-smoke
 .\out\win-msvc-smoke\msvc-system-wake-event-smoke.exe
 .\out\win-msvc-smoke\msvc-socket-smoke.exe
 .\out\win-msvc-smoke\msvc-inet-udp-endpoint-smoke.exe
+.\out\win-msvc-smoke\msvc-inet-tcp-endpoint-smoke.exe
 ```
 
 ## Cross-build the ARM64 smoke target
@@ -323,6 +338,7 @@ Phase 0 does not pre-approve runtime correctness.
 | Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |
 | Inet interface/address enumeration (`GetAdaptersAddresses`) | Supported | Supported | Supported | Not yet run on native hardware |
 | Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
+| Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

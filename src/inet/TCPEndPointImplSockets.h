@@ -62,7 +62,11 @@ private:
     void HandleConnectCompleteImpl() override;
     void DoCloseImpl(CHIP_ERROR err, State oldState) override;
 
+#if defined(_WIN32)
+    CHIP_ERROR GetSocketInfo(decltype(&::getsockname) getname, IPAddress * retAddr, uint16_t * retPort) const;
+#else
     CHIP_ERROR GetSocketInfo(int getname(int, sockaddr *, socklen_t *), IPAddress * retAddr, uint16_t * retPort) const;
+#endif
     CHIP_ERROR GetSocket(IPAddressType addrType);
     void HandlePendingIO(System::SocketEvents events);
     void ReceiveData();
