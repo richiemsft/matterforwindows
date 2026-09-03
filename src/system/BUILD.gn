@@ -146,6 +146,14 @@ buildconfig_header("system_buildconfig") {
 
   if (chip_system_layer_impl_config_file != "") {
     defines += [ "CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE=${chip_system_layer_impl_config_file}" ]
+  } else if (chip_system_config_event_loop == "Windows") {
+    # The native Windows System layer implementation lives under
+    # src/system/windows/, so the default
+    # "<system/SystemLayerImpl${event_loop}.h>" form would resolve to a
+    # non-existent <system/SystemLayerImplWindows.h>. Emit the real path so
+    # consumers that include the generic <system/SystemLayerImpl.h> (e.g. the
+    # upstream unit tests) resolve it.
+    defines += [ "CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE=<system/windows/SystemLayerImplWindows.h>" ]
   } else {
     defines += [ "CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE=<system/SystemLayerImpl${chip_system_config_event_loop}.h>" ]
   }

@@ -223,4 +223,15 @@ static_library("inet") {
   } else if (chip_system_config_use_network_framework) {
     sources += darwin_sources
   }
+
+  if (is_msvc) {
+    # The native Windows Inet backend (UDP/TCP endpoints and interface
+    # enumeration) calls into WinSock (WSASocketW, htonl, ...) and the IP
+    # Helper API (GetAdaptersAddresses, ConvertInterface*, GetIfEntry2).
+    # Propagate the import libraries so every consumer links them.
+    libs = [
+      "ws2_32.lib",
+      "iphlpapi.lib",
+    ]
+  }
 }

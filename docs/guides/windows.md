@@ -103,6 +103,26 @@ The initial build foundation provides:
     an opt-in graph probe. The bootstrap graph now defines the Pigweed Python
     venv label needed while loading canonical BUILD files, without building the
     venv unless a target actually depends on it.
+-   The real upstream `src/system/tests` and `src/inet/tests` GoogleTest suites
+    run against the canonical `//src/system:system` and `//src/inet:inet`
+    libraries under native MSVC. `msvc-system-upstream-tests` runs the packet
+    buffer (`TestSystemPacketBuffer`), TLV packet-buffer backing store
+    (`TestTLVPacketBufferBackingStore`), timer / event-loop
+    (`TestSystemTimer`, driven directly through `LayerImplWindows`), mock system
+    clock (`TestSystemClock`), `TestTimeSource`, and System error-string
+    (`TestSystemErrorStr`) suites (53 tests). `msvc-inet-upstream-tests` runs the
+    IP address / prefix / interface-id (`TestInetAddress`), Inet error-string
+    (`TestInetErrorStr`), and `TestBasicPacketFilters` suites (35 tests).
+    `msvc-inet-endpoint-tests` runs the Inet EndPoint suite (`TestInetEndPoint`:
+    interface iteration/enumeration, hardware-address and link-local queries,
+    UDP/TCP endpoint bind/listen/connect error branches, and endpoint- and
+    timer-pool limits) against a small sockets-only Windows harness (5 tests).
+    All 93 tests pass on x64 and the three executables cross-build and inspect as
+    `AA64` for ARM64. The suites reuse the GoogleTest `pw_unit_test/framework.h`
+    and `lib/core/StringBuilderAdapters.h` facades and the `upstream_sdk_warnings`
+    isolation; upstream test bodies are compiled verbatim. See the System and
+    Inet test section below for the enabled/skipped inventory and the port fixes
+    the tests surfaced.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The canonical library probe remains opt-in until the upstream System, Inet,
@@ -194,6 +214,118 @@ These reuse the existing GoogleTest `pw_unit_test/framework.h` facade and add a
 Pigweed-free `lib/core/StringBuilderAdapters.h` facade so the upstream sources
 compile without the pw_string closure. See the crypto decision gate for the
 portability fixes applied to the shared test vectors and the CHIPCert closure.
+
+## Run the upstream System and Inet test suites
+
+The `msvc-system-upstream-tests`, `msvc-inet-upstream-tests`, and
+`msvc-inet-endpoint-tests` executables run the real `src/system/tests` and
+`src/inet/tests` GoogleTest suites against the canonical `//src/system:system`
+and `//src/inet:inet` libraries under native MSVC. They are built with the
+canonical probe graph:
+
+```powershell
+gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
+ninja -C out\win-canonical-x64
+.\out\win-canonical-x64\msvc-system-upstream-tests.exe
+.\out\win-canonical-x64\msvc-inet-upstream-tests.exe
+.\out\win-canonical-x64\msvc-inet-endpoint-tests.exe
+```
+
+Use the same arguments with `target_cpu="arm64"` after initializing the ARM64
+MSVC environment to cross-build; the executables inspect as `AA64`.
+
+### Enabled suites
+
+-   `msvc-system-upstream-tests` (53 tests, 6 suites): `TestSystemPacketBuffer`
+    (packet buffers), `TestTLVPacketBufferBackingStore` (TLV packet-buffer
+    backing store), `TestSystemTimer` (timers and the event-loop service path,
+    driven directly through `LayerImplWindows`, which derives from
+    `LayerSelectLoop`), `TestSystemClock` (the mock clock), `TestTimeSource`, and
+    `TestSystemErrorStr`.
+-   `msvc-inet-upstream-tests` (35 tests, 3 suites): `TestInetAddress` (IPv4/IPv6
+    address and `IPPrefix` math, interface-scoped strings, socket-address
+    conversion), `TestInetErrorStr`, and `TestBasicPacketFilters`.
+-   `msvc-inet-endpoint-tests` (5 tests, 1 suite): `TestInetEndPoint` exercises
+    interface iteration/enumeration, hardware-address and link-local queries, the
+    UDP/TCP endpoint bind/listen/connect error branches, the POSIX error range,
+    and the endpoint- and timer-pool limits.
+
+All 93 tests pass on x64 and the three executables cross-build and inspect as
+`AA64` for ARM64.
+
+### Test reuse and facades
+
+The suites reuse the existing GoogleTest `pw_unit_test/framework.h` facade, the
+Pigweed-free `lib/core/StringBuilderAdapters.h` facade, and the
+`//build/config/win:upstream_sdk_warnings` isolation. The upstream test bodies
+are compiled verbatim; the additional Windows test-support facades under
+`build/config/win/tests/system_inet_test_support/` supply only what the port
+does not yet provide:
+
+-   `platform/CHIPDeviceLayer.h` forwards to the CHIP allocator (`CHIPMem.h`) and
+    supplies a do-nothing `DeviceLayer::PlatformMgr()` stub plus a `random()` /
+    `srandom()` shim for `TestSystemPacketBuffer`, whose fixture makes an
+    incidental `PlatformMgr().InitChipStack()` call and fills buffers with POSIX
+    `random()`. The Device Layer itself is out of scope for Phase 2.
+-   `sys/time.h`, `sys/socket.h`, and `netinet/in.h` forward to `<time.h>` and
+    WinSock so `TestInetCommon.h` and `TestInetAddress` resolve their POSIX
+    socket includes; WinSock provides the same `s_addr` / `s6_addr` member
+    macros.
+-   `msvc_posix_compat.h` is force-included (`/FI`) into `msvc-inet-upstream-tests`
+    to map POSIX `strcasecmp`/`strncasecmp` onto the MSVC `_stricmp`/`_strnicmp`.
+-   `msvc_inet_test_harness_windows.cpp` is a small sockets-only implementation
+    of the `TestInetCommon.h` / `TestSetupSignalling.h` contract
+    (`gSystemLayer`, `gUDP`, `gTCP`, `InitSystemLayer`/`InitNetwork`/
+    `ServiceEvents`/`Shutdown*`) against the native Windows System layer, in
+    place of the POSIX/LwIP `TestInetCommonPosix.cpp` helper. The upstream
+    `TestInetEndPoint.cpp` itself is compiled verbatim.
+
+The shared `msvc_system_inet_test_main.cpp` deliberately does not initialize the
+CHIP allocator: the upstream fixtures that allocate own their per-suite
+`MemoryInit`/`MemoryShutdown`, and `MemoryInit` is not reference-counted.
+
+### Port fixes surfaced by the tests
+
+-   `src/system/BUILD.gn` now emits
+    `CHIP_SYSTEM_LAYER_IMPL_CONFIG_FILE=<system/windows/SystemLayerImplWindows.h>`
+    for the Windows event loop. The previous
+    `<system/SystemLayerImpl${event_loop}.h>` form resolved to a non-existent
+    `<system/SystemLayerImplWindows.h>`; only translation units that include the
+    generic `<system/SystemLayerImpl.h>` (the unit tests) hit it, because the
+    library sources include the backend header by its real path.
+-   `TestSystemPacketBuffer.CheckAlignPayload` cast a pointer to `unsigned long`
+    (32-bit under Windows LLP64) before a modulo alignment check, truncating the
+    high 32 bits. It now uses `uintptr_t`, matching the rest of the test and
+    leaving LP64 behavior unchanged.
+-   The native Windows `InterfaceIterator::GetHardwareAddress`
+    (`src/inet/InetInterface.cpp`) returned success with a truncated address for
+    adapters whose `PhysicalAddressLength` is not an EUI-48/EUI-64 length (0 for
+    loopback/tunnel/virtual adapters). It now returns `CHIP_ERROR_NOT_IMPLEMENTED`
+    for such interfaces, matching the `TestInetInterface` contract and other
+    platforms.
+-   `//src/inet:inet` now declares its WinSock / IP Helper import libraries
+    (`ws2_32.lib`, `iphlpapi.lib`) under MSVC so every consumer links the symbols
+    the native endpoint and interface backends reference.
+-   A `chip_caller_handles_critical_failure` build argument (default
+    `chip_build_tests`, so non-Windows behavior is unchanged) lets the probe
+    compile `CriticalFailure` in its error-returning form without enabling the
+    full `chip_build_tests` closure. The upstream System/Inet tests deliberately
+    exercise error-return paths (e.g. `StartTimer` on an uninitialized layer,
+    exhausting the endpoint/timer pools) that otherwise abort.
+
+### Not yet enabled
+
+The following upstream suites require the unported Windows Device Layer or a
+POSIX-only harness and are tracked for a later phase:
+
+-   `TestSystemScheduleWork`, `TestSystemScheduleLambda`, `TestEventLoopHandler`
+    drive `DeviceLayer::PlatformMgr().RunEventLoop()`.
+-   `TestSystemEventSource` drives `DeviceLayer::PlatformMgr()` and the Select
+    event-source pool.
+-   `TestSystemWakeEvent` uses POSIX `pthread` and the Select-loop `WakeEvent`;
+    the native `WindowsWakeEvent` is covered by `msvc-system-wake-event-smoke`.
+-   `TestInetAddress.TestCheckToLwIPAddr` and `TestInetEndPoint`'s LwIP paths are
+    LwIP-only and compiled out on the sockets build.
 
 ## Compile the canonical core libraries
 

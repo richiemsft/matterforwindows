@@ -41,7 +41,7 @@ buildconfig_header("chip_buildconfig") {
   # TODO - Move CHIP_PROJECT_CONFIG_INCLUDE, CHIP_PLATFORM_CONFIG_INCLUDE here.
   # Currently those are also used from src/system.
   defines = [
-    "CALLER_HANDLES_CRITICAL_FAILURE=${chip_build_tests}",
+    "CALLER_HANDLES_CRITICAL_FAILURE=${chip_caller_handles_critical_failure}",
     "CHIP_FUZZING_ENABLED=false",
     "CHIP_CONFIG_TEST=${chip_build_tests}",
     "CHIP_ERROR_LOGGING=${chip_error_logging}",

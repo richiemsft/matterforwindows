@@ -1031,7 +1031,7 @@ TEST_F(TestSystemPacketBuffer, CheckAlignPayload)
             if (payload_shift <= kAllocSize - reserved_size)
             {
                 EXPECT_EQ(config.handle->AlignPayload(length), true);
-                EXPECT_EQ(((unsigned long) config.handle->Start() % length), 0UL);
+                EXPECT_EQ((reinterpret_cast<uintptr_t>(config.handle->Start()) % length), 0u);
             }
             else
             {

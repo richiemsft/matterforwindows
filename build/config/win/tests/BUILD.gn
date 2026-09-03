@@ -285,3 +285,124 @@ executable("msvc-crypto-pal-tests") {
     "//src/crypto",
   ]
 }
+
+# Real upstream src/system/tests and src/inet/tests GoogleTest suites, run
+# against the canonical //src/system:system and //src/inet:inet libraries under
+# native MSVC. The upstream test bodies are compiled verbatim; the include-path
+# facades below satisfy dependencies that the Phase 2 Windows port does not yet
+# provide (Pigweed pw_string string-builder adapters, the Device Layer header
+# used only to reach the allocator, and the POSIX <sys/time.h>). See
+# //docs/guides/windows.md for the enabled/skipped test inventory.
+config("system-inet-upstream-test-config") {
+  include_dirs = [
+    # Shadow <pw_unit_test/framework.h> with GoogleTest.
+    "pw_unit_test_override",
+
+    # Shadow <lib/core/StringBuilderAdapters.h>, <platform/CHIPDeviceLayer.h>
+    # and <sys/time.h>. Placed ahead of //src on the include path.
+    "system_inet_test_support",
+  ]
+}
+
+# System layer suites that need nothing beyond the canonical //src/system and
+# //src/inet libraries: packet buffers and the TLV backing store, the timer /
+# event-loop service path (driven directly through LayerImplWindows, which
+# derives from LayerSelectLoop), the mock system clock, the TimeSource, and the
+# System/Inet error-string tables.
+#
+# Not built here (they require the unported Windows Device Layer or a POSIX-only
+# harness, tracked for a later phase):
+#   - TestSystemScheduleWork / TestSystemScheduleLambda / TestEventLoopHandler:
+#     drive DeviceLayer::PlatformMgr().RunEventLoop().
+#   - TestSystemEventSource: drives DeviceLayer::PlatformMgr() + the Select
+#     event source pool.
+#   - TestSystemWakeEvent: POSIX pthread + the Select-loop WakeEvent (Windows
+#     uses the native WindowsWakeEvent, covered by msvc-system-wake-event-smoke).
+executable("msvc-system-upstream-tests") {
+  sources = [
+    "//src/system/tests/TestSystemClock.cpp",
+    "//src/system/tests/TestSystemErrorStr.cpp",
+    "//src/system/tests/TestSystemPacketBuffer.cpp",
+    "//src/system/tests/TestSystemTimer.cpp",
+    "//src/system/tests/TestTLVPacketBufferBackingStore.cpp",
+    "//src/system/tests/TestTimeSource.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+    "msvc_system_inet_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/inet",
+    "//src/lib/core",
+    "//src/system",
+  ]
+}
+
+# Inet suites that exercise pure IP address / prefix / interface-id math, the
+# error-string table, and the BasicPacketFilters helper. These need no running
+# network.
+executable("msvc-inet-upstream-tests") {
+  sources = [
+    "//src/inet/tests/TestBasicPacketFilters.cpp",
+    "//src/inet/tests/TestInetAddress.cpp",
+    "//src/inet/tests/TestInetErrorStr.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+    "msvc_system_inet_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  # TestInetAddress uses the POSIX strcasecmp(); force-include the shim so the
+  # upstream body compiles verbatim under MSVC.
+  cflags = [ "/FImsvc_posix_compat.h" ]
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/inet",
+    "//src/lib/core",
+    "//src/system",
+  ]
+}
+
+# The upstream Inet EndPoint suite: interface iteration/enumeration, hardware
+# address and link-local queries, UDP/TCP endpoint bind/listen/connect error
+# branches, endpoint-pool and timer-pool limits, and the POSIX error range.
+# It drives the test globals declared in src/inet/tests/TestInetCommon.h, whose
+# canonical POSIX implementation is replaced here by a small sockets-only
+# Windows harness (msvc_inet_test_harness_windows.cpp).
+config("inet-endpoint-test-config") {
+  include_dirs = [ "//src/inet/tests" ]
+}
+
+executable("msvc-inet-endpoint-tests") {
+  sources = [
+    "//src/inet/tests/TestInetEndPoint.cpp",
+    "msvc_inet_test_harness_windows.cpp",
+    "msvc_stringbuilder_adapters.cpp",
+    "msvc_system_inet_test_main.cpp",
+  ]
+  output_dir = root_out_dir
+
+  configs += [
+    ":system-inet-upstream-test-config",
+    ":inet-endpoint-test-config",
+    "//build/config/win:upstream_sdk_warnings",
+  ]
+
+  deps = [
+    "//build/config/win/googletest",
+    "//src/inet",
+    "//src/lib/core",
+    "//src/system",
+  ]
+}

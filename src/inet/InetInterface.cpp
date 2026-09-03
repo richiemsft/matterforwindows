@@ -311,8 +311,16 @@ CHIP_ERROR InterfaceIterator::GetHardwareAddress(uint8_t * addressBuffer, uint8_
     VerifyOrReturnError(addressBuffer != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
 
     const auto * adapter = AsAdapter(mCurrentAdapter);
-    VerifyOrReturnError(adapter->PhysicalAddressLength <= addressBufferSize, CHIP_ERROR_BUFFER_TOO_SMALL);
-    addressSize = static_cast<uint8_t>(adapter->PhysicalAddressLength);
+
+    // Only interfaces with an EUI-48 (Ethernet/Wi-Fi) or EUI-64 hardware
+    // address expose one. Loopback, tunnel and many virtual adapters report a
+    // zero-length or otherwise non-MAC PhysicalAddress; treat those as having
+    // no hardware address rather than returning a truncated one.
+    const ULONG physicalAddressLength = adapter->PhysicalAddressLength;
+    VerifyOrReturnError(physicalAddressLength == 6 || physicalAddressLength == 8, CHIP_ERROR_NOT_IMPLEMENTED);
+    VerifyOrReturnError(physicalAddressLength <= addressBufferSize, CHIP_ERROR_BUFFER_TOO_SMALL);
+
+    addressSize = static_cast<uint8_t>(physicalAddressLength);
     memcpy(addressBuffer, adapter->PhysicalAddress, addressSize);
     return CHIP_NO_ERROR;
 }
