@@ -29,6 +29,11 @@ config("windows-device-layer-config") {
     "CHIP_DEVICE_LAYER_TARGET=Windows",
     "CHIP_DEVICE_PLATFORM_CONFIG_INCLUDE=<platform/Windows/CHIPDevicePlatformConfig.h>",
   ]
+
+  include_dirs = [
+    "//src",
+    "//src/include",
+  ]
 }
 
 static_library("windows-platform-manager") {
@@ -56,4 +61,35 @@ static_library("windows-platform-manager") {
   public_configs = [ ":windows-device-layer-config" ]
 
   libs = [ "Ws2_32.lib" ]
+}
+
+# Native Windows key-value store foundation for controller fabric persistence.
+#
+# File-per-key under a per-user versioned root (%LOCALAPPDATA%\Matter\KVS\v1 by
+# default, overridable at Init() time). Each value is written with an integrity
+# header and durably replaced with a same-volume temp file + FlushFileBuffers +
+# MoveFileEx, so a crash never yields a partial value. It is self-contained: it
+# does not depend on ConfigurationManager or the rest of the Device Layer
+# manager closure, so it can be exercised on its own while later phases land.
+static_library("windows-key-value-store") {
+  sources = [
+    "KeyValueStoreManagerImpl.cpp",
+    "KeyValueStoreManagerImpl.h",
+  ]
+
+  public_deps = [ "//src/lib/core/windows:windows-core-portable" ]
+
+  # SystemError.cpp provides MapErrorWindows()/MapErrorHRESULT() behind the
+  # CHIP_ERROR_WINDOWS() / CHIP_ERROR_HRESULT() macros this store maps its
+  # native failures through.
+  deps = [ "//src/system/windows:windows-system-errors" ]
+
+  public_configs = [ ":windows-device-layer-config" ]
+
+  # SHGetKnownFolderPath (Shell32), CoTaskMemFree, and GUID generation (Ole32)
+  # resolve the Unicode known-folder root and collision-resistant temp names.
+  libs = [
+    "Shell32.lib",
+    "Ole32.lib",
+  ]
 }

@@ -127,6 +127,12 @@ executable("msvc-platform-manager-smoke") {
   deps = [ "//src/platform/Windows:windows-platform-manager" ]
 }
 
+executable("msvc-key-value-store-smoke") {
+  sources = [ "msvc_key_value_store_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [ "//src/platform/Windows:windows-key-value-store" ]
+}
+
 # Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
 # ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
 # selection macros and include paths propagate from the windows-crypto-boringssl

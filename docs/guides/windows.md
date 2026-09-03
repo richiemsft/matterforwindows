@@ -177,7 +177,11 @@ Work advances only when the preceding implementation phase is complete. Phases
 active. The first Phase 3 milestone -- a native Windows Device Layer
 `PlatformManager` foundation -- has landed as an opt-in probe (see
 [The Windows Device Layer foundation](#the-windows-device-layer-foundation)
-below). Native ARM64 execution remains a release-support requirement and is
+below). The second Phase 3 milestone -- a native Windows
+`KeyValueStoreManager` for controller fabric persistence -- has landed on the
+same opt-in probe (see
+[The Windows key-value store](#the-windows-key-value-store) below). Native
+ARM64 execution remains a release-support requirement and is
 tracked for the hardware-backed CI phase; cross-compilation alone is not
 presented as ARM64 runtime support.
 
@@ -597,10 +601,12 @@ is not yet run on native hardware.
 
 ### Foundation limitations
 
--   No `ConfigurationManager`, `ConnectivityManager`, `KeyValueStoreManager`,
-    DNS-SD, BLE, or Thread. `PlatformManager::HandleServerStarted()` reports the
-    compile-time `CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION` because no
-    configuration manager exists yet.
+-   No `ConfigurationManager`, `ConnectivityManager`, DNS-SD, BLE, or Thread.
+    `PlatformManager::HandleServerStarted()` reports the compile-time
+    `CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION` because no configuration manager
+    exists yet. (The `KeyValueStoreManager` has landed as a separate sibling
+    milestone on the same probe; see
+    [The Windows key-value store](#the-windows-key-value-store).)
 -   `src/platform/PlatformEventSupport.cpp` (which routes System Layer
     `ScheduleLambda` / timer bridging through `PlatformMgr()`) is **not** part
     of the foundation target: it includes
@@ -615,6 +621,149 @@ is not yet run on native hardware.
     `windows-core-portable` libraries rather than the canonical
     `//src/system:system`, keeping it free of the `PlatformEventing` symbols the
     canonical library references.
+
+## The Windows key-value store
+
+The second Phase 3 milestone adds a native Windows `KeyValueStoreManager`
+(`src/platform/Windows/KeyValueStoreManagerImpl.{h,cpp}`), the persistence
+foundation a Windows Matter controller needs to keep its fabric state across
+restarts. It implements the standard `PersistedStorage::KeyValueStoreMgr()`
+contract (`Get` with offset/partial reads, `Put`, `Delete`) plus Windows-side
+lifecycle (`Init`, `Shutdown`) and a scoped factory reset (`ClearAll`). It is
+self-contained: it does **not** depend on `ConfigurationManager` or any other
+Device Layer manager, so it builds and is exercised on its own while the rest of
+the closure is still being ported.
+
+### Storage model
+
+-   **File per key.** Each value is stored in its own file under a storage root.
+    This is what makes every write an isolated, atomic, durable replacement and
+    keeps a corrupt or partially written value from affecting any other key.
+-   **Per-user versioned root.** The default root is
+    `%LOCALAPPDATA%\Matter\KVS\v1`, resolved with the known-folder API
+    (`SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, …)`) and Unicode
+    paths -- not by concatenating the `LOCALAPPDATA` ANSI environment variable --
+    so it is correct under folder redirection, impersonation, and non-ASCII
+    profile paths. The `v1` segment versions the on-disk layout for future
+    migrations.
+-   **Injectable override.** `Init(const char * storageRoot)` takes an optional
+    absolute UTF-8 path; relative and drive-relative paths are rejected rather
+    than being resolved against mutable process current-directory state. The
+    path is canonicalized (`GetFullPathNameW`) and converted to extended-length
+    `\\?\` form (including correct `\\?\UNC\` handling); `nullptr`/empty selects
+    the default root. Tests use this for isolation, and a future per-service or
+    per-machine deployment points it at its own directory (for example a
+    `ProgramData` location).
+-   **Exclusive root ownership.** The store creates a versioned
+    `.matter-kvs.owner` signature in a new or empty root. An existing root
+    without that valid marker is rejected, preventing `ClearAll` from treating
+    a shared override directory as KVS-owned.
+
+### Safe key-to-filename encoding
+
+Keys are arbitrary null-terminated strings; file names are not. Each key maps to
+a single path component `kv_` + a reversible per-byte encoding: the bytes
+`a-z`, `0-9`, `-`, and `_` are kept literally and every other byte (uppercase
+letters, `.`, path separators, `%`, control bytes) becomes `%XX` with uppercase
+hex. Because no literal byte has a case variant and every escape uses fixed
+uppercase hex, two distinct keys can never collide on the case-insensitive
+Windows filesystem. The fixed `kv_` prefix guarantees a generated name can never
+equal a reserved DOS device name (`CON`, `NUL`, `COM1`, …) and can never be `.`
+or `..`, so path traversal and reserved-name collisions are structurally
+impossible. Keys are bounded to 64 bytes (well above
+`PersistentStorageDelegate::kKeyLengthMax` of 32, and small enough that the
+worst-case 3x-expanded name stays under the NTFS component limit); an empty or
+over-long key is rejected with `CHIP_ERROR_INVALID_ARGUMENT`.
+
+### Value format and integrity
+
+Every file carries a 20-byte header -- magic `MKV1`, a little-endian format
+version, a reserved flags field, the little-endian value length, and an IEEE
+CRC-32 over the value bytes -- followed by the raw value. Values are fully
+binary (embedded NULs and high bytes are preserved) and reads honor the KVS
+`offset_bytes` / buffer-size contract, returning `CHIP_ERROR_BUFFER_TOO_SMALL`
+with the copied count when the caller's buffer is short. A truncated, mis-sized,
+or bit-rotted file is reported as an explicit `CHIP_ERROR_INTEGRITY_CHECK_FAILED`
+and a missing key as `CHIP_ERROR_PERSISTED_STORAGE_VALUE_NOT_FOUND`; the store
+never silently substitutes an empty or default value. All native failures flow
+through the existing `CHIP_ERROR_WINDOWS()` / `CHIP_ERROR_HRESULT()` mapping.
+
+### Atomic, durable writes
+
+`Put` writes the header and value to a GUID-named temp file in the **same
+directory** (hence same volume) as the destination, calls `FlushFileBuffers` to
+force the data to disk, then `MoveFileExW(…, MOVEFILE_REPLACE_EXISTING |
+MOVEFILE_WRITE_THROUGH)` to atomically rename it over the destination. GUID
+names avoid collisions with leftovers from a crashed process or reused process
+ID. A reader -- in this process, or another process, or after a crash --
+therefore only ever observes the complete previous value or the complete new
+value, never a torn write. (`ReplaceFileW` is the ACL-preserving alternative and
+is noted in the code; it is unnecessary here because the destination inherits
+the ACL of the locked-down root.)
+
+### Concurrency, process locking, and ACLs
+
+-   **In-process.** A `std::recursive_mutex` serializes every operation, so
+    concurrent calls from any thread are safe.
+-   **Cross-process.** `Init` opens a hidden `.matter-kvs.lock` file in the root
+    with no write/delete sharing and holds the handle for the store's lifetime.
+    A second process that opens the same root fails fast with
+    `CHIP_ERROR_ACCESS_DENIED` rather than racing. The documented stance is
+    single-process ownership of a given root (the normal controller model);
+    because each value write is atomic, a concurrent reader in another process
+    still never sees a torn value, but concurrent writers across processes are
+    not supported.
+-   **ACLs / storage expectations.** The default root lives under the user's
+    private `%LOCALAPPDATA%`, which is ACLed to that user by Windows; the store
+    relies on this inherited protection rather than setting its own DACL.
+    Deployments that place the root elsewhere (for example a machine-wide
+    `ProgramData` directory for a service) are responsible for applying an
+    appropriately restrictive ACL to that directory.
+
+### Deletion and factory reset
+
+`Delete` removes a single key's file (`CHIP_ERROR_PERSISTED_STORAGE_VALUE_NOT_FOUND`
+when absent). `ClearAll` performs a factory reset scoped strictly to owned
+storage: after root ownership has been established, it enumerates only the
+`kv_*` namespace and deletes entries only when their names parse as the
+reversible key encoding or the exact GUID-temp format. It ignores directories
+and malformed lookalikes, leaves the ownership marker, lock, and unrelated
+content untouched, and reports enumeration failures rather than returning
+false success.
+
+### Build and smoke
+
+The store builds as `//src/platform/Windows:windows-key-value-store` and is
+wired into the same opt-in `chip_windows_device_layer_probe` group as the
+`PlatformManager` foundation. A focused runtime smoke
+(`msvc-key-value-store-smoke`) drives the store against a real, isolated
+on-disk directory and proves absolute-root enforcement, extended-length path
+operation, exclusive root claiming, binary put/get, offset/size reads,
+overwrite, delete/not-found, restart persistence across `Shutdown()`+`Init()`,
+invalid-key and traversal/reserved-name safety, ownership-marker retention, and
+owned-only `ClearAll` scoping. Its cleanup refuses to traverse reparse-point
+directories before removing its GUID-named temporary tree:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-key-value-store-smoke.exe
+.\out\win-devlayer-x64\msvc-key-value-store-smoke.exe
+```
+
+Cross-build the same target for ARM64 in a new PowerShell process initialized
+for the ARM64 compiler:
+
+```powershell
+. .\scripts\setup\windows.ps1 -Architecture arm64
+gn gen out\win-devlayer-arm64 --args='target_os="win" target_cpu="arm64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-arm64 msvc-key-value-store-smoke.exe
+dumpbin /headers out\win-devlayer-arm64\msvc-key-value-store-smoke.exe |
+    Select-String "machine \(ARM64\)"
+```
+
+The store builds for x64 and ARM64 under the strict `/W4 /WX` Windows default;
+the smoke passes on x64 and the ARM64 executable inspects as `AA64` and is not
+yet run on native hardware.
 
 ## Cross-build the ARM64 smoke target
 
@@ -666,7 +815,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 foundation lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting) composed on `System::LayerImplWindows`; connectivity, storage, diagnostics, logging, and reset are not yet implemented | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting) composed on `System::LayerImplWindows` and a native `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks, scoped factory reset); connectivity, DNS-SD, BLE, diagnostics, logging, and reset are not yet implemented | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -984,7 +1133,7 @@ are deliberate submodule bumps.
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
 | WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted |
 | WIN-007 | Use C++/WinRT BLE and marshal completions onto the Matter event loop | Accepted |
-| WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted |
+| WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted; realized by the native `KeyValueStoreManager` (default `%LOCALAPPDATA%\Matter\KVS\v1`, injectable root, atomic durable writes, integrity checks, single-owner lock, scoped factory reset) |
 | WIN-009 | Support unpackaged and packaged desktop applications; surface capability differences explicitly | Accepted |
 | WIN-010 | Ship BoringSSL statically with `OPENSSL_NO_ASM=1` and the dynamic CRT; treat assembly, FIPS, signing, and dynamic linkage as later gated work | Accepted; non-FIPS footprint measured on x64/ARM64 (see crypto release engineering); enterprise/FIPS requires a separately validated backend |
 
@@ -1028,6 +1177,7 @@ are deliberate submodule bumps.
 | Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
 | Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
 | Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
+| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (60 checks) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
