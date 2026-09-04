@@ -765,6 +765,46 @@ The store builds for x64 and ARM64 under the strict `/W4 /WX` Windows default;
 the smoke passes on x64 and the ARM64 executable inspects as `AA64` and is not
 yet run on native hardware.
 
+## The Windows configuration storage backend
+
+The next Phase 3 persistence layer is
+`src/platform/Windows/WindowsConfig.{h,cpp}`. It maps the standard Matter
+factory, runtime-configuration, and counter keys into the native Windows KVS
+without introducing a second storage format:
+
+-   Keys use stable `factory/`, `config/`, and `counter/` prefixes.
+-   Values carry a one-byte type discriminator followed by a fixed-width
+    little-endian integer, UTF-8 string bytes, or an opaque binary payload.
+    Reads reject type and size mismatches as integrity failures rather than
+    reinterpreting corrupt or incompatible data.
+-   String and binary reads support size queries with a null output buffer.
+    Strings are always returned NUL-terminated when the caller supplies enough
+    space, while the reported length excludes the terminator.
+-   `FactoryResetConfig()` removes only runtime configuration. Factory
+    provisioning—including vendor/product identity, setup passcode,
+    discriminator, SPAKE2+ data, certificates, and keys—survives. Counter reset
+    is a separate operation.
+-   Storage persists across `Shutdown()` and `Init()` through the same
+    checksummed, process-locked KVS root.
+
+The focused `msvc-windows-configuration-smoke` executable validates typed
+round trips, wrong-type rejection, string/blob sizing, existence and idempotent
+deletion, restart persistence, and factory/config/counter reset boundaries.
+Build it with the existing Device Layer probe:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-windows-configuration-smoke.exe
+.\out\win-devlayer-x64\msvc-windows-configuration-smoke.exe
+```
+
+This target intentionally provides the storage contract consumed by
+`GenericConfigurationManagerImpl` but does not yet expose the public
+`ConfigurationMgr()` singleton. That final composition also includes
+`CHIPDeviceLayerInternal.h`, which requires the Windows
+`ConnectivityManager`; it will be enabled with the OS-managed
+Ethernet/Wi-Fi manager rather than hidden behind a placeholder.
+
 ## Cross-build the ARM64 smoke target
 
 Initialize a new PowerShell process for the ARM64 compiler environment:

@@ -83,7 +83,6 @@ constexpr char kOwnerSignature[]   = "Matter Windows KVS v1\r\n";
 // expansion plus the prefix) stays well under the 255-char NTFS component
 // limit, and comfortably exceeds PersistentStorageDelegate::kKeyLengthMax (32).
 constexpr size_t kMaxKeyLength   = 64;
-constexpr size_t kMaxValueLength = 512 * 1024;
 
 uint32_t Crc32(const uint8_t * data, size_t len)
 {
@@ -494,7 +493,7 @@ CHIP_ERROR ReadValueFile(const std::wstring & finalPath, std::vector<uint8_t> & 
     }
 
     const uint64_t fileSize = static_cast<uint64_t>(sizeLi.QuadPart);
-    if (fileSize < kHeaderSize || fileSize > kHeaderSize + kMaxValueLength)
+    if (fileSize < kHeaderSize || fileSize > kHeaderSize + KeyValueStoreManagerImpl::kMaxValueLength)
     {
         CloseHandle(handle);
         ChipLogError(DeviceLayer, "KVS value file has invalid size");
@@ -602,6 +601,33 @@ void KeyValueStoreManagerImpl::Shutdown()
     }
     mRootPath.clear();
     mInitialized = false;
+}
+
+CHIP_ERROR KeyValueStoreManagerImpl::GetValueSize(const char * key, size_t & valueSize)
+{
+    std::lock_guard<std::recursive_mutex> lock(mMutex);
+    VerifyOrReturnError(mInitialized, CHIP_ERROR_UNINITIALIZED);
+    VerifyOrReturnError(key != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    std::wstring fileName;
+    VerifyOrReturnError(EncodeKeyToFileName(key, fileName), CHIP_ERROR_INVALID_ARGUMENT);
+
+    std::vector<uint8_t> stored;
+    ReturnErrorOnFailure(ReadValueFile(mRootPath + L"\\" + fileName, stored));
+    valueSize = stored.size();
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR KeyValueStoreManagerImpl::GetValue(const char * key, std::vector<uint8_t> & value)
+{
+    std::lock_guard<std::recursive_mutex> lock(mMutex);
+    VerifyOrReturnError(mInitialized, CHIP_ERROR_UNINITIALIZED);
+    VerifyOrReturnError(key != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    std::wstring fileName;
+    VerifyOrReturnError(EncodeKeyToFileName(key, fileName), CHIP_ERROR_INVALID_ARGUMENT);
+    value.clear();
+    return ReadValueFile(mRootPath + L"\\" + fileName, value);
 }
 
 CHIP_ERROR KeyValueStoreManagerImpl::_Put(const char * key, const void * value, size_t value_size)

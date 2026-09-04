@@ -93,3 +93,13 @@ static_library("windows-key-value-store") {
     "Ole32.lib",
   ]
 }
+
+static_library("windows-configuration") {
+  sources = [
+    "WindowsConfig.cpp",
+    "WindowsConfig.h",
+  ]
+
+  public_deps = [ ":windows-key-value-store" ]
+  public_configs = [ ":windows-device-layer-config" ]
+}

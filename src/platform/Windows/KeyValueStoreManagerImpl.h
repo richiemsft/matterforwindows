@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace chip {
 namespace DeviceLayer {
@@ -52,6 +53,8 @@ class KeyValueStoreManagerImpl final : public KeyValueStoreManager
     friend class KeyValueStoreManager;
 
 public:
+    static constexpr size_t kMaxValueLength = 512 * 1024;
+
     /**
      * @brief Initialize the store. Must be called before any Get/Put/Delete.
      *
@@ -74,6 +77,16 @@ public:
      *        call when uninitialized. Does not delete any stored data.
      */
     void Shutdown();
+
+    /**
+     * @brief Return the complete stored value size after validating its record.
+     */
+    CHIP_ERROR GetValueSize(const char * key, size_t & valueSize);
+
+    /**
+     * @brief Return a complete validated value under one store lock.
+     */
+    CHIP_ERROR GetValue(const char * key, std::vector<uint8_t> & value);
 
     /**
      * @brief Delete every value owned by this store. Scoped to valid KVS value
