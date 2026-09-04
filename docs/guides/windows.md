@@ -1066,6 +1066,31 @@ wait even though the identical name published and browsed successfully. This
 is host/environment-dependent and is called out as a known limitation below
 rather than encoded as a flaky test assertion.
 
+### On-network discovery acceptance tool
+
+`msvc-windows-dnssd-discovery.exe` is a focused native Windows acceptance tool
+for the Phase 3 real-device gate. It browses `_matterc._udp.local`, resolves
+each instance through the Windows backend, and prints the host, port, interface,
+IPv4/IPv6 addresses, and TXT entries. It exits with code `0` after resolving at
+least one commissionable device, `2` when the timeout expires without a
+resolved device, and `1` for an invalid invocation or platform error.
+
+Build and run it from an initialized x64 environment:
+
+```powershell
+ninja -C out\win-devlayer-x64 msvc-windows-dnssd-discovery.exe
+.\out\win-devlayer-x64\msvc-windows-dnssd-discovery.exe 30
+```
+
+Before running it against a Matter bulb, commission the bulb onto the same LAN
+with an existing ecosystem controller and then open its Matter commissioning
+window. A factory-reset Wi-Fi bulb that has not yet received Wi-Fi credentials
+cannot advertise over IP and therefore requires BLE (or another supported
+commissioning transport) before this tool can discover it. Resolving a device
+with this executable proves native Windows browse/resolve and LAN reachability;
+it does not itself establish a Matter fabric or replace the later controller
+commissioning acceptance test.
+
 ### Firewall and responder notes
 
 -   The backend depends on the Windows `Dnscache` service (displayed as

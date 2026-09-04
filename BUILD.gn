@@ -136,6 +136,7 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-windows-configuration-smoke",
         "//build/config/win/tests:msvc-windows-connectivity-smoke",
         "//build/config/win/tests:msvc-windows-dnssd-smoke",
+        "//build/config/win/tests:msvc-windows-dnssd-discovery",
         "//src/platform/Windows:windows-configuration",
         "//src/platform/Windows:windows-configuration-manager",
         "//src/platform/Windows:windows-connectivity-manager",
