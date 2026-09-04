@@ -133,9 +133,12 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-key-value-store-smoke",
         "//build/config/win/tests:msvc-platform-manager-smoke",
         "//build/config/win/tests:msvc-windows-configuration-smoke",
+        "//build/config/win/tests:msvc-windows-configuration-manager-smoke",
         "//build/config/win/tests:msvc-windows-connectivity-smoke",
         "//src/platform/Windows:windows-configuration",
+        "//src/platform/Windows:windows-configuration-manager",
         "//src/platform/Windows:windows-connectivity-manager",
+        "//src/platform/Windows:windows-device-layer",
         "//src/platform/Windows:windows-key-value-store",
         "//src/platform/Windows:windows-platform-manager",
       ]

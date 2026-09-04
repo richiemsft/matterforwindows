@@ -46,6 +46,13 @@ The initial build foundation provides:
     and selects an operational external interface only when it is up,
     non-loopback, multicast-capable, and has a usable address. The focused
     smoke passes 21 checks on x64 and cross-builds as ARM64.
+-   A public `ConfigurationManager` composed on the typed Windows storage
+    backend. The canonical `PlatformMgr()` lifecycle initializes and shuts down
+    configuration, UDP/TCP endpoint managers, and connectivity; reboot count,
+    operational hours, boot reason, regulatory state, configuration version,
+    unique ID, persisted counters, and primary MAC selection survive restart.
+    Its 32-check smoke also validates asynchronous factory reset on x64 and
+    cross-builds as ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -188,7 +195,9 @@ below). The second Phase 3 milestone -- a native Windows
 same opt-in probe (see
 [The Windows key-value store](#the-windows-key-value-store) below). The typed
 configuration-storage backend and the OS-managed Windows
-`ConnectivityManager` have also landed on that probe. Native
+`ConnectivityManager` have also landed on that probe. The public Windows
+`ConfigurationManager` now composes those pieces into the canonical
+`PlatformMgr()` lifecycle. Native
 ARM64 execution remains a release-support requirement and is
 tracked for the hardware-backed CI phase; cross-compilation alone is not
 presented as ARM64 runtime support.
@@ -806,13 +815,8 @@ ninja -C out\win-devlayer-x64 msvc-windows-configuration-smoke.exe
 .\out\win-devlayer-x64\msvc-windows-configuration-smoke.exe
 ```
 
-This target intentionally provides the storage contract consumed by
-`GenericConfigurationManagerImpl` but does not yet expose the public
-`ConfigurationMgr()` singleton. The Windows `ConnectivityManager` now provides
-the required network-manager peer, but the public configuration composition
-still needs its persisted reboot/operational-hours/boot-reason state, primary
-MAC lookup, factory-reset scheduling, and full canonical Device Layer closure;
-it is not hidden behind a placeholder.
+This storage target is also consumed by the public Windows
+`ConfigurationManager`, described below.
 
 ## The Windows connectivity manager
 
@@ -852,6 +856,46 @@ It passes 21 checks on the development x64 host. The same executable
 cross-builds and inspects as `AA64`; it has not yet run on native ARM64
 hardware. Adapter-change notifications and Device Layer connectivity events
 remain the next connectivity milestone.
+
+## The Windows configuration manager
+
+`src/platform/Windows/ConfigurationManagerImpl.{h,cpp}` composes
+`GenericConfigurationManagerImpl<WindowsConfig>` into the public
+`ConfigurationMgr()` singleton. The full
+`//src/platform/Windows:windows-device-layer` target makes the canonical
+`PlatformMgr().InitChipStack()` path initialize configuration storage, UDP and
+TCP endpoint managers, and connectivity in order, with failure unwinding; its
+shutdown path releases those resources and the KVS ownership lock. The earlier
+`windows-platform-manager` target remains a deliberately isolated event-loop
+foundation probe.
+
+Initialization generates and persists the unique ID when absent, stores
+compile-time vendor/product IDs on first use, increments reboot count, and
+initializes operational hours, boot reason, regulatory location/capability, and
+configuration version. Persisted-storage counters share the `counter/`
+namespace. Primary MAC selection prefers the active external Ethernet or Wi-Fi
+adapter, then another Wi-Fi or Ethernet adapter; the Wi-Fi-specific API returns
+only Wi-Fi hardware addresses.
+
+Factory reset is scheduled onto the Matter event loop. It removes every
+KVS value except the `factory/` provisioning namespace, including runtime
+`config/` and `counter/` values plus standard fabric/global records such as
+`f/...` and `g/...`. The host process is not forcibly terminated; applications
+must restart after the logged reset completion.
+
+Tests may select an isolated absolute UTF-8 storage root with
+`ConfigurationMgrImpl().ConfigureStorageRoot()` before `InitChipStack()`.
+Production uses the default `%LOCALAPPDATA%\Matter\KVS\v1` root:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-windows-configuration-manager-smoke.exe
+.\out\win-devlayer-x64\msvc-windows-configuration-manager-smoke.exe
+```
+
+The smoke passes 32 checks on x64 and cross-builds as `AA64`. It covers the
+canonical lifecycle, restart counter and unique-ID persistence, public
+persisted counters, primary MAC contract, and asynchronous factory reset.
 
 ## Cross-build the ARM64 smoke target
 
@@ -903,7 +947,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks, scoped factory reset), typed configuration storage, and OS-managed Ethernet/Wi-Fi `ConnectivityManager`; public configuration composition, interface-change events, DNS-SD, BLE, diagnostics, and reset remain | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, and OS-managed Ethernet/Wi-Fi `ConnectivityManager`; interface-change events, DNS-SD, BLE, diagnostics, and process restart after reset remain | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -1268,6 +1312,7 @@ are deliberate submodule bumps.
 | Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (72 checks) | Supported | Not yet run on native hardware |
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters; change events pending | Smoke passes (21 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer `ConfigurationManager` | Supported | Smoke passes (32 checks) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

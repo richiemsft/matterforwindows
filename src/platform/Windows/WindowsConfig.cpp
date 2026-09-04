@@ -119,31 +119,6 @@ CHIP_ERROR WriteUnsigned(WindowsConfig::Key key, ValueType type, Integer value)
     return WriteRecord(key, type, payload.data(), payload.size());
 }
 
-const std::array<WindowsConfig::Key, 10> kRuntimeConfigKeys = {
-    WindowsConfig::kConfigKey_UniqueId,           WindowsConfig::kConfigKey_ServiceConfig,
-    WindowsConfig::kConfigKey_PairedAccountId,    WindowsConfig::kConfigKey_ServiceId,
-    WindowsConfig::kConfigKey_LastUsedEpochKeyId, WindowsConfig::kConfigKey_FailSafeArmed,
-    WindowsConfig::kConfigKey_RegulatoryLocation, WindowsConfig::kConfigKey_CountryCode,
-    WindowsConfig::kConfigKey_LocationCapability, WindowsConfig::kConfigKey_ConfigurationVersion,
-};
-
-const std::array<WindowsConfig::Key, 4> kCounterKeys = {
-    WindowsConfig::kCounterKey_RebootCount,
-    WindowsConfig::kCounterKey_UpTime,
-    WindowsConfig::kCounterKey_TotalOperationalHours,
-    WindowsConfig::kCounterKey_BootReason,
-};
-
-template <size_t N>
-CHIP_ERROR ClearKeys(const std::array<WindowsConfig::Key, N> & keys)
-{
-    for (const auto & key : keys)
-    {
-        ReturnErrorOnFailure(WindowsConfig::ClearConfigValue(key));
-    }
-    return CHIP_NO_ERROR;
-}
-
 } // namespace
 
 const char WindowsConfig::kConfigNamespace_ChipFactory[]  = "factory";
@@ -339,11 +314,11 @@ CHIP_ERROR WindowsConfig::ClearNamespace(const char * configNamespace)
     VerifyOrReturnError(configNamespace != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
     if (std::strcmp(configNamespace, kConfigNamespace_ChipConfig) == 0)
     {
-        return ClearKeys(kRuntimeConfigKeys);
+        return PersistedStorage::KeyValueStoreMgrImpl().ClearPrefix("config/");
     }
     if (std::strcmp(configNamespace, kConfigNamespace_ChipCounters) == 0)
     {
-        return ClearKeys(kCounterKeys);
+        return PersistedStorage::KeyValueStoreMgrImpl().ClearPrefix("counter/");
     }
     return CHIP_ERROR_INVALID_ARGUMENT;
 }

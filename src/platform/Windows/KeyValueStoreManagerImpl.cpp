@@ -301,7 +301,7 @@ bool IsHexDigit(wchar_t value)
     return (value >= L'0' && value <= L'9') || (value >= L'A' && value <= L'F');
 }
 
-bool IsOwnedValueFileName(const wchar_t * fileName)
+bool DecodeOwnedValueFileName(const wchar_t * fileName, std::string * decodedKey)
 {
     const std::wstring name(fileName);
     if (name.rfind(kValuePrefix, 0) != 0 || name.size() == 3)
@@ -309,17 +309,18 @@ bool IsOwnedValueFileName(const wchar_t * fileName)
         return false;
     }
 
-    size_t decodedLength = 0;
+    std::string decoded;
+    decoded.reserve(name.size() - 3);
     for (size_t index = 3; index < name.size(); ++index)
     {
-        ++decodedLength;
-        if (decodedLength > kMaxKeyLength)
+        if (decoded.size() >= kMaxKeyLength)
         {
             return false;
         }
         const wchar_t value = name[index];
         if ((value >= L'a' && value <= L'z') || (value >= L'0' && value <= L'9') || value == L'-' || value == L'_')
         {
+            decoded.push_back(static_cast<char>(value));
             continue;
         }
         if (value != L'%' || index + 2 >= name.size() || !IsHexDigit(name[index + 1]) || !IsHexDigit(name[index + 2]))
@@ -329,15 +330,25 @@ bool IsOwnedValueFileName(const wchar_t * fileName)
         const auto hexValue = [](wchar_t digit) -> unsigned char {
             return static_cast<unsigned char>(digit <= L'9' ? digit - L'0' : digit - L'A' + 10);
         };
-        const unsigned char decoded =
+        const unsigned char decodedByte =
             static_cast<unsigned char>((hexValue(name[index + 1]) << 4) | hexValue(name[index + 2]));
-        if (decoded == 0 || IsSafeKeyByte(decoded))
+        if (decodedByte == 0 || IsSafeKeyByte(decodedByte))
         {
             return false;
         }
+        decoded.push_back(static_cast<char>(decodedByte));
         index += 2;
     }
+    if (decodedKey != nullptr)
+    {
+        *decodedKey = std::move(decoded);
+    }
     return true;
+}
+
+bool IsOwnedValueFileName(const wchar_t * fileName)
+{
+    return DecodeOwnedValueFileName(fileName, nullptr);
 }
 
 bool IsOwnedTempFileName(const wchar_t * fileName)
@@ -726,6 +737,104 @@ CHIP_ERROR KeyValueStoreManagerImpl::ClearAll()
         {
             continue;
         }
+        const std::wstring victim = mRootPath + L"\\" + findData.cFileName;
+        if (!DeleteFileW(victim.c_str()) && result == CHIP_NO_ERROR)
+        {
+            result = CHIP_ERROR_WINDOWS(GetLastError());
+        }
+    } while (FindNextFileW(find, &findData));
+
+    const DWORD terminalError = GetLastError();
+    FindClose(find);
+    if (terminalError != ERROR_NO_MORE_FILES && result == CHIP_NO_ERROR)
+    {
+        result = CHIP_ERROR_WINDOWS(terminalError);
+    }
+    return result;
+}
+
+CHIP_ERROR KeyValueStoreManagerImpl::ClearPrefix(const char * prefix)
+{
+    std::lock_guard<std::recursive_mutex> lock(mMutex);
+    VerifyOrReturnError(mInitialized, CHIP_ERROR_UNINITIALIZED);
+    VerifyOrReturnError(prefix != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    const size_t prefixLength = std::strlen(prefix);
+    VerifyOrReturnError(prefixLength > 0 && prefixLength <= kMaxKeyLength, CHIP_ERROR_INVALID_ARGUMENT);
+
+    const std::wstring pattern = mRootPath + L"\\kv_*";
+    WIN32_FIND_DATAW findData{};
+    HANDLE find = FindFirstFileW(pattern.c_str(), &findData);
+    if (find == INVALID_HANDLE_VALUE)
+    {
+        const DWORD last = GetLastError();
+        return last == ERROR_FILE_NOT_FOUND || last == ERROR_PATH_NOT_FOUND ? CHIP_NO_ERROR : CHIP_ERROR_WINDOWS(last);
+    }
+
+    CHIP_ERROR result = CHIP_NO_ERROR;
+    do
+    {
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        {
+            continue;
+        }
+
+        std::string key;
+        if (!DecodeOwnedValueFileName(findData.cFileName, &key) || key.compare(0, prefixLength, prefix) != 0)
+        {
+            continue;
+        }
+
+        const std::wstring victim = mRootPath + L"\\" + findData.cFileName;
+        if (!DeleteFileW(victim.c_str()) && result == CHIP_NO_ERROR)
+        {
+            result = CHIP_ERROR_WINDOWS(GetLastError());
+        }
+    } while (FindNextFileW(find, &findData));
+
+    const DWORD terminalError = GetLastError();
+    FindClose(find);
+    if (terminalError != ERROR_NO_MORE_FILES && result == CHIP_NO_ERROR)
+    {
+        result = CHIP_ERROR_WINDOWS(terminalError);
+    }
+    return result;
+}
+
+CHIP_ERROR KeyValueStoreManagerImpl::ClearAllExceptPrefix(const char * preservedPrefix)
+{
+    std::lock_guard<std::recursive_mutex> lock(mMutex);
+    VerifyOrReturnError(mInitialized, CHIP_ERROR_UNINITIALIZED);
+    VerifyOrReturnError(preservedPrefix != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+
+    const size_t prefixLength = std::strlen(preservedPrefix);
+    VerifyOrReturnError(prefixLength > 0 && prefixLength <= kMaxKeyLength, CHIP_ERROR_INVALID_ARGUMENT);
+
+    const std::wstring pattern = mRootPath + L"\\kv_*";
+    WIN32_FIND_DATAW findData{};
+    HANDLE find = FindFirstFileW(pattern.c_str(), &findData);
+    if (find == INVALID_HANDLE_VALUE)
+    {
+        const DWORD last = GetLastError();
+        return last == ERROR_FILE_NOT_FOUND || last == ERROR_PATH_NOT_FOUND ? CHIP_NO_ERROR : CHIP_ERROR_WINDOWS(last);
+    }
+
+    CHIP_ERROR result = CHIP_NO_ERROR;
+    do
+    {
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        {
+            continue;
+        }
+
+        std::string key;
+        const bool isValue = DecodeOwnedValueFileName(findData.cFileName, &key);
+        if ((!isValue && !IsOwnedTempFileName(findData.cFileName)) ||
+            (isValue && key.compare(0, prefixLength, preservedPrefix) == 0))
+        {
+            continue;
+        }
+
         const std::wstring victim = mRootPath + L"\\" + findData.cFileName;
         if (!DeleteFileW(victim.c_str()) && result == CHIP_NO_ERROR)
         {

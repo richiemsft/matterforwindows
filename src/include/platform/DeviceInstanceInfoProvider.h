@@ -289,10 +289,9 @@ public:
                       "CHIP_IM_SERVER_MAX_NUM_PATH_GROUPS_FOR_SUBSCRIPTIONS must be greater than or equal to 3 and less than or "
                       "equal to 10000");
 
-        return DeviceInfoCapabilityMinimas{ .simultaneousInvocationsSupported = CHIP_IM_MAX_NUM_COMMAND_HANDLER,
-                                            .simultaneousWritesSupported      = CHIP_IM_MAX_NUM_WRITE_HANDLER,
-                                            .readPathsSupported               = CHIP_IM_SERVER_MAX_NUM_PATH_GROUPS_FOR_READS,
-                                            .subscribePathsSupported = CHIP_IM_SERVER_MAX_NUM_PATH_GROUPS_FOR_SUBSCRIPTIONS };
+        return DeviceInfoCapabilityMinimas{ CHIP_IM_MAX_NUM_COMMAND_HANDLER, CHIP_IM_MAX_NUM_WRITE_HANDLER,
+                                            CHIP_IM_SERVER_MAX_NUM_PATH_GROUPS_FOR_READS,
+                                            CHIP_IM_SERVER_MAX_NUM_PATH_GROUPS_FOR_SUBSCRIPTIONS };
     }
 
 protected:

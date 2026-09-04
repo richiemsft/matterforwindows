@@ -36,6 +36,20 @@ config("windows-device-layer-config") {
   ]
 }
 
+config("windows-generated-header-config") {
+  include_dirs = [
+    "$root_gen_dir/include",
+    "//zzz_generated/app-common",
+  ]
+  cflags = [
+    "/FIplatform/Windows/MsvcCompilerCompatibility.h",
+    "/wd4068",
+    "/wd4130",
+    "/wd4505",
+    "/wd4702",
+  ]
+}
+
 static_library("windows-platform-manager") {
   sources = [
     "../DeviceSafeQueue.cpp",
@@ -111,10 +125,65 @@ static_library("windows-connectivity-manager") {
   ]
 
   public_deps = [
-    ":windows-platform-manager",
+    "//src/lib/core/windows:windows-core-portable",
     "//src/inet/windows:windows-tcp-endpoint",
     "//src/inet/windows:windows-udp-endpoint",
+    "//src/system/windows:windows-system-layer",
     "//third_party/nlio",
   ]
   public_configs = [ ":windows-device-layer-config" ]
+}
+
+static_library("windows-configuration-manager") {
+  sources = [
+    "../CommissionableDataProvider.cpp",
+    "../DeviceInstanceInfoProvider.cpp",
+    "../PersistedStorage.cpp",
+    "../SingletonConfigurationManager.cpp",
+    "ConfigurationManagerImpl.cpp",
+    "ConfigurationManagerImpl.h",
+    "MsvcCompilerCompatibility.h",
+  ]
+
+  public_deps = [
+    ":windows-configuration",
+    ":windows-connectivity-manager",
+    "//src/app/common:enums",
+    "//src/credentials:build_time_header",
+    "//src/crypto/windows:windows-crypto-boringssl",
+  ]
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-generated-header-config",
+  ]
+}
+
+static_library("windows-device-layer") {
+  sources = [
+    "../DeviceSafeQueue.cpp",
+    "../DeviceSafeQueue.h",
+    "BlePlatformConfig.h",
+    "CHIPDevicePlatformConfig.h",
+    "CHIPDevicePlatformEvent.h",
+    "CHIPPlatformConfig.h",
+    "InetPlatformConfig.h",
+    "MsvcCompilerCompatibility.h",
+    "PlatformManagerImpl.cpp",
+    "PlatformManagerImpl.h",
+    "SystemLayerGlobals.cpp",
+    "SystemPlatformConfig.h",
+  ]
+
+  public_deps = [
+    ":windows-configuration-manager",
+    "//src/lib/core/windows:windows-core-portable",
+    "//src/system/windows:windows-system-layer",
+  ]
+  deps = [ "//src/credentials:build_time_header" ]
+  defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-generated-header-config",
+  ]
+  libs = [ "Ws2_32.lib" ]
 }

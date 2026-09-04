@@ -22,6 +22,10 @@
  */
 
 #include <platform/PlatformManager.h>
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
+#include <platform/ConfigurationManager.h>
+#include <platform/ConnectivityManager.h>
+#endif
 
 // Pull in the non-inline definitions for the generic Windows PlatformManager
 // implementation from which PlatformManagerImpl inherits.
@@ -38,7 +42,61 @@ CHIP_ERROR PlatformManagerImpl::_InitChipStack()
 {
     mStartTime = System::SystemClock().GetMonotonicTimestamp();
 
-    return Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_InitChipStack();
+    ReturnErrorOnFailure(Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_InitChipStack());
+
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
+    CHIP_ERROR error = ConfigurationMgr().Init();
+    if (error != CHIP_NO_ERROR)
+    {
+        Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
+        return error;
+    }
+
+    error = UDPEndPointManager()->Init(SystemLayer());
+    if (error != CHIP_NO_ERROR)
+    {
+        ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
+        Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
+        return error;
+    }
+
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+    error = TCPEndPointManager()->Init(SystemLayer());
+    if (error != CHIP_NO_ERROR)
+    {
+        UDPEndPointManager()->Shutdown();
+        ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
+        Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
+        return error;
+    }
+#endif
+
+    error = ConnectivityMgr().Init();
+    if (error != CHIP_NO_ERROR)
+    {
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+        TCPEndPointManager()->Shutdown();
+#endif
+        UDPEndPointManager()->Shutdown();
+        ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
+        Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
+    }
+    return error;
+#else
+    return CHIP_NO_ERROR;
+#endif
+}
+
+void PlatformManagerImpl::_Shutdown()
+{
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
+    UDPEndPointManager()->Shutdown();
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+    TCPEndPointManager()->Shutdown();
+#endif
+    ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
+#endif
+    Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
 }
 
 } // namespace DeviceLayer
