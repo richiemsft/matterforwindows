@@ -177,6 +177,70 @@ static_library("windows-diagnostic-data-provider") {
   ]
 }
 
+# Native Windows DNS-SD backend built on the Win32 windns.h service discovery
+# APIs (DnsServiceRegister/DnsServiceBrowse/DnsServiceResolve and their
+# DeRegister/Cancel counterparts). Uses the native OS mDNS responder only; it
+# never binds UDP 5353.
+#
+# This intentionally does NOT depend on //src/lib/dnssd's own BUILD.gn targets
+# (":constants", ":naming", ":platform_header"): those pull in the canonical
+# "//src/lib/support" closure, which is not yet a Windows build (it reaches
+# third_party/nlfaultinjection, which has no Windows port). The
+# src/lib/dnssd/platform/Dnssd.h contract this implements only needs headers
+# that are either self-contained (Constants.h, ServiceNaming.h are
+# header-only "inline constexpr") or backed by Inet, whose IPAddress/
+# IPPrefix/InetInterface sources this target compiles itself (matching the
+# pattern already used by //src/inet/windows:windows-udp-endpoint and
+# :windows-tcp-endpoint) rather than depending on
+# //src/inet/windows:windows-interface, whose IPv4 support is compiled out.
+# "//src" is on the include path via windows-device-layer-config, so the
+# lib/dnssd headers still resolve normally.
+#
+# lib/dnssd/Types.h (pulled in transitively via ServiceNaming.h) expects the
+# general //src/platform default for CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES;
+# that target itself is not yet a Windows build, so the default (matching
+# src/platform/BUILD.gn) is repeated here rather than depending on it. IPv4
+# support is required by the Matter DNS-SD contract (A and AAAA records).
+# Both are a public_config (rather than a plain "defines" list) so any
+# consumer that also includes lib/dnssd/platform/Dnssd.h (e.g. this library's
+# smoke test) sees the same defines.
+config("windows-dnssd-config") {
+  defines = [
+    "CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES=5",
+    "INET_CONFIG_ENABLE_IPV4=1",
+  ]
+}
+
+static_library("windows-dnssd") {
+  sources = [
+    "../../inet/IPAddress.cpp",
+    "../../inet/IPAddress.h",
+    "../../inet/IPPrefix.cpp",
+    "../../inet/IPPrefix.h",
+    "../../inet/InetInterface.cpp",
+    "../../inet/InetInterface.h",
+    "DnssdImpl.cpp",
+    "DnssdImpl.h",
+  ]
+
+  public_deps = [ "//src/lib/core/windows:windows-core-portable" ]
+  deps = [
+    "//src/system/windows:windows-system-errors",
+    "//third_party/nlio",
+  ]
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-dnssd-config",
+    "//src/system/windows:system-config",
+  ]
+
+  libs = [
+    "dnsapi.lib",
+    "Iphlpapi.lib",
+    "Ws2_32.lib",
+  ]
+}
+
 static_library("windows-device-layer") {
   sources = [
     "../DeviceSafeQueue.cpp",
@@ -196,6 +260,7 @@ static_library("windows-device-layer") {
   public_deps = [
     ":windows-configuration-manager",
     ":windows-diagnostic-data-provider",
+    ":windows-dnssd",
     "//src/lib/core/windows:windows-core-portable",
     "//src/system/windows:windows-system-layer",
   ]

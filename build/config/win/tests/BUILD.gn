@@ -151,6 +151,16 @@ executable("msvc-windows-configuration-manager-smoke") {
   deps = [ "//src/platform/Windows:windows-device-layer" ]
 }
 
+executable("msvc-windows-dnssd-smoke") {
+  sources = [ "msvc_windows_dnssd_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [
+    "//src/platform/Windows:windows-dnssd",
+    "//src/platform/Windows:windows-platform-manager",
+  ]
+  libs = [ "Ole32.lib" ]
+}
+
 # Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
 # ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
 # selection macros and include paths propagate from the windows-crypto-boringssl

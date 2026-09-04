@@ -58,6 +58,18 @@ The initial build foundation provides:
     smoke also validates asynchronous factory reset and event-loop-marshaled
     network-change delivery on x64 and
     cross-builds as ARM64.
+-   A native DNS-SD backend (`src/platform/Windows/DnssdImpl.cpp`) implementing
+    the full `chip::Dnssd` platform contract over the Win32 `windns.h`
+    service-discovery APIs (`DnsServiceRegister`/`Browse`/`Resolve` and their
+    `DeRegister`/`Cancel` counterparts), using the native OS mDNS responder
+    exclusively. Every native completion is marshaled onto
+    `PlatformMgr().ScheduleWork()`; publish/browse/resolve operations are
+    reference-counted so late, superseded, or post-shutdown callbacks are
+    recognized as stale and cleaned up without ever invoking a Matter
+    callback. The 65-check smoke covers deterministic conversion/validation
+    seams, the init/shutdown/reinit lifecycle, a live GUID-service publish,
+    and a live browse/`StopBrowse()` cancellation cycle (exactly one final
+    callback) on x64, and cross-builds as ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -931,6 +943,145 @@ model:
     adapter that disappears during enumeration is skipped without failing the
     complete General Diagnostics attribute read.
 
+## The Windows DNS-SD backend
+
+`src/platform/Windows/DnssdImpl.{h,cpp}` implements every
+`src/lib/dnssd/platform/Dnssd.h` entry point active for non-Darwin builds
+(`ChipDnssdInit`/`Shutdown`, `RemoveServices`/`PublishService`/
+`FinalizeServiceUpdate`, `Browse`/`StopBrowse`, `Resolve`/
+`ResolveNoLongerNeeded`, `ReconfirmRecord`) on top of the Win32 `windns.h`
+service-discovery APIs (`DnsServiceRegister`/`DnsServiceBrowse`/
+`DnsServiceResolve` and their `DeRegister`/`Cancel` counterparts). This is the
+**native OS mDNS responder** (implemented by the `Dnscache` service): the port
+never binds UDP 5353 and never implements any part of the mDNS wire protocol
+itself.
+
+-   Every `windns.h` entry point used here is asynchronous: a successful call
+    returns `DNS_REQUEST_PENDING` and the outcome is delivered later, on an
+    arbitrary OS thread, to the completion callback in the request. Every such
+    callback deep-copies what it needs (freeing any Windows-owned
+    `PDNS_RECORD`/`PDNS_SERVICE_INSTANCE` memory) and then marshals onto
+    `PlatformMgr().ScheduleWork()` before invoking any `chip::Dnssd` callback,
+    so no Matter callback ever runs on a Windows worker thread.
+-   Publish/Browse/Resolve operations are individually reference-counted
+    (`std::shared_ptr`) and kept alive, for exactly as long as the OS may still
+    call back into them, by a private copy of that `shared_ptr` heap-allocated
+    alongside the native request. A backend generation counter and registry
+    membership checks let late or superseded callbacks (a repeated
+    `PublishService()` for the same name/type/protocol/interface/port,
+    `Shutdown()`, or a lost race with `StopBrowse()`) be recognized as stale
+    and cleaned up (including a best-effort `DnsServiceDeRegister()` of an
+    orphaned registration) without ever invoking a Matter callback for them.
+-   Publication replacement is serialized by DNS-SD identity. When Matter
+    removes and immediately republishes an instance during an advertisement
+    refresh, the replacement registration waits for the previous
+    cancel/deregister completion. This prevents a late asynchronous
+    deregistration from removing the newly published record.
+-   `StopBrowse()` calls `DnsServiceBrowseCancel()` and relies on Windows
+    invoking the browse callback once more with a cancellation status
+    (observed consistently on this host); if the cancel call itself fails
+    (operation already finished), the required final `finalBrowse=true`
+    callback is synthesized directly. Either path is guarded by a
+    compare-and-swap flag so exactly one final callback is ever delivered.
+-   `ResolveNoLongerNeeded()` removes the matching in-flight resolve(s) from
+    the registry before calling `DnsServiceResolveCancel()`, so a resolve
+    completion that arrives after abandonment is recognized as stale and
+    suppressed rather than delivered.
+-   Publish validates protocol, required name/type, and TXT entries up front:
+    an embedded NUL byte in a binary TXT value is rejected
+    (`CHIP_ERROR_INVALID_ARGUMENT`) rather than silently truncated, because
+    `DNS_SERVICE_INSTANCE` TXT values are NUL-terminated wide strings and
+    cannot represent one. UTF-8 to UTF-16 conversion failures (and the reverse,
+    when reading resolved host names/TXT values back) are surfaced the same
+    way. `ReconfirmRecord()` validates its hostname argument and then returns
+    `CHIP_ERROR_NOT_IMPLEMENTED`: `windns.h` has no equivalent to the
+    mDNSResponder "reconfirm record" hook this API models.
+-   Interface selection follows the Matter `Inet::InterfaceId` contract: index
+    0 (the `windns.h` convention for "any interface") when no interface is
+    given, otherwise the interface's native Windows interface index
+    (`InterfaceId::GetInterfaceIndex()`, an `IfLuid`-backed conversion also
+    used by `//src/inet/windows`). Resolved results convert the numeric
+    interface index back with `ConvertInterfaceIndexToLuid()`.
+-   Subtype browse queries retain the full subtype in the wire query (for
+    example `_L840._sub._matterc._udp.local`) while matching the returned PTR
+    target and reporting the result using its base type
+    (`_matterc._udp.local`). This keeps filtered commissionable-node discovery
+    compatible with the Matter browse-to-resolve contract.
+-   `IP6_ADDRESS` (the `windns.h` IPv6 address type) is a union whose typed
+    `In6` alternative is compiled in only behind `#ifdef IN6_ADDR` -- a guard
+    that is never satisfied in the Windows SDK headers, because `IN6_ADDR` is
+    only ever a `typedef`, never a `#define`. The backend copies the 16
+    address bytes directly (`IP6_ADDRESS::IP6Byte`) instead of relying on that
+    member.
+
+New files:
+
+-   `src/platform/Windows/DnssdImpl.{h,cpp}` -- the backend. The header also
+    exposes a small set of pure, deterministic helpers (`MakeFullServiceType`,
+    `GetBaseServiceType`, `Utf8ToWide`/`WideToUtf8`, `MapServiceStatus`,
+    `InterfaceIdFromIndex`) used by the implementation and exercised directly
+    by the smoke test.
+-   `build/config/win/tests/msvc_windows_dnssd_smoke.cpp` -- the focused
+    runtime smoke, built as `msvc-windows-dnssd-smoke` under the same
+    `chip_windows_device_layer_probe` opt-in used by the rest of the Device
+    Layer probe.
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-windows-dnssd-smoke.exe
+.\out\win-devlayer-x64\msvc-windows-dnssd-smoke.exe
+```
+
+The smoke covers, deterministically and without any flaky network assertion:
+
+-   the UTF-8/UTF-16, status-mapping, service-type, and interface-index
+    conversion seams, in isolation;
+-   synchronous argument validation for every entry point, both before and
+    after `Init()`, including the embedded-NUL TXT rejection and the
+    unimplemented `ReconfirmRecord()` contract;
+-   the init/shutdown/reinit lifecycle, including that every operation is
+    rejected with `CHIP_ERROR_INCORRECT_STATE` after `Shutdown()` and that a
+    fresh `Init()` recovers it;
+-   a **live** publish of a uniquely named (GUID) service under
+    `_matterc._udp`, asserting the success callback reports the base
+    `_matterc._udp` type and the instance name -- this exercises the real
+    `DnsServiceRegister()` path against the host's `Dnscache` responder;
+-   an immediate remove-and-republish of the same service identity, verifying
+    that asynchronous deregistration is completed before replacement
+    registration;
+-   a **live** browse for `_matterc._udp` followed by `StopBrowse()`, asserting
+    exactly one `finalBrowse=true` callback is ever delivered -- this
+    exercises the real `DnsServiceBrowse()`/`DnsServiceBrowseCancel()`
+    cancellation contract;
+-   a resolve started and then immediately abandoned via
+    `ResolveNoLongerNeeded()`, asserting the resolve callback is never
+    invoked.
+
+It deliberately does **not** assert that browse/resolve discover any published
+service over multicast: that depends on host firewall profile, adapter state,
+and (per manual investigation on this development host) mDNS implementations
+commonly suppress a host from resolving its own just-published record over
+loopback, so a same-host resolve did not complete within a generous 10-second
+wait even though the identical name published and browsed successfully. This
+is host/environment-dependent and is called out as a known limitation below
+rather than encoded as a flaky test assertion.
+
+### Firewall and responder notes
+
+-   The backend depends on the Windows `Dnscache` service (displayed as
+    "DNS Client"); on the development host used for this milestone it was
+    already running and required no configuration. The separate Function
+    Discovery services (`FDResPub`/`fdPHost`) were stopped throughout and were
+    not required for `DnsServiceRegister`/`Browse`/`Resolve` to function.
+-   No inbound/outbound Windows Firewall rule changes were required to
+    exercise the live publish and browse/cancel smoke checks on this host.
+    Production deployments should still confirm the "mDNS" / "Network
+    Discovery" firewall rule group (or an application-specific rule) is
+    enabled for the profile in use; this port does not open the mDNS port
+    itself; only the OS responder does.
+-   Same-host self-resolve reliability is not guaranteed (see above); this is
+    an mDNS-implementation characteristic, not specific to this backend.
+
 ## Cross-build the ARM64 smoke target
 
 Initialize a new PowerShell process for the ARM64 compiler environment:
@@ -942,6 +1093,13 @@ ninja -C out\win-arm64-msvc-smoke
 dumpbin /headers out\win-arm64-msvc-smoke\msvc-toolchain-smoke.exe |
     Select-String "machine \(ARM64\)"
 ```
+
+The DNS-SD backend and its smoke target cross-build the same way
+(`chip_device_platform="windows" chip_windows_device_layer_probe=true`,
+target `msvc-windows-dnssd-smoke.exe`) and were confirmed to compile and link
+as `ARM64` for this milestone; like every other Windows Device Layer
+component so far, **ARM64 runtime support has not been exercised on native
+ARM64 hardware** and must not be claimed as supported until it is.
 
 ARM64 runtime support must be tested on native Windows ARM64 hardware before
 the architecture is listed as fully supported.
@@ -981,8 +1139,8 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events, and the General Diagnostics provider; DNS-SD, BLE, and process restart after reset remain | Platform contract |
-| DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events, the General Diagnostics provider, and a native DNS-SD backend over `windns.h`; BLE and process restart after reset remain | Platform contract |
+| DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
 | Server | Portable cluster and Interaction Model code | No Windows host lifecycle, network driver, event transport, named-pipe replacement, or example target | Platform and application |
@@ -1297,7 +1455,7 @@ are deliberate submodule bumps.
 | WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset, and cross-build as `AA64`; the monolithic credentials/Device-Layer closure is deferred |
 | WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
-| WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted |
+| WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted; realized by the native DNS-SD backend (`src/platform/Windows/DnssdImpl.cpp`) over `windns.h` `DnsServiceRegister`/`Browse`/`Resolve`; 65-check smoke covers the lifecycle plus live publish, serialized remove/republish, and browse/cancel cycles on x64 and cross-builds as ARM64 |
 | WIN-007 | Use C++/WinRT BLE and marshal completions onto the Matter event loop | Accepted |
 | WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted; realized by the native `KeyValueStoreManager` (default `%LOCALAPPDATA%\Matter\KVS\v1`, injectable root, atomic durable writes, integrity checks, single-owner lock, scoped factory reset) |
 | WIN-009 | Support unpackaged and packaged desktop applications; surface capability differences explicitly | Accepted |
@@ -1347,10 +1505,11 @@ are deliberate submodule bumps.
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
 | Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| DNS-SD | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
+| DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Thread through border router | Blocked by controller/IP work | Not yet supported | Blocked by controller/IP work | Not yet supported |
 
@@ -1375,7 +1534,7 @@ are deliberate submodule bumps.
     Channel components compile on Windows, and the Phase 3 Device Layer
     `PlatformManager` foundation compiles for x64/ARM64 with its lifecycle smoke
     passing on x64. The aggregate Core SDK, the full Device Layer (connectivity,
-    storage, DNS-SD, BLE), controller, and server targets do not yet compile as
+    storage, BLE), controller, and server targets do not yet compile as
     complete Windows closures. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
@@ -1383,9 +1542,35 @@ are deliberate submodule bumps.
     tests also pass. The monolithic `//src/credentials:credentials` library (`FabricTable`,
     `LastKnownGoodTime`, `GroupDataProvider`, `PersistentStorageOpCertStore`) is
     not yet ported because it pulls the unported Windows Device Layer.
+-   The native DNS-SD backend does not publish Matter subtype PTR records
+    (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
+    `DnsServiceConstructInstance()` surface it registers through has no
+    subtype field, and there is no separate `windns.h` call to add one. A
+    published service is discoverable by its base type only.
+-   A TXT value containing an embedded NUL byte cannot be published: the
+    underlying `DNS_SERVICE_INSTANCE` TXT values are NUL-terminated wide
+    strings. `ChipDnssdPublishService()` rejects this case explicitly
+    (`CHIP_ERROR_INVALID_ARGUMENT`) instead of silently truncating it.
+-   `ChipDnssdReconfirmRecord()` always returns `CHIP_ERROR_NOT_IMPLEMENTED`
+    (after validating its hostname argument): `windns.h` has no equivalent to
+    the mDNSResponder "reconfirm record" hook this API models.
+-   Same-host resolve reliability was not established on the development host
+    used for this milestone: publishing and browsing a uniquely named (GUID)
+    service both completed live and quickly, but resolving that same service
+    from the same host did not complete within a generous 10-second wait, even
+    after cancellation. This is consistent with the common mDNS behavior of
+    suppressing a host's own multicast announcements on receive (loopback
+    suppression) and is not necessarily representative of resolving a
+    *different* host's service. The DNS-SD smoke test therefore does not
+    assert on resolve completion; see "Firewall and responder notes" above.
+-   No Windows Firewall rule automation is provided for the DNS-SD responder;
+    see "Firewall and responder notes" above for what was and was not required
+    on the development host used for this milestone.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
-    hardware.
--   No Windows CI runner, DNS-SD backend, BLE backend, or persistence provider
+    hardware. This applies to the DNS-SD backend as much as every other
+    Windows Device Layer component so far: it cross-builds and links as
+    `ARM64`, but has not been run on native ARM64 hardware.
+-   No Windows CI runner, BLE backend, or persistence-provider ACL hardening
     is present yet.
 -   Native Wi-Fi provisioning, a local Thread stack, and a Windows Thread
     border router are outside the first-release scope.
