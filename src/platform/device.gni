@@ -121,7 +121,8 @@ declare_args() {
              chip_device_platform == "realtek_bee" ||
              (chip_device_platform == "linux" &&
               chip_system_config_use_openthread_inet_endpoints) ||
-             chip_device_platform == "tizen") {
+             chip_device_platform == "tizen" ||
+             chip_device_platform == "windows") {
     chip_mdns = "platform"
   } else {
     chip_mdns = "none"

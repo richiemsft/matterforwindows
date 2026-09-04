@@ -35,6 +35,26 @@
 #include <stddef.h>
 #include <utility>
 
+// Whether this translation unit is built with AddressSanitizer, checked via
+// the compiler-provided "__SANITIZE_ADDRESS__" macro (GCC/MSVC) or Clang's
+// __has_feature(address_sanitizer). This deliberately never *defines*
+// "__SANITIZE_ADDRESS__" itself: it is a reserved (leading double-underscore)
+// identifier, and on MSVC merely defining it (to any value, including 0)
+// makes the STL's <xstring>/<xvector>/<xutility> headers believe ASan
+// container-overflow annotations are active, producing an LNK2038 "annotate_*"
+// mismatch against every other translation unit that never defined it.
+#if defined(__SANITIZE_ADDRESS__)
+#define CHIP_POOL_HAS_ADDRESS_SANITIZER 1
+#elif defined(__clang__) && defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define CHIP_POOL_HAS_ADDRESS_SANITIZER 1
+#else
+#define CHIP_POOL_HAS_ADDRESS_SANITIZER 0
+#endif // __has_feature(address_sanitizer)
+#else
+#define CHIP_POOL_HAS_ADDRESS_SANITIZER 0
+#endif
+
 namespace chip {
 
 template <class T>
@@ -384,27 +404,16 @@ public:
     HeapObjectPool() {}
     ~HeapObjectPool()
     {
-#ifndef __SANITIZE_ADDRESS__
-#ifdef __clang__
-#if __has_feature(address_sanitizer)
-#define __SANITIZE_ADDRESS__ 1
-#else
-#define __SANITIZE_ADDRESS__ 0
-#endif // __has_feature(address_sanitizer)
-#else
-#define __SANITIZE_ADDRESS__ 0
-#endif // __clang__
-#endif // __SANITIZE_ADDRESS__
-#if __SANITIZE_ADDRESS__
+#if CHIP_POOL_HAS_ADDRESS_SANITIZER
         // Free all remaining objects so that ASAN can catch specific use-after-free cases.
         ReleaseAll();
-#else  // __SANITIZE_ADDRESS__
+#else  // CHIP_POOL_HAS_ADDRESS_SANITIZER
         if (!sIgnoringLeaksOnExit)
         {
             // Verify that no live objects remain, to prevent potential use-after-free.
             VerifyOrDieWithObject(Allocated() == 0, this);
         }
-#endif // __SANITIZE_ADDRESS__
+#endif // CHIP_POOL_HAS_ADDRESS_SANITIZER
     }
 
     /// Provides iteration over active objects in the pool.

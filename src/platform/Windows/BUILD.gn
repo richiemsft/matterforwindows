@@ -22,6 +22,9 @@
 
 assert(current_os == "win")
 
+import("//build_overrides/chip.gni")
+import("${chip_root}/src/platform/device.gni")
+
 # Selects the Windows platform header set and exposes the Windows device
 # platform configuration to every consumer of the foundation library.
 config("windows-device-layer-config") {
@@ -75,6 +78,98 @@ static_library("windows-platform-manager") {
   public_configs = [ ":windows-device-layer-config" ]
 
   libs = [ "Ws2_32.lib" ]
+}
+
+# Canonical-config twin of ":windows-platform-manager" above: compiles the
+# same PlatformManagerImpl.cpp/DeviceSafeQueue.cpp, but
+# against canonical //src/lib/core:core and //src/system:system instead of
+# the ad hoc, command-line-configured //src/lib/core/windows:windows-core-portable
+# and //src/system/windows:windows-system-layer. This is the target canonical
+# //src/platform:platform depends on for chip_device_platform=="windows" (see
+# src/platform/BUILD.gn's "_platform_target"): //src/platform:platform's own
+# "platform_base" sub-target already depends on canonical //src/lib/core,
+# //src/system, etc., so depending on the ad hoc pair above here would relink
+# a second, independently configured copy of CHIPError/TLV/the System Layer
+# into the same binary -- an ODR/link conflict under /WX (see
+# docs/guides/windows.md, "The Windows Device Layer foundation"). The plain
+# ":windows-platform-manager" above is preserved unchanged for its existing
+# standalone smoke (msvc-platform-manager-smoke) and every other Windows
+# Device Layer target that still pairs with it (":windows-dnssd",
+# ":windows-configuration-manager", ...).
+static_library("windows-platform-manager-canonical") {
+  sources = [
+    "../DeviceSafeQueue.cpp",
+    "../DeviceSafeQueue.h",
+    "//src/include/platform/internal/GenericPlatformManagerImpl_Windows.h",
+    "//src/include/platform/internal/GenericPlatformManagerImpl_Windows.ipp",
+    "BlePlatformConfig.h",
+    "CHIPDevicePlatformConfig.h",
+    "CHIPDevicePlatformEvent.h",
+    "CHIPPlatformConfig.h",
+    "ConfigurationManagerImpl.cpp",
+    "ConfigurationManagerImpl.h",
+    "ConnectivityManagerImpl.cpp",
+    "ConnectivityManagerImpl.h",
+    "DiagnosticDataProviderImpl.cpp",
+    "DiagnosticDataProviderImpl.h",
+    "InetPlatformConfig.h",
+    "KeyValueStoreManagerImpl.cpp",
+    "KeyValueStoreManagerImpl.h",
+    "MsvcCompilerCompatibility.h",
+    "PlatformManagerImpl.cpp",
+    "PlatformManagerImpl.h",
+    "SystemPlatformConfig.h",
+    "WindowsConfig.cpp",
+    "WindowsConfig.h",
+    "../SingletonConfigurationManager.cpp",
+  ]
+
+  public_deps = [
+    "//src/app/common:enums",
+    "//src/credentials:build_time_header",
+    "//src/crypto:crypto",
+    "//src/lib/core:core",
+    "//src/system:system",
+    "//third_party/nlio",
+  ]
+
+  defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
+
+  libs = [
+    "Iphlpapi.lib",
+    "Ole32.lib",
+    "Shell32.lib",
+    "Ws2_32.lib",
+  ]
+
+  # DnssdImpl.cpp is compiled directly into this target (rather than a
+  # separate opt-in library, as the ad hoc ":windows-dnssd" is) to match how
+  # every other chip_mdns_platform platform's own "_platform_target" composes
+  # it (e.g. src/platform/Darwin/BUILD.gn's "Darwin" target includes
+  # "dnssd/DnssdImpl.cpp" directly): //src/lib/dnssd:dnssd's chip_mdns_platform
+  # sources (Discovery_ImplPlatform.cpp) publicly depend on the generic
+  # //src/platform umbrella target, so the concrete backend needs to live
+  # inside it, not bolted on separately.
+  if (chip_mdns_platform) {
+    sources += [
+      "DnssdImpl.cpp",
+      "DnssdImpl.h",
+    ]
+    public_deps += [
+      "//src/inet:inet",
+      "//src/lib/dnssd:naming",
+      "//src/lib/dnssd:platform_header",
+    ]
+    libs += [
+      "dnsapi.lib",
+      "Iphlpapi.lib",
+    ]
+  }
+
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-generated-header-config",
+  ]
 }
 
 # Native Windows key-value store foundation for controller fabric persistence.

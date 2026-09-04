@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build_overrides/build.gni")
 import("//build_overrides/chip.gni")
 
+import("${build_root}/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/buildconfig_header.gni")
 import("${chip_root}/build/chip/tests.gni")
 import("${chip_root}/src/controller/flags.gni")
@@ -617,7 +619,29 @@ if (chip_device_platform != "none") {
       ]
     }
 
-    cflags = [ "-Wconversion" ]
+    cflags = []
+    if (!is_msvc) {
+      cflags += [ "-Wconversion" ]
+    } else {
+      # The generated zzz_generated/app-common cluster headers this library's
+      # DiagnosticDataProvider.cpp/CommissionableDataProvider.cpp/etc reach
+      # use GCC/Clang's __attribute__((unused)) on enum-conformance check
+      # functions (MSVC does not understand it as an attribute syntax) and,
+      # per translation unit, define far more of those per-cluster
+      # EnsureKnownEnumValue() checks than any single translation unit calls,
+      # which MSVC (unlike GCC/Clang) flags individually as C4505 ("unused
+      # function with internal linkage removed"). This matches the same
+      # force-include/warning suppression already applied for the Windows
+      # Device Layer's own generated-header consumers (see
+      # src/platform/Windows/BUILD.gn's "windows-generated-header-config").
+      cflags += [
+        "/FIplatform/Windows/MsvcCompilerCompatibility.h",
+        "/wd4068",
+        "/wd4130",
+        "/wd4505",
+        "/wd4702",
+      ]
+    }
 
     public_deps = [
       ":platform_base",
@@ -645,7 +669,14 @@ if (chip_device_platform != "none") {
     } else if (chip_device_platform == "linux") {
       _platform_target = "Linux"
     } else if (chip_device_platform == "windows") {
-      _platform_target = "Windows:windows-platform-manager"
+      # The canonical-config twin of "Windows:windows-platform-manager" (see
+      # src/platform/Windows/BUILD.gn): this "platform" target's own
+      # "platform_base" sub-target already depends on canonical
+      # //src/lib/core, //src/system, etc., so the ad hoc,
+      # command-line-configured plain "windows-platform-manager" (used by its
+      # own focused smoke and the other Windows Device Layer targets) would
+      # relink a second, independently configured copy of the same libraries.
+      _platform_target = "Windows:windows-platform-manager-canonical"
     } else if (chip_device_platform == "nrfconnect") {
       _platform_target = "nrfconnect"
     } else if (chip_device_platform == "qpg") {

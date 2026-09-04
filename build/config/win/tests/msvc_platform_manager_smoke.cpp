@@ -21,6 +21,9 @@
 // System::LayerImplWindows event loop. Returns 0 on success, 1 on any failure.
 
 #include <platform/PlatformManager.h>
+#if defined(CHIP_WINDOWS_CANONICAL_PLATFORM_SMOKE)
+#include <platform/KeyValueStoreManager.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -88,6 +91,25 @@ int StopAndShutdown()
     return 1;
 }
 
+#if defined(CHIP_WINDOWS_CANONICAL_PLATFORM_SMOKE)
+bool VerifyCanonicalManagerComposition()
+{
+    constexpr char kKey[] = "canonical-platform-smoke";
+    constexpr uint32_t kValue = 0x57494E31;
+    uint32_t storedValue       = 0;
+
+    if (PersistedStorage::KeyValueStoreMgr().Put(kKey, kValue) != CHIP_NO_ERROR ||
+        PersistedStorage::KeyValueStoreMgr().Get(kKey, &storedValue) != CHIP_NO_ERROR)
+    {
+        (void) PersistedStorage::KeyValueStoreMgr().Delete(kKey);
+        return false;
+    }
+
+    const bool matches = storedValue == kValue;
+    return PersistedStorage::KeyValueStoreMgr().Delete(kKey) == CHIP_NO_ERROR && matches;
+}
+#endif
+
 } // namespace
 
 int main()
@@ -97,6 +119,13 @@ int main()
     {
         return 1;
     }
+#if defined(CHIP_WINDOWS_CANONICAL_PLATFORM_SMOKE)
+    if (!VerifyCanonicalManagerComposition())
+    {
+        PlatformMgr().Shutdown();
+        return 1;
+    }
+#endif
 
     Signal handlerSignal;
     if (PlatformMgr().AddEventHandler(EventHandler, reinterpret_cast<intptr_t>(&handlerSignal)) != CHIP_NO_ERROR)

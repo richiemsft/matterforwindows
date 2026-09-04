@@ -25,6 +25,7 @@
 /* this file behaves like a config.h, comes first */
 #include <platform/internal/CHIPDeviceLayerInternal.h>
 
+#include <new>
 #include <platform/PlatformManager.h>
 
 namespace chip {
@@ -34,7 +35,9 @@ using namespace ::chip::DeviceLayer;
 
 CriticalFailure PlatformEventing::ScheduleLambdaBridge(System::Layer & aLayer, LambdaBridge && bridge)
 {
-    ChipDeviceEvent event{ .Type = DeviceEventType::kChipLambdaEvent, .LambdaEvent = std::move(bridge) };
+    ChipDeviceEvent event;
+    event.Type = DeviceEventType::kChipLambdaEvent;
+    new (&event.LambdaEvent) LambdaBridge(std::move(bridge));
 
     return PlatformMgr().PostEvent(&event);
 }

@@ -41,6 +41,17 @@
 
 namespace chip {
 
+class ChipError;
+
+// Forward declaration at namespace scope (rather than the block-scope
+// "extern" ChipError::AsString() used to declare locally): MSVC binds a
+// function-body "extern" declared inside a class member of a namespace to
+// the *global* namespace rather than the enclosing one, unlike GCC/Clang, so
+// a block-scope declaration here left ChipError::AsString() looking for a
+// nonexistent "::ErrorStr" instead of "chip::ErrorStr" under MSVC. See
+// lib/core/ErrorStr.h for the real declaration/definition.
+extern const char * ErrorStr(ChipError, bool);
+
 /**
  * This class represents CHIP errors.
  *
@@ -259,11 +270,7 @@ public:
      * @note
      *  Normally, prefer to use Format()
      */
-    const char * AsString(bool withSourceLocation = true) const
-    {
-        extern const char * ErrorStr(ChipError, bool);
-        return ErrorStr(*this, withSourceLocation);
-    }
+    const char * AsString(bool withSourceLocation = true) const { return ErrorStr(*this, withSourceLocation); }
 
     /**
      * Test whether @a error belongs to the Range @a range.

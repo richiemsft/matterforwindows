@@ -28,6 +28,43 @@ static_library("windows-system-primitives") {
   libs = [ "Ws2_32.lib" ]
 }
 
+# Canonical-config twin of ":windows-system-primitives" above: compiles the
+# same WindowsClock.cpp/WindowsWakeEvent.cpp, but against canonical
+# //src/lib/core:error's generated CHIPBuildConfig.h instead of
+# windows-core-portable's command-line-defined config. This is the target
+# canonical //src/system:system depends on (see src/system/BUILD.gn): system
+# already compiles its own SystemError.cpp (also canonical), so this target
+# does NOT depend on a SystemError.cpp compile itself -- doing so would
+# recompile it a second time, against windows-core-portable's independently
+# configured CHIPBuildConfig macros, which is an ODR/link conflict once both
+# copies land in the same binary (see docs/guides/windows.md, "The Windows
+# Device Layer foundation"). Standalone consumers that don't link canonical
+# //src/system:system (e.g. msvc-system-wake-event-smoke) add
+# ":windows-system-errors-canonical" themselves -- the canonical-config twin
+# of ":windows-system-errors", not the plain one, since
+# MapErrorWindows()'s overload set depends on CHIP_CONFIG_ERROR_SOURCE, which
+# the two configs disagree on (see ":windows-system-errors-canonical" below).
+static_library("windows-system-primitives-canonical") {
+  sources = [
+    "WindowsClock.cpp",
+    "WindowsClock.h",
+    "WindowsMutex.h",
+    "WindowsWakeEvent.cpp",
+    "WindowsWakeEvent.h",
+  ]
+
+  public_deps = [ "//src/lib/core:error" ]
+
+  # Neither source references a CHIP_SYSTEM_CONFIG_*/INET_CONFIG_* macro, so
+  # ":system-config" (which -- like windows-core-portable's ":public" --
+  # redundantly hardcodes the same CHIPBuildConfig-controlled logging macros
+  # as literal command-line defines) is deliberately not applied here: doing
+  # so would conflict with canonical //src/lib/core:error's generated
+  # CHIPBuildConfig.h under /WX.
+  public_configs = [ ":public" ]
+  libs = [ "Ws2_32.lib" ]
+}
+
 static_library("windows-system-errors") {
   sources = [
     "../SystemError.cpp",
@@ -39,6 +76,31 @@ static_library("windows-system-errors") {
     ":public",
     ":system-config",
   ]
+}
+
+# Canonical-config twin of ":windows-system-errors" above: compiles the same
+# SystemError.cpp, but against canonical //src/lib/core:error's generated
+# CHIPBuildConfig.h/SystemBuildConfig.h (CHIP_CONFIG_ERROR_SOURCE=1 from
+# platform/Windows/CHIPPlatformConfig.h once CHIP_HAVE_CONFIG_H is set,
+# selecting MapErrorWindows()'s 3-argument overload) instead of
+# windows-core-portable's command-line-defined config (CHIP_CONFIG_ERROR_SOURCE
+# defaults to 0, the 1-argument overload). ":windows-system-primitives-canonical"'s
+# WindowsWakeEvent.cpp is compiled the same (canonical) way, so this is the
+# only target that pairs with it without an overload-set/link mismatch. For
+# canonical //src/system:system, MapErrorWindows() is instead supplied by
+# system's own compiled SystemError.cpp (also canonical), so this target is
+# not part of that dependency graph -- only the standalone smoke below uses
+# it. ":system-config" is deliberately not applied (see ":windows-system-errors"
+# above); canonical //src/lib/core:error's generated headers already supply
+# equivalent CHIP_SYSTEM_CONFIG_* values.
+static_library("windows-system-errors-canonical") {
+  sources = [
+    "../SystemError.cpp",
+    "../SystemError.h",
+  ]
+
+  public_deps = [ "//src/lib/core:error" ]
+  public_configs = [ ":public" ]
 }
 
 static_library("windows-system-shared-compile") {
@@ -86,6 +148,10 @@ static_library("windows-system-layer") {
   ]
 }
 
+# CHIP_SYSTEM_CONFIG_*/INET_CONFIG_* selection for the sockets-based Windows
+# System/Inet backend. The focused, command-line-configured Windows targets
+# still use the logging and clock values here; canonical targets do not apply
+# this config and receive those values from generated build headers instead.
 config("system-config") {
   defines = [
     "CHIP_DEVICE_LAYER_USE_ATOMICS_FOR_CLOCK=0",

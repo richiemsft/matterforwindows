@@ -654,7 +654,194 @@ is not yet run on native hardware.
 -   The target links the focused `windows-system-layer` and
     `windows-core-portable` libraries rather than the canonical
     `//src/system:system`, keeping it free of the `PlatformEventing` symbols the
-    canonical library references.
+    canonical library references. A canonical-config twin,
+    `windows-platform-manager-canonical`, now exists specifically to *not* have
+    this limitation; see
+    "Wiring the generic Device Layer dispatch to canonical libraries" below.
+
+## Wiring the generic Device Layer dispatch to canonical libraries
+
+The Phase 3 milestone above deliberately linked the ad hoc,
+command-line-configured `windows-core-portable`/`windows-system-layer` rather
+than canonical `//src/lib/core`/`//src/system`, specifically to avoid a
+macro conflict: `windows-core-portable`'s `:public` config sets
+`CHIP_ERROR_LOGGING`, `CHIP_SYSTEM_CONFIG_USE_SOCKETS`, and similar
+CHIPBuildConfig-controlled macros directly as literal command-line `/D`
+defines, while every canonical library instead gets them from the generated
+`CHIPBuildConfig.h`/`SystemBuildConfig.h` (via `CHIP_HAVE_CONFIG_H=1`).
+Combining both in one binary redefines the same macros with conflicting
+values (a hard error under `/WX`) and links two independently configured
+copies of `CHIPError`/TLV/the System Layer. This is why the generic
+`//src/platform` umbrella Device Layer dispatch target could not yet be used:
+canonical `//src/platform:platform`'s own `platform_base` sub-target already
+depends on canonical `//src/lib/core`, `//src/system`, `//src/inet`, etc., so
+its Windows `_platform_target` needed to agree with that, not with
+`windows-core-portable`.
+
+This milestone reconciles that conflict and wires `chip_device_platform=="windows"`
+through to the generic `//src/platform:platform` target as a true canonical
+platform selection, without introducing ODR duplication:
+
+-   `src/platform/Windows/BUILD.gn` gains canonical-config *twins* of the
+    targets canonical `//src/platform:platform`'s dependency graph needs:
+    `windows-platform-manager-canonical` (linked from `src/platform/BUILD.gn`'s
+    `_platform_target` for `chip_device_platform=="windows"`),
+    `windows-system-primitives-canonical`, and `windows-system-errors-canonical`
+    (in `src/system/windows/BUILD.gn`). Each compiles the *same* upstream
+    sources as its existing ad hoc counterpart, but against canonical
+    `//src/lib/core:core`/`//src/lib/core:error`/`//src/system:system` instead
+    of `windows-core-portable`. The plain, ad hoc targets are unchanged and
+    still used by their existing standalone smokes and by the other Windows
+    Device Layer targets that pair with them (`windows-dnssd`,
+    `windows-configuration-manager`, ...), so nothing already working
+    regresses.
+-   The canonical Windows platform target compiles the Windows
+    `ConfigurationManager`, `ConnectivityManager`, `KeyValueStoreManager`, and
+    diagnostic-provider implementations against canonical Core/System/Inet/
+    Crypto dependencies. It defines
+    `CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1`, so `InitChipStack()` initializes
+    configuration storage, UDP/TCP endpoint managers, and connectivity in
+    order, with matching failure unwinding and shutdown. The canonical smoke
+    performs a KVS write/read/delete after initialization to ensure these are
+    real lifecycle-managed managers, not merely link-time singleton
+    definitions.
+-   `//src/system:system`'s own Windows-only addition
+    (`windows-system-primitives` -> now `windows-system-primitives-canonical`)
+    no longer transitively drags in a *second* compile of `SystemError.cpp`:
+    canonical `//src/system:system` already compiles it directly, and the
+    duplicate was a real, pre-existing (if latent) `LNK2005` risk once
+    anything forced both archive members to be extracted into the same link
+    (which is exactly what building the generic dispatch surfaced).
+-   `MapErrorWindows()`'s overload set (1 vs. 3 arguments) depends on
+    `CHIP_CONFIG_ERROR_SOURCE`, which itself depends on whether
+    `CHIP_PLATFORM_CONFIG_INCLUDE` (`platform/Windows/CHIPPlatformConfig.h`,
+    which sets `CHIP_CONFIG_ERROR_SOURCE=1`, matching Linux/Darwin) is applied
+    -- which it only is once a *real* device platform (not `"none"`) is
+    selected. The canonical-config twins consistently pick the 3-argument
+    overload; the plain ad hoc targets consistently pick the 1-argument one.
+    Mixing a canonical-config target with a plain one in the same link (as the
+    standalone `msvc-system-wake-event-smoke`/`msvc-system-layer-smoke` did
+    transiently while this was being reconciled) produces an
+    unresolved-symbol error, not a silent bug; each smoke now pairs
+    consistently-configured targets.
+-   `src/lib/support/Pool.h`'s `HeapObjectPool` destructor used to *define* the
+    reserved (leading-double-underscore) identifier `__SANITIZE_ADDRESS__`
+    itself when unset, to detect ASan builds. Merely defining that identifier
+    (to any value, including `0`) makes MSVC's STL believe ASan container
+    annotations are active, producing an `LNK2038` `annotate_string`/
+    `annotate_vector`/`annotate_optional` mismatch against every other
+    translation unit that never defined it -- a real, pre-existing, if latent,
+    bug independent of this port (undefined behavior per the reserved-identifier
+    rule), that a mechanical, behavior-preserving fix now reads the flag via a
+    project-named macro instead of writing to the reserved one.
+-   `src/lib/core/CHIPError.h`'s `ChipError::AsString()` declared its
+    `chip::ErrorStr()` forward reference as a block-scope `extern` inside a
+    class member function. MSVC binds that block-scope declaration to the
+    *global* namespace instead of the enclosing `chip::` namespace (unlike
+    GCC/Clang), so any translation unit that actually calls `.Format()` /
+    `.AsString()` (once `CHIP_CONFIG_ERROR_FORMAT_AS_STRING=1`, again from
+    `CHIPPlatformConfig.h`) failed to link with an unresolved global
+    `::ErrorStr`. A namespace-scope forward declaration fixes this
+    portably for every compiler.
+-   `src/platform/BUILD.gn`'s `static_library("platform")` had an unguarded
+    GCC/Clang `-Wconversion` `cflags` entry (`cl.exe` rejects it outright) and
+    needed the same `__attribute__` shim
+    (`platform/Windows/MsvcCompilerCompatibility.h`) and `/wd4505` (etc.)
+    warning relaxation the ad hoc Windows Device Layer targets already use for
+    the generated `zzz_generated/app-common` cluster headers. Two upstream
+    `.cpp` files (`DeviceControlServer.cpp`, `PlatformEventSupport.cpp`)
+    aggregate-initialize a non-first anonymous-union member of
+    `ChipDeviceEvent` via a C++20 designated initializer; unlike the
+    crypto/dnssd upstream sources (whose C++20 designators are always the
+    aggregate's leading members and can be mechanically stripped to positional
+    form), a non-first union member cannot be selected positionally at all, so
+    the scalar payloads are activated by C++17 assignment and the non-scalar
+    `LambdaEvent` payload is explicitly placement-constructed, preserving the
+    selected union member's lifetime without requiring C++20.
+    `//src/credentials` and `//src/lib/dnssd`'s canonical `:dnssd`/`:naming`
+    targets needed the same `-Wconversion` guard plus
+    `//build/config/win:upstream_sdk_warnings` for a handful of upstream
+    warnings (`C4267` narrowing, `C4702` unreachable code, `C4701`
+    potentially-uninitialized) not yet clean under the strict default --
+    the same treatment already applied to `//src/transport`/
+    `//src/protocols/secure_channel`.
+-   `src/platform/device.gni` adds `windows` to the `chip_mdns == "platform"`
+    platform list, matching Darwin/Tizen/etc., so canonical
+    `//src/lib/dnssd:dnssd` selects `Discovery_ImplPlatform.cpp` (the real
+    `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` contract) against the
+    generic `//src/platform` dispatch instead of the no-op `Resolver_ImplNone`.
+    `windows-platform-manager-canonical` now compiles `DnssdImpl.cpp` directly
+    (matching how `src/platform/Darwin/BUILD.gn`'s own `"Darwin"` target
+    includes `dnssd/DnssdImpl.cpp`), so the concrete Windows backend lives
+    inside the same canonical Device Layer target Discovery_ImplPlatform.cpp
+    reaches through `//src/platform`.
+
+### What now builds canonically for Windows
+
+With `chip_device_platform="windows"` (a real device platform, not `"none"`)
+and the existing `chip_windows_canonical_compile_probes`/
+`chip_windows_device_layer_probe` opt-ins both enabled together in the same
+graph for the first time:
+
+-   The generic **`//src/platform:platform`** target itself -- the full
+    `libDeviceLayer` static library, including `ConfigurationManager`/
+    `ConnectivityManager`/ICD/setup-payload wiring and every generated
+    `zzz_generated/app-common` cluster's enum-conformance checks -- compiles
+    and links. A runtime smoke, `msvc-canonical-platform-smoke` (the same
+    source as `msvc-platform-manager-smoke`, linked against
+    `//src/platform` + `//src/platform/logging:default` instead of the focused
+    `windows-platform-manager`), passes: `InitChipStack()`, event-loop
+    start/stop (both caller- and library-managed), cross-thread
+    `ScheduleWork()`, and public event dispatch all work through the
+    canonical dispatch graph. The smoke also verifies that canonical
+    `InitChipStack()` initialized persistent storage by completing a KVS
+    write/read/delete cycle.
+-   **`//src/credentials:credentials`** -- `FabricTable`, `CHIPCert`,
+    `CertificationDeclaration`, `GroupDataProviderImpl`,
+    `PersistentStorageOpCertStore`, `DeviceAttestationVerifier`, and the
+    example DAC/PAI credentials -- compiles (this is the "next controller
+    dependency closure" milestone; it transitively pulls in and confirms
+    `//src/platform:platform` too).
+-   **`//src/lib/dnssd:dnssd`** (the canonical, `chip_mdns_platform` variant)
+    compiles, including the real upstream `Discovery_ImplPlatform.cpp`.
+
+All of the above compile for x64 and cross-compile for ARM64 (`dumpbin
+/headers` confirms `machine (ARM64)`); every existing focused Windows smoke
+(`msvc-key-value-store-smoke`, `msvc-windows-configuration-manager-smoke`,
+`msvc-windows-connectivity-smoke`, `msvc-windows-dnssd-smoke`,
+`msvc-system-wake-event-smoke`, `msvc-system-layer-smoke`,
+`msvc-inet-tcp-endpoint-smoke`, `msvc-inet-udp-endpoint-smoke`, ...) and every
+existing canonical-probe test (crypto/system/inet/transport/secure-channel)
+continues to pass unchanged on x64; the pre-existing, environment-specific
+`msvc-inet-interface-smoke` exit-1 (reproduced identically on the unmodified
+tree) is unrelated. The default `chip_device_platform="none"` bootstrap build
+is unaffected (no new dependency reaches it).
+
+```powershell
+gn gen out\win-canonical-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
+ninja -C out\win-canonical-devlayer-x64
+.\out\win-canonical-devlayer-x64\msvc-canonical-platform-smoke.exe
+```
+
+### Remaining blockers to a full `//examples/chip-tool` build
+
+-   `//src/messaging`, `//src/transport`'s `SecureSession`/`SessionManager`,
+    and `//src/protocols/secure_channel`'s `PASESession`/`CASESession` closures
+    still reach `platform/ConnectivityManager.h` through
+    `ReliableMessageMgr`/`ExchangeManager` and are unstarted; see "Run the
+    upstream transport and secure-channel test suites" above for the specific
+    symbols.
+-   `examples/chip-tool` itself has not been attempted: its own `BUILD.gn`,
+    persistent-path, and CLI/dependency wiring for Windows do not exist yet,
+    independent of the library-closure blockers above.
+-   BLE, Wi-Fi/Thread network commissioning, and native ARM64 execution remain
+    explicitly out of scope / unverified, as in every earlier phase.
+
+Canonical `//src/lib/dnssd:dnssd` now links end to end with canonical
+`//src/platform` in `msvc-windows-controller-discovery.exe`; its real
+`DiscoveryImplPlatform` browse/start/stop path runs successfully. The
+temporary `//src/lib/dnssd:dnssd_windows` re-derived dependency graph has
+therefore been removed.
 
 ## The Windows key-value store
 
@@ -1109,20 +1296,17 @@ commissioning acceptance test.
 
 ## The Windows controller-side discovery foundation
 
-`//src/lib/dnssd:dnssd_windows` compiles the real upstream
+Canonical `//src/lib/dnssd:dnssd` compiles the real upstream
 `chip::Dnssd::Resolver` and `DiscoveryImplPlatform` implementation against the
-native Windows Device Layer and `windns.h` backend. This is the same
+canonical native Windows Device Layer and `windns.h` backend. This is the same
 controller-facing discovery path used by other `chip_mdns_platform` targets;
 it is not a second hand-written discovery implementation.
 
-The canonical `//src/lib/dnssd:dnssd` target currently reaches the generic
-`//src/platform` umbrella, which has no Windows branch, and mixes its generated
-build-configuration header with the focused Windows closure's command-line
-configuration. The Windows target is therefore an explicit intermediate split
-until the generic platform dispatch and canonical configuration graph are
-wired for Windows. Its upstream sources are unchanged except for the existing
-private C++17 build transform needed for a designated initializer that MSVC
-rejects under `/std:c++17`.
+The earlier `dnssd_windows` intermediate target was removed after generic
+`//src/platform` dispatch and canonical configuration were wired for Windows.
+The upstream DNS-SD sources remain unchanged except for the private C++17
+build transform needed for a designated initializer that MSVC rejects under
+`/std:c++17`.
 
 `msvc-windows-controller-discovery.exe` initializes that real resolver, starts
 commissionable-node discovery, reports resolved `CommissionNodeData`, stops
@@ -1132,7 +1316,7 @@ context are serialized with the CHIP stack lock because their internal state
 is intentionally non-atomic:
 
 ```powershell
-gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_with_nlfaultinjection=false'
 ninja -C out\win-devlayer-x64 msvc-windows-controller-discovery.exe
 .\out\win-devlayer-x64\msvc-windows-controller-discovery.exe 30
 ```
@@ -1147,9 +1331,10 @@ development LAN, the executable reaches the expected exit code `2`.
 -   No real device has been commissioned yet. This proves the controller's
     browse-to-resolve path, not PASE/CASE establishment, fabric persistence,
     attribute operations, subscription, or fabric removal.
--   The full `examples/chip-tool` closure still requires generic Windows
-    platform dispatch plus the messaging, session-establishment, credentials,
-    and Interaction Model client dependencies.
+-   The full `examples/chip-tool` closure still requires messaging,
+    session-establishment, Interaction Model client, and Windows application
+    wiring. Canonical platform dispatch, credentials, storage, and DNS-SD are
+    now available.
 
 ### Cross-build
 
@@ -1232,7 +1417,7 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE. DNS-SD's controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` and Device Layer storage persistence are now built and exercised (`dnssd_windows`, `msvc-windows-controller-discovery.exe`); the rest of the controller closure (`//src/messaging`, session establishment, the Interaction Model client, and BLE) remains blocked on the generic `//src/platform` umbrella not yet being wired for Windows -- see "Why a full `examples/chip-tool` closure is not yet possible" above | Phases 3–5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE. The generic `//src/platform` umbrella Device Layer dispatch now composes canonical Windows configuration, connectivity, KVS, diagnostics, endpoint lifecycle, and DNS-SD without mixing the focused command-line configuration. `//src/credentials` compiles, and canonical `//src/lib/dnssd:dnssd` links and runs the real `DiscoveryImplPlatform` path in `msvc-windows-controller-discovery.exe`; the temporary `dnssd_windows` target is removed. The remaining controller closure is messaging, PASE/CASE/session establishment, the Interaction Model client, application CLI/storage wiring, and BLE -- see "Wiring the generic Device Layer dispatch to canonical libraries" above | Phases 3–5 |
 | Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
@@ -1580,7 +1765,10 @@ are deliberate submodule bumps.
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
 | Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Not yet run on native hardware |
-| Controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` (`dnssd_windows`) | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
+| Controller-facing canonical `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
+| Canonical `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Not yet run on native hardware |
+| Canonical `//src/credentials:credentials` | Supported | Compile only | Supported | Compile only |
+| Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -1605,18 +1793,20 @@ are deliberate submodule bumps.
 
 ## Known limitations
 
--   The canonical System, Inet, CryptoPAL, and host-neutral transport/Secure
-    Channel components compile on Windows, and the Phase 3 Device Layer
-    `PlatformManager` foundation compiles for x64/ARM64 with its lifecycle smoke
-    passing on x64. The aggregate Core SDK, the full Device Layer (connectivity,
-    storage, BLE), controller, and server targets do not yet compile as
-    complete Windows closures. The full upstream
+-   Canonical System, Inet, CryptoPAL, credentials, DNS-SD, and host-neutral
+    transport/Secure Channel components compile on Windows. The Phase 3
+    canonical Device Layer composes PlatformManager, configuration, KVS,
+    diagnostics, OS-managed connectivity, endpoint lifecycle, and DNS-SD for
+    x64/ARM64, with its lifecycle/storage smoke passing on x64. BLE, the full
+    controller, and server targets do not yet compile as complete Windows
+    closures. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
     upstream System/Inet tests and 40 host-neutral transport/Secure Channel
-    tests also pass. The monolithic `//src/credentials:credentials` library (`FabricTable`,
-    `LastKnownGoodTime`, `GroupDataProvider`, `PersistentStorageOpCertStore`) is
-    not yet ported because it pulls the unported Windows Device Layer.
+    tests also pass. The monolithic `//src/credentials:credentials` library
+    (`FabricTable`, `LastKnownGoodTime`, `GroupDataProvider`,
+    `PersistentStorageOpCertStore`) now compiles through the canonical Windows
+    Device Layer, but no real fabric/session commissioning flow has run yet.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no

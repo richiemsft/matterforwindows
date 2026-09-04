@@ -308,8 +308,15 @@ static_library("system") {
   ]
 
   if (current_os == "win") {
-    public_deps +=
-        [ "${chip_root}/src/system/windows:windows-system-primitives" ]
+    # The canonical-config twin of ":windows-system-primitives": this target
+    # already depends on "${chip_root}/src/lib/core:error" above, so
+    # WindowsClock.cpp/WindowsWakeEvent.cpp must be compiled against the same
+    # generated CHIPBuildConfig.h (not windows-core-portable's independently
+    # configured, command-line-defined one) to avoid an ODR/link conflict.
+    # See src/system/windows/BUILD.gn.
+    public_deps += [
+      "${chip_root}/src/system/windows:windows-system-primitives-canonical",
+    ]
   }
 
   allow_circular_includes_from = [ "${chip_root}/src/lib/support" ]

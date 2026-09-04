@@ -81,10 +81,25 @@ executable("msvc-system-error-source-smoke") {
 executable("msvc-system-wake-event-smoke") {
   sources = [ "msvc_system_wake_event_smoke.cpp" ]
   output_dir = root_out_dir
+
+  # This standalone smoke does not link canonical //src/system:system (which
+  # supplies its own SystemError.cpp/WindowsWakeEvent.cpp closure), so it
+  # depends directly on the canonical-config twins
+  # (":windows-system-errors-canonical", ":windows-system-primitives-canonical")
+  # instead of the plain, windows-core-portable-configured
+  # ":windows-system-errors"/":windows-system-primitives": MapErrorWindows()'s
+  # overload set depends on CHIP_CONFIG_ERROR_SOURCE, which the two configs
+  # disagree on, so mixing a canonical target with a plain one here would be
+  # an unresolved-symbol/overload-set mismatch (see
+  # src/system/windows/BUILD.gn).
   deps = [
-    "//src/lib/core/windows:windows-core-portable",
-    "//src/system/windows:windows-system-primitives",
+    "//src/system/windows:windows-system-errors-canonical",
+    "//src/system/windows:windows-system-primitives-canonical",
   ]
+
+  # The canonical System targets publicly propagate //src/lib/core:error so
+  # this translation unit uses the same generated CHIP_ERROR configuration as
+  # the libraries it calls.
 }
 
 executable("msvc-system-layer-smoke") {
@@ -125,6 +140,23 @@ executable("msvc-platform-manager-smoke") {
   sources = [ "msvc_platform_manager_smoke.cpp" ]
   output_dir = root_out_dir
   deps = [ "//src/platform/Windows:windows-platform-manager" ]
+}
+
+# Runtime proof that the generic //src/platform umbrella Device Layer
+# dispatch target -- not just the focused ":windows-platform-manager" above
+# -- builds and links canonically for chip_device_platform=="windows": the
+# exact same PlatformManager lifecycle/work-posting/event-dispatch smoke,
+# against "//src/platform:platform" (which composes canonical
+# //src/lib/core, //src/system, //src/inet, etc. with
+# "Windows:windows-platform-manager-canonical").
+executable("msvc-canonical-platform-smoke") {
+  sources = [ "msvc_platform_manager_smoke.cpp" ]
+  output_dir = root_out_dir
+  defines = [ "CHIP_WINDOWS_CANONICAL_PLATFORM_SMOKE=1" ]
+  deps = [
+    "//src/platform",
+    "//src/platform/logging:default",
+  ]
 }
 
 executable("msvc-key-value-store-smoke") {
@@ -178,8 +210,9 @@ executable("msvc-windows-controller-discovery") {
   sources = [ "msvc_windows_controller_discovery.cpp" ]
   output_dir = root_out_dir
   deps = [
-    "//src/lib/dnssd:dnssd_windows",
-    "//src/platform/Windows:windows-device-layer",
+    "//src/lib/dnssd:dnssd",
+    "//src/platform",
+    "//src/platform/logging:default",
   ]
   # msvc_windows_controller_discovery.cpp includes upstream lib/dnssd headers
   # (e.g. Advertiser.h) that are not /W4 /WX clean under MSVC; see
