@@ -17,10 +17,12 @@
 
 #include <lib/support/CHIPMem.h>
 #include <platform/ConfigurationManager.h>
+#include <platform/ConnectivityManager.h>
 #include <platform/PlatformManager.h>
 #include <platform/Windows/WindowsConfig.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -53,6 +55,19 @@ int gChecks = 0;
             return false;                                                                                                          \
         }                                                                                                                          \
     } while (0)
+
+class NetworkInfoDelegate final : public ConnectivityManagerDelegate
+{
+public:
+    void OnNetworkInfoChanged() override
+    {
+        mCallbackThread.store(GetCurrentThreadId(), std::memory_order_release);
+        mCallbackCount.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    std::atomic<unsigned int> mCallbackCount{ 0 };
+    std::atomic<DWORD> mCallbackThread{ 0 };
+};
 
 bool WideToUtf8(const std::wstring & wide, std::string & utf8)
 {
@@ -155,7 +170,19 @@ bool RunScenarios(const std::string & root)
     CHECK(firstUniqueId == uniqueId);
     CHECK(Platform::PersistedStorage::Read(kCounter, value) == CHIP_NO_ERROR && value == 0x12345678);
 
+    NetworkInfoDelegate networkInfoDelegate;
+    ConnectivityMgr().SetDelegate(&networkInfoDelegate);
+    const DWORD mainThread = GetCurrentThreadId();
     CHECK(PlatformMgr().StartEventLoopTask() == CHIP_NO_ERROR);
+    ConnectivityMgrImpl().NotifyNetworkChange();
+    for (unsigned int attempt = 0; attempt < 100 && networkInfoDelegate.mCallbackCount.load(std::memory_order_acquire) == 0;
+         ++attempt)
+    {
+        Sleep(10);
+    }
+    CHECK(networkInfoDelegate.mCallbackCount.load(std::memory_order_acquire) >= 1);
+    CHECK(networkInfoDelegate.mCallbackThread.load(std::memory_order_acquire) != mainThread);
+
     ConfigurationMgr().InitiateFactoryReset();
     for (unsigned int attempt = 0;
          attempt < 100 && WindowsConfig::ConfigValueExists(WindowsConfig::kCounterKey_RebootCount); ++attempt)
@@ -170,6 +197,7 @@ bool RunScenarios(const std::string & root)
     CHECK(PersistedStorage::KeyValueStoreMgr().Get("f/1/n", nullptr, 0, &fabricRecordSize) ==
           CHIP_ERROR_PERSISTED_STORAGE_VALUE_NOT_FOUND);
     CHECK(PlatformMgr().StopEventLoopTask() == CHIP_NO_ERROR);
+    ConnectivityMgr().SetDelegate(nullptr);
     PlatformMgr().Shutdown();
 
     return true;

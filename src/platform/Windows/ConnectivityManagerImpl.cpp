@@ -19,15 +19,35 @@
 #include <platform/ConnectivityManager.h>
 
 #include <lib/support/CodeUtils.h>
+#include <lib/support/logging/CHIPLogging.h>
+#include <platform/PlatformManager.h>
 #include <platform/internal/GenericConnectivityManagerImpl_TCP.ipp>
 #include <platform/internal/GenericConnectivityManagerImpl_UDP.ipp>
+#include <system/SystemError.h>
 
 #include <cstring>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <iphlpapi.h>
+#include <netioapi.h>
+#include <windows.h>
 
 namespace chip {
 namespace DeviceLayer {
 
 namespace {
+
+struct ConnectivityState
+{
+    bool haveIPv4 = false;
+    bool haveIPv6 = false;
+};
 
 bool HasUsableAddress(Inet::InterfaceId id)
 {
@@ -76,13 +96,193 @@ CHIP_ERROR FindInterface(Inet::InterfaceType requestedType, bool requireUsableAd
     return CHIP_NO_ERROR;
 }
 
+ConnectivityState ReadConnectivityState()
+{
+    ConnectivityState state;
+    for (Inet::InterfaceAddressIterator iterator; iterator.HasCurrent(); iterator.Next())
+    {
+        if (!iterator.IsUp() || iterator.IsLoopback() || !iterator.SupportsMulticast())
+        {
+            continue;
+        }
+
+        Inet::IPAddress address;
+        if (iterator.GetAddress(address) != CHIP_NO_ERROR)
+        {
+            continue;
+        }
+        state.haveIPv4 = state.haveIPv4 || address.IsIPv4();
+        state.haveIPv6 = state.haveIPv6 || address.IsIPv6();
+    }
+    return state;
+}
+
+void WINAPI HandleInterfaceChange(void * context, MIB_IPINTERFACE_ROW *, MIB_NOTIFICATION_TYPE)
+{
+    static_cast<ConnectivityManagerImpl *>(context)->NotifyNetworkChange();
+}
+
+void WINAPI HandleAddressChange(void * context, MIB_UNICASTIPADDRESS_ROW *, MIB_NOTIFICATION_TYPE)
+{
+    static_cast<ConnectivityManagerImpl *>(context)->NotifyNetworkChange();
+}
+
 } // namespace
 
 ConnectivityManagerImpl ConnectivityManagerImpl::sInstance;
 
 CHIP_ERROR ConnectivityManagerImpl::_Init()
 {
+    VerifyOrReturnError(!mInitialized.load(std::memory_order_acquire), CHIP_ERROR_INCORRECT_STATE);
+
+    const ConnectivityState state = ReadConnectivityState();
+    mHaveIPv4Connectivity         = state.haveIPv4;
+    mHaveIPv6Connectivity         = state.haveIPv6;
+    mRefreshScheduled.store(false, std::memory_order_release);
+    mGeneration.fetch_add(1, std::memory_order_acq_rel);
+    mInitialized.store(true, std::memory_order_release);
+
+    HANDLE interfaceHandle = nullptr;
+    DWORD result = NotifyIpInterfaceChange(AF_UNSPEC, HandleInterfaceChange, this, FALSE, &interfaceHandle);
+    if (result != NO_ERROR)
+    {
+        mInitialized.store(false, std::memory_order_release);
+        return CHIP_ERROR_WINDOWS(result);
+    }
+    mInterfaceChangeHandle = interfaceHandle;
+
+    HANDLE addressHandle = nullptr;
+    result = NotifyUnicastIpAddressChange(AF_UNSPEC, HandleAddressChange, this, FALSE, &addressHandle);
+    if (result != NO_ERROR)
+    {
+        mInitialized.store(false, std::memory_order_release);
+        mInterfaceChangeHandle = nullptr;
+        const DWORD cancelResult = CancelMibChangeNotify2(interfaceHandle);
+        if (cancelResult != NO_ERROR)
+        {
+            ChipLogError(DeviceLayer, "Failed to cancel Windows interface notifications: %lu",
+                         static_cast<unsigned long>(cancelResult));
+        }
+        return CHIP_ERROR_WINDOWS(result);
+    }
+    mAddressChangeHandle = addressHandle;
+
+    RefreshConnectivityState();
     return CHIP_NO_ERROR;
+}
+
+void ConnectivityManagerImpl::Shutdown()
+{
+    if (!mInitialized.exchange(false, std::memory_order_acq_rel))
+    {
+        return;
+    }
+
+    mGeneration.fetch_add(1, std::memory_order_acq_rel);
+    mRefreshScheduled.store(false, std::memory_order_release);
+
+    HANDLE interfaceHandle = static_cast<HANDLE>(mInterfaceChangeHandle);
+    HANDLE addressHandle   = static_cast<HANDLE>(mAddressChangeHandle);
+    mInterfaceChangeHandle = nullptr;
+    mAddressChangeHandle   = nullptr;
+
+    if (interfaceHandle != nullptr)
+    {
+        const DWORD result = CancelMibChangeNotify2(interfaceHandle);
+        if (result != NO_ERROR)
+        {
+            ChipLogError(DeviceLayer, "Failed to cancel Windows interface notifications: %lu",
+                         static_cast<unsigned long>(result));
+        }
+    }
+    if (addressHandle != nullptr)
+    {
+        const DWORD result = CancelMibChangeNotify2(addressHandle);
+        if (result != NO_ERROR)
+        {
+            ChipLogError(DeviceLayer, "Failed to cancel Windows address notifications: %lu", static_cast<unsigned long>(result));
+        }
+    }
+}
+
+void ConnectivityManagerImpl::NotifyNetworkChange()
+{
+    if (!mInitialized.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    bool expected = false;
+    if (!mRefreshScheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+    {
+        return;
+    }
+
+    const uint32_t generation = mGeneration.load(std::memory_order_acquire);
+    const CHIP_ERROR error =
+        PlatformMgr().ScheduleWork(static_cast<AsyncWorkFunct>(RefreshConnectivityState), static_cast<intptr_t>(generation));
+    if (error != CHIP_NO_ERROR && mGeneration.load(std::memory_order_acquire) == generation)
+    {
+        mRefreshScheduled.store(false, std::memory_order_release);
+    }
+}
+
+void ConnectivityManagerImpl::RefreshConnectivityState(intptr_t generation)
+{
+    ConnectivityManagerImpl & manager = ConnectivityMgrImpl();
+    if (static_cast<uint32_t>(generation) != manager.mGeneration.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    manager.mRefreshScheduled.store(false, std::memory_order_release);
+    if (manager.mInitialized.load(std::memory_order_acquire))
+    {
+        manager.RefreshConnectivityState();
+    }
+}
+
+void ConnectivityManagerImpl::RefreshConnectivityState()
+{
+    VerifyOrReturn(mInitialized.load(std::memory_order_acquire));
+
+    const ConnectivityState state = ReadConnectivityState();
+    const ConnectivityChange ipv4 = GetConnectivityChange(mHaveIPv4Connectivity, state.haveIPv4);
+    const ConnectivityChange ipv6 = GetConnectivityChange(mHaveIPv6Connectivity, state.haveIPv6);
+    mHaveIPv4Connectivity          = state.haveIPv4;
+    mHaveIPv6Connectivity          = state.haveIPv6;
+
+    ConnectivityManagerDelegate * delegate = GetDelegate();
+    if (delegate != nullptr)
+    {
+        delegate->OnNetworkInfoChanged();
+    }
+
+    if (ipv4 != kConnectivity_NoChange || ipv6 != kConnectivity_NoChange)
+    {
+        ChipDeviceEvent internetEvent{};
+        internetEvent.Type                            = DeviceEventType::kInternetConnectivityChange;
+        internetEvent.InternetConnectivityChange.IPv4 = ipv4;
+        internetEvent.InternetConnectivityChange.IPv6 = ipv6;
+        PlatformMgr().PostEventOrDie(&internetEvent);
+    }
+
+    if (ipv4 != kConnectivity_NoChange)
+    {
+        ChipDeviceEvent addressEvent{};
+        addressEvent.Type = DeviceEventType::kInterfaceIpAddressChanged;
+        addressEvent.InterfaceIpAddressChanged.Type =
+            state.haveIPv4 ? InterfaceIpChangeType::kIpV4_Assigned : InterfaceIpChangeType::kIpV4_Lost;
+        PlatformMgr().PostEventOrDie(&addressEvent);
+    }
+    if (ipv6 != kConnectivity_NoChange)
+    {
+        ChipDeviceEvent addressEvent{};
+        addressEvent.Type = DeviceEventType::kInterfaceIpAddressChanged;
+        addressEvent.InterfaceIpAddressChanged.Type =
+            state.haveIPv6 ? InterfaceIpChangeType::kIpV6_Assigned : InterfaceIpChangeType::kIpV6_Lost;
+        PlatformMgr().PostEventOrDie(&addressEvent);
+    }
 }
 
 void ConnectivityManagerImpl::_OnPlatformEvent(const ChipDeviceEvent * event)

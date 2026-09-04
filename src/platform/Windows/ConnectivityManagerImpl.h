@@ -26,6 +26,9 @@
 #include <platform/internal/GenericConnectivityManagerImpl_TCP.h>
 #include <platform/internal/GenericConnectivityManagerImpl_UDP.h>
 
+#include <atomic>
+#include <cstdint>
+
 namespace chip {
 namespace DeviceLayer {
 
@@ -45,14 +48,26 @@ public:
     CHIP_ERROR GetEthernetInterfaceName(char * name, size_t nameSize);
     CHIP_ERROR GetWiFiInterfaceName(char * name, size_t nameSize);
     CHIP_ERROR GetInterfaceStatus(const char * name, bool & isUp);
+    void NotifyNetworkChange();
+    void RefreshConnectivityState();
+    void Shutdown();
 
 private:
     CHIP_ERROR _Init();
     void _OnPlatformEvent(const ChipDeviceEvent * event);
     Inet::InterfaceId _GetExternalInterface();
+    static void RefreshConnectivityState(intptr_t generation);
 
     friend ConnectivityManager & ConnectivityMgr();
     friend ConnectivityManagerImpl & ConnectivityMgrImpl();
+
+    void * mInterfaceChangeHandle = nullptr;
+    void * mAddressChangeHandle   = nullptr;
+    std::atomic<bool> mInitialized{ false };
+    std::atomic<bool> mRefreshScheduled{ false };
+    std::atomic<uint32_t> mGeneration{ 0 };
+    bool mHaveIPv4Connectivity = false;
+    bool mHaveIPv6Connectivity = false;
 
     static ConnectivityManagerImpl sInstance;
 };

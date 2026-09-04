@@ -44,14 +44,17 @@ The initial build foundation provides:
     Wi-Fi. It reports unsupported Thread, BLE, and SDK-managed Wi-Fi
     provisioning, exposes installed Ethernet/Wi-Fi adapters for diagnostics,
     and selects an operational external interface only when it is up,
-    non-loopback, multicast-capable, and has a usable address. The focused
-    smoke passes 21 checks on x64 and cross-builds as ARM64.
+    non-loopback, multicast-capable, and has a usable address. Native interface
+    and unicast-address notifications are coalesced onto the Matter event loop
+    and emit connectivity/address events. The focused smoke passes 21 checks on
+    x64 and cross-builds as ARM64.
 -   A public `ConfigurationManager` composed on the typed Windows storage
     backend. The canonical `PlatformMgr()` lifecycle initializes and shuts down
     configuration, UDP/TCP endpoint managers, and connectivity; reboot count,
     operational hours, boot reason, regulatory state, configuration version,
     unique ID, persisted counters, and primary MAC selection survive restart.
-    Its 32-check smoke also validates asynchronous factory reset on x64 and
+    Its 34-check smoke also validates asynchronous factory reset and
+    event-loop-marshaled network-change delivery on x64 and
     cross-builds as ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
@@ -841,6 +844,13 @@ semantics:
     `GetAdaptersAddresses` snapshot rather than cached.
 -   Windows Ethernet classification covers CSMA/CD, Fast Ethernet,
     Fast Ethernet FX, Gigabit Ethernet, and token-ring interface constants.
+-   `NotifyIpInterfaceChange()` and `NotifyUnicastIpAddressChange()` callbacks
+    coalesce refresh work onto the Matter event loop. The refresh notifies the
+    connectivity delegate and posts `kInternetConnectivityChange` plus
+    `kInterfaceIpAddressChanged` when IPv4 or IPv6 availability changes.
+-   Shutdown cancels both native registrations before UDP/TCP endpoint
+    teardown. Generation-tagged work prevents a queued callback from a prior
+    lifecycle from changing state after restart.
 
 The focused smoke validates unsupported feature contracts, interface
 name/status round trips, installed Ethernet/Wi-Fi lookup, and the external
@@ -854,8 +864,9 @@ ninja -C out\win-devlayer-x64 msvc-windows-connectivity-smoke.exe
 
 It passes 21 checks on the development x64 host. The same executable
 cross-builds and inspects as `AA64`; it has not yet run on native ARM64
-hardware. Adapter-change notifications and Device Layer connectivity events
-remain the next connectivity milestone.
+hardware. The public configuration-manager smoke additionally verifies that a
+native-style notification is delivered to the connectivity delegate on the
+Matter event-loop thread.
 
 ## The Windows configuration manager
 
@@ -893,9 +904,10 @@ ninja -C out\win-devlayer-x64 msvc-windows-configuration-manager-smoke.exe
 .\out\win-devlayer-x64\msvc-windows-configuration-manager-smoke.exe
 ```
 
-The smoke passes 32 checks on x64 and cross-builds as `AA64`. It covers the
+The smoke passes 34 checks on x64 and cross-builds as `AA64`. It covers the
 canonical lifecycle, restart counter and unique-ID persistence, public
-persisted counters, primary MAC contract, and asynchronous factory reset.
+persisted counters, primary MAC contract, event-loop-marshaled network-change
+delivery, and asynchronous factory reset.
 
 ## Cross-build the ARM64 smoke target
 
@@ -947,7 +959,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, and OS-managed Ethernet/Wi-Fi `ConnectivityManager`; interface-change events, DNS-SD, BLE, diagnostics, and process restart after reset remain | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, and OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events; DNS-SD, BLE, diagnostics, and process restart after reset remain | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -1311,8 +1323,8 @@ are deliberate submodule bumps.
 | Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
 | Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (72 checks) | Supported | Not yet run on native hardware |
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
-| Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters; change events pending | Smoke passes (21 checks) | Supported | Not yet run on native hardware |
-| Windows Device Layer `ConfigurationManager` | Supported | Smoke passes (32 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
+| Windows Device Layer `ConfigurationManager` | Supported | Smoke passes (34 checks) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

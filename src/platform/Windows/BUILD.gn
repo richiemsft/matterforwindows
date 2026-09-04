@@ -132,6 +132,7 @@ static_library("windows-connectivity-manager") {
     "//third_party/nlio",
   ]
   public_configs = [ ":windows-device-layer-config" ]
+  libs = [ "Iphlpapi.lib" ]
 }
 
 static_library("windows-configuration-manager") {

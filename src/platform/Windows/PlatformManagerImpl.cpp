@@ -90,6 +90,7 @@ CHIP_ERROR PlatformManagerImpl::_InitChipStack()
 void PlatformManagerImpl::_Shutdown()
 {
 #if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
+    ConnectivityMgrImpl().Shutdown();
     UDPEndPointManager()->Shutdown();
 #if INET_CONFIG_ENABLE_TCP_ENDPOINT
     TCPEndPointManager()->Shutdown();

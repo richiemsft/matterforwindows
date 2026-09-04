@@ -142,7 +142,7 @@ executable("msvc-windows-configuration-smoke") {
 executable("msvc-windows-connectivity-smoke") {
   sources = [ "msvc_windows_connectivity_smoke.cpp" ]
   output_dir = root_out_dir
-  deps = [ "//src/platform/Windows:windows-connectivity-manager" ]
+  deps = [ "//src/platform/Windows:windows-device-layer" ]
 }
 
 executable("msvc-windows-configuration-manager-smoke") {
