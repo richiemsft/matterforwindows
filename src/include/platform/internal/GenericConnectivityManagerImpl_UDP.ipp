@@ -24,7 +24,7 @@
 #ifndef GENERIC_CONNECTIVITY_MANAGER_IMPL_UDP_CPP
 #define GENERIC_CONNECTIVITY_MANAGER_IMPL_UDP_CPP
 
-#include <platform/internal/CHIPDeviceLayerInternal.h>
+#include <platform/ConnectivityManager.h>
 
 namespace chip {
 namespace DeviceLayer {

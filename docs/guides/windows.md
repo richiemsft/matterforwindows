@@ -40,6 +40,12 @@ The initial build foundation provides:
     name/index conversion, link state and type classification, hardware
     addresses, prefix lengths, and IPv6 link-local lookup. This has x64 runtime
     and ARM64 cross-build coverage.
+-   A native `ConnectivityManager` composition for OS-managed Ethernet and
+    Wi-Fi. It reports unsupported Thread, BLE, and SDK-managed Wi-Fi
+    provisioning, exposes installed Ethernet/Wi-Fi adapters for diagnostics,
+    and selects an operational external interface only when it is up,
+    non-loopback, multicast-capable, and has a usable address. The focused
+    smoke passes 21 checks on x64 and cross-builds as ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -180,7 +186,9 @@ active. The first Phase 3 milestone -- a native Windows Device Layer
 below). The second Phase 3 milestone -- a native Windows
 `KeyValueStoreManager` for controller fabric persistence -- has landed on the
 same opt-in probe (see
-[The Windows key-value store](#the-windows-key-value-store) below). Native
+[The Windows key-value store](#the-windows-key-value-store) below). The typed
+configuration-storage backend and the OS-managed Windows
+`ConnectivityManager` have also landed on that probe. Native
 ARM64 execution remains a release-support requirement and is
 tracked for the hardware-backed CI phase; cross-compilation alone is not
 presented as ARM64 runtime support.
@@ -800,10 +808,50 @@ ninja -C out\win-devlayer-x64 msvc-windows-configuration-smoke.exe
 
 This target intentionally provides the storage contract consumed by
 `GenericConfigurationManagerImpl` but does not yet expose the public
-`ConfigurationMgr()` singleton. That final composition also includes
-`CHIPDeviceLayerInternal.h`, which requires the Windows
-`ConnectivityManager`; it will be enabled with the OS-managed
-Ethernet/Wi-Fi manager rather than hidden behind a placeholder.
+`ConfigurationMgr()` singleton. The Windows `ConnectivityManager` now provides
+the required network-manager peer, but the public configuration composition
+still needs its persisted reboot/operational-hours/boot-reason state, primary
+MAC lookup, factory-reset scheduling, and full canonical Device Layer closure;
+it is not hidden behind a placeholder.
+
+## The Windows connectivity manager
+
+The next Phase 3 milestone adds
+`src/platform/Windows/ConnectivityManagerImpl.{h,cpp}`. Windows remains the
+owner of adapter configuration and Wi-Fi credentials: the Matter SDK observes
+the already-connected network rather than exposing station/AP provisioning.
+The manager composes the standard generic no-Wi-Fi-management, no-Thread, and
+no-BLE contracts with the shared UDP and TCP endpoint managers.
+
+Adapter lookup and operational selection intentionally have different
+semantics:
+
+-   Ethernet and Wi-Fi name lookup can return an installed adapter even when it
+    is currently down, so diagnostics can describe known hardware.
+-   `GetExternalInterface()` returns only an up, non-loopback,
+    multicast-capable interface with a usable IPv4 or IPv6 address. It prefers
+    Ethernet, then Wi-Fi, then another qualifying adapter such as a VPN or
+    cellular interface.
+-   Interface names are converted through the existing Windows
+    `InterfaceId`/LUID implementation; status is looked up from a fresh
+    `GetAdaptersAddresses` snapshot rather than cached.
+-   Windows Ethernet classification covers CSMA/CD, Fast Ethernet,
+    Fast Ethernet FX, Gigabit Ethernet, and token-ring interface constants.
+
+The focused smoke validates unsupported feature contracts, interface
+name/status round trips, installed Ethernet/Wi-Fi lookup, and the external
+interface invariants:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-windows-connectivity-smoke.exe
+.\out\win-devlayer-x64\msvc-windows-connectivity-smoke.exe
+```
+
+It passes 21 checks on the development x64 host. The same executable
+cross-builds and inspects as `AA64`; it has not yet run on native ARM64
+hardware. Adapter-change notifications and Device Layer connectivity events
+remain the next connectivity milestone.
 
 ## Cross-build the ARM64 smoke target
 
@@ -855,7 +903,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting) composed on `System::LayerImplWindows` and a native `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks, scoped factory reset); connectivity, DNS-SD, BLE, diagnostics, logging, and reset are not yet implemented | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks, scoped factory reset), typed configuration storage, and OS-managed Ethernet/Wi-Fi `ConnectivityManager`; public configuration composition, interface-change events, DNS-SD, BLE, diagnostics, and reset remain | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -1217,7 +1265,9 @@ are deliberate submodule bumps.
 | Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
 | Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
 | Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
-| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (60 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (72 checks) | Supported | Not yet run on native hardware |
+| Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters; change events pending | Smoke passes (21 checks) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

@@ -149,6 +149,9 @@ InterfaceType GetWindowsInterfaceType(ULONG type)
     case IF_TYPE_IEEE80211:
         return InterfaceType::WiFi;
     case IF_TYPE_ETHERNET_CSMACD:
+    case IF_TYPE_FASTETHER:
+    case IF_TYPE_FASTETHER_FX:
+    case IF_TYPE_GIGABITETHERNET:
     case IF_TYPE_ISO88025_TOKENRING:
         return InterfaceType::Ethernet;
     case IF_TYPE_WWANPP:

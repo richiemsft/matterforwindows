@@ -23,8 +23,6 @@
  */
 
 #pragma once
-#include <app-common/zap-generated/ids/Attributes.h>
-
 namespace chip {
 namespace DeviceLayer {
 namespace Internal {

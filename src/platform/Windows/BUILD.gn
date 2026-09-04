@@ -103,3 +103,18 @@ static_library("windows-configuration") {
   public_deps = [ ":windows-key-value-store" ]
   public_configs = [ ":windows-device-layer-config" ]
 }
+
+static_library("windows-connectivity-manager") {
+  sources = [
+    "ConnectivityManagerImpl.cpp",
+    "ConnectivityManagerImpl.h",
+  ]
+
+  public_deps = [
+    ":windows-platform-manager",
+    "//src/inet/windows:windows-tcp-endpoint",
+    "//src/inet/windows:windows-udp-endpoint",
+    "//third_party/nlio",
+  ]
+  public_configs = [ ":windows-device-layer-config" ]
+}
