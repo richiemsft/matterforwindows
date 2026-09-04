@@ -131,3 +131,90 @@ static_library("dnssd") {
 
   cflags = [ "-Wconversion" ]
 }
+
+if (current_os == "win") {
+  # Host-neutral high-level DNS-SD resolver/advertiser, split out of the
+  # monolithic :dnssd target for the same reason as e.g.
+  # //src/transport:crypto-context: :dnssd's own chip_mdns_platform sources
+  # (Discovery_ImplPlatform.cpp) publicly depend on the generic //src/platform
+  # umbrella Device Layer dispatch target, which is not yet a Windows build
+  # (see //docs/guides/windows.md). This target compiles the identical
+  # upstream sources against the focused native
+  # //src/platform/Windows:windows-device-layer composition instead, so a
+  # Windows controller can use the real chip::Dnssd::Resolver /
+  # DiscoveryImplPlatform contract -- the same code every other
+  # chip_mdns_platform platform links -- on top of the DnssdImpl.cpp backend.
+  #
+  # This intentionally does NOT depend on this file's own ":constants",
+  # ":naming", ":platform_header", or the canonical "//src/lib/core",
+  # "//src/lib/support", "//src/crypto" targets, for the same reason
+  # //src/platform/Windows:windows-dnssd's own comment above documents:
+  # ":constants" (transitively, via its "//src/lib/support" public_dep) and
+  # every canonical target listed above apply the generated, action-based
+  # //src/lib/core:chip_config_header (CHIP_ERROR_LOGGING=true, etc.) to any
+  # consumer. windows-device-layer's closure instead applies
+  # //src/lib/core/windows:windows-core-portable's ":public" config, which
+  # sets the *same* macro names directly as command-line defines
+  # (CHIP_ERROR_LOGGING=0, etc.) so the native Windows Device Layer never
+  # needs the generated header. Depending on both in one binary redefines
+  # every one of those macros with conflicting values (fatal under /WX) and
+  # would link two independently-configured copies of CHIPError/TLV/etc.
+  # Every compiled lib/support/crypto/asn1 translation unit this closure
+  # actually needs (BytesToHex, CHIPMem, RandUtils, TLVReader/Writer, ...) is
+  # already built into windows-crypto-boringssl, reached transitively through
+  # windows-device-layer; ServiceNaming.cpp (normally reached through this
+  # file's own ":naming") is compiled directly below for the same reason.
+  #
+  # Discovery_ImplPlatform.cpp uses C++20 designated-initializer aggregates
+  # (accepted by GCC/Clang as a C++17 extension, rejected by MSVC as C7555
+  # under the repository's /std:c++17 default). As with the crypto/transport
+  # upstream test suites, gen_msvc_cxx17_source.py produces a C++17
+  # build-artifact copy (positional aggregate initialization) into a private
+  # gen directory; the upstream file is untouched.
+  _dnssd_cxx17_dir = "$target_gen_dir/dnssd_cxx17"
+
+  action_foreach("gen_dnssd_windows_cxx17") {
+    script = "//build/config/win/tests/gen_msvc_cxx17_source.py"
+    sources = [ "Discovery_ImplPlatform.cpp" ]
+    outputs = [ "$_dnssd_cxx17_dir/{{source_file_part}}" ]
+    args = [
+      "{{source}}",
+      rebase_path("$_dnssd_cxx17_dir/{{source_file_part}}", root_build_dir),
+    ]
+  }
+
+  static_library("dnssd_windows") {
+    sources = [
+      "Advertiser.cpp",
+      "Advertiser.h",
+      "Discovery_ImplPlatform.h",
+      "IPAddressSorter.cpp",
+      "IPAddressSorter.h",
+      "Resolver.cpp",
+      "Resolver.h",
+      "ResolverProxy.cpp",
+      "ResolverProxy.h",
+      "ServiceNaming.cpp",
+      "ServiceNaming.h",
+      "TxtFields.cpp",
+      "TxtFields.h",
+      "$_dnssd_cxx17_dir/Discovery_ImplPlatform.cpp",
+    ]
+
+    deps = [ ":gen_dnssd_windows_cxx17" ]
+
+    public_deps = [ "${chip_root}/src/platform/Windows:windows-device-layer" ]
+
+    # These upstream sources predate the MSVC port and are not /W4 /WX clean
+    # under it (see //build/config/win:upstream_sdk_warnings); the port code
+    # they build on (windows-device-layer and everything under it) stays at
+    # the strict default.
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+
+    defines = [
+      "CHIP_DNSSD_DEFAULT_NONE=0",
+      "CHIP_DNSSD_DEFAULT_MINIMAL=0",
+      "CHIP_DNSSD_DEFAULT_PLATFORM=1",
+    ]
+  }
+}

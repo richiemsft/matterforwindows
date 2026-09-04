@@ -1107,6 +1107,55 @@ commissioning acceptance test.
 -   Same-host self-resolve reliability is not guaranteed (see above); this is
     an mDNS-implementation characteristic, not specific to this backend.
 
+## The Windows controller-side discovery foundation
+
+`//src/lib/dnssd:dnssd_windows` compiles the real upstream
+`chip::Dnssd::Resolver` and `DiscoveryImplPlatform` implementation against the
+native Windows Device Layer and `windns.h` backend. This is the same
+controller-facing discovery path used by other `chip_mdns_platform` targets;
+it is not a second hand-written discovery implementation.
+
+The canonical `//src/lib/dnssd:dnssd` target currently reaches the generic
+`//src/platform` umbrella, which has no Windows branch, and mixes its generated
+build-configuration header with the focused Windows closure's command-line
+configuration. The Windows target is therefore an explicit intermediate split
+until the generic platform dispatch and canonical configuration graph are
+wired for Windows. Its upstream sources are unchanged except for the existing
+private C++17 build transform needed for a designated initializer that MSVC
+rejects under `/std:c++17`.
+
+`msvc-windows-controller-discovery.exe` initializes that real resolver, starts
+commissionable-node discovery, reports resolved `CommissionNodeData`, stops
+discovery, and waits for the asynchronous final browse callback to release
+the retained `DiscoveryContext` before shutdown. Calls into the resolver and
+context are serialized with the CHIP stack lock because their internal state
+is intentionally non-atomic:
+
+```powershell
+gn gen out\win-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_device_layer_probe=true'
+ninja -C out\win-devlayer-x64 msvc-windows-controller-discovery.exe
+.\out\win-devlayer-x64\msvc-windows-controller-discovery.exe 30
+```
+
+It exits `0` when at least one commissionable node resolves, `2` when discovery
+starts and stops correctly but the timeout expires without a node, and `1` for
+a platform or lifecycle failure. With no Matter accessory currently on the
+development LAN, the executable reaches the expected exit code `2`.
+
+### What this does not prove
+
+-   No real device has been commissioned yet. This proves the controller's
+    browse-to-resolve path, not PASE/CASE establishment, fabric persistence,
+    attribute operations, subscription, or fabric removal.
+-   The full `examples/chip-tool` closure still requires generic Windows
+    platform dispatch plus the messaging, session-establishment, credentials,
+    and Interaction Model client dependencies.
+
+### Cross-build
+
+The resolver target and executable cross-build and link as ARM64. They have not
+run on native Windows ARM64 hardware.
+
 ## Cross-build the ARM64 smoke target
 
 Initialize a new PowerShell process for the ARM64 compiler environment:
@@ -1183,7 +1232,7 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE | Phases 3–5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE. DNS-SD's controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` and Device Layer storage persistence are now built and exercised (`dnssd_windows`, `msvc-windows-controller-discovery.exe`); the rest of the controller closure (`//src/messaging`, session establishment, the Interaction Model client, and BLE) remains blocked on the generic `//src/platform` umbrella not yet being wired for Windows -- see "Why a full `examples/chip-tool` closure is not yet possible" above | Phases 3–5 |
 | Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
@@ -1531,6 +1580,7 @@ are deliberate submodule bumps.
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
 | Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Not yet run on native hardware |
+| Controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` (`dnssd_windows`) | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

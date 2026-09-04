@@ -170,6 +170,23 @@ executable("msvc-windows-dnssd-discovery") {
   ]
 }
 
+# Phase 3 native Windows controller-side acceptance tool: real
+# controller-facing chip::Dnssd::Resolver / DiscoveryImplPlatform discovery
+# start/stop. See //docs/guides/windows.md for what this does and does not
+# prove.
+executable("msvc-windows-controller-discovery") {
+  sources = [ "msvc_windows_controller_discovery.cpp" ]
+  output_dir = root_out_dir
+  deps = [
+    "//src/lib/dnssd:dnssd_windows",
+    "//src/platform/Windows:windows-device-layer",
+  ]
+  # msvc_windows_controller_discovery.cpp includes upstream lib/dnssd headers
+  # (e.g. Advertiser.h) that are not /W4 /WX clean under MSVC; see
+  # //build/config/win:upstream_sdk_warnings.
+  configs += [ "//build/config/win:upstream_sdk_warnings" ]
+}
+
 # Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
 # ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
 # selection macros and include paths propagate from the windows-crypto-boringssl
