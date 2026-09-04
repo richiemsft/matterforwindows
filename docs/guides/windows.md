@@ -53,8 +53,10 @@ The initial build foundation provides:
     configuration, UDP/TCP endpoint managers, and connectivity; reboot count,
     operational hours, boot reason, regulatory state, configuration version,
     unique ID, persisted counters, and primary MAC selection survive restart.
-    Its 34-check smoke also validates asynchronous factory reset and
-    event-loop-marshaled network-change delivery on x64 and
+    A Windows diagnostics provider exposes persisted reboot/boot/operational
+    state and fresh Matter-formatted interface, MAC, and IP data. The 45-check
+    smoke also validates asynchronous factory reset and event-loop-marshaled
+    network-change delivery on x64 and
     cross-builds as ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
@@ -904,10 +906,30 @@ ninja -C out\win-devlayer-x64 msvc-windows-configuration-manager-smoke.exe
 .\out\win-devlayer-x64\msvc-windows-configuration-manager-smoke.exe
 ```
 
-The smoke passes 34 checks on x64 and cross-builds as `AA64`. It covers the
+The smoke passes 45 checks on x64 and cross-builds as `AA64`. It covers the
 canonical lifecycle, restart counter and unique-ID persistence, public
 persisted counters, primary MAC contract, event-loop-marshaled network-change
-delivery, and asynchronous factory reset.
+delivery, diagnostics, and asynchronous factory reset.
+
+## The Windows diagnostic data provider
+
+`src/platform/Windows/DiagnosticDataProviderImpl.{h,cpp}` supplies the public
+`GetDiagnosticDataProvider()` singleton used by the General Diagnostics data
+model:
+
+-   Reboot count, boot reason, and total operational hours reuse the typed
+    Windows configuration backend. Uptime is measured from the current
+    `PlatformMgr()` lifecycle's monotonic start time.
+-   Active hardware, radio, and network fault lists are empty when Windows has
+    not reported a corresponding Matter fault. Unsupported heap, thread, and
+    driver-specific counters continue to return the base provider's explicit
+    unsupported error rather than fabricated values.
+-   Network interfaces are returned as an owned linked snapshot with native
+    names, operational state, Matter interface type, available EUI-48/EUI-64
+    hardware addresses, and bounded IPv4/IPv6 address lists.
+-   Interface and address enumeration use one snapshot each. A transient
+    adapter that disappears during enumeration is skipped without failing the
+    complete General Diagnostics attribute read.
 
 ## Cross-build the ARM64 smoke target
 
@@ -959,7 +981,7 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, and OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events; DNS-SD, BLE, diagnostics, and process restart after reset remain | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events, and the General Diagnostics provider; DNS-SD, BLE, and process restart after reset remain | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | No Windows DNS Service Discovery implementation or firewall guidance | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
 | Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
@@ -1324,7 +1346,7 @@ are deliberate submodule bumps.
 | Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (72 checks) | Supported | Not yet run on native hardware |
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
-| Windows Device Layer `ConfigurationManager` | Supported | Smoke passes (34 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

@@ -159,6 +159,24 @@ static_library("windows-configuration-manager") {
   ]
 }
 
+static_library("windows-diagnostic-data-provider") {
+  sources = [
+    "../DiagnosticDataProvider.cpp",
+    "DiagnosticDataProviderImpl.cpp",
+    "DiagnosticDataProviderImpl.h",
+    "MsvcCompilerCompatibility.h",
+  ]
+
+  public_deps = [
+    ":windows-configuration-manager",
+    "//src/app/common:enums",
+  ]
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-generated-header-config",
+  ]
+}
+
 static_library("windows-device-layer") {
   sources = [
     "../DeviceSafeQueue.cpp",
@@ -177,6 +195,7 @@ static_library("windows-device-layer") {
 
   public_deps = [
     ":windows-configuration-manager",
+    ":windows-diagnostic-data-provider",
     "//src/lib/core/windows:windows-core-portable",
     "//src/system/windows:windows-system-layer",
   ]

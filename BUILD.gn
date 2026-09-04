@@ -139,6 +139,7 @@ if (chip_build_windows_bootstrap_only) {
         "//src/platform/Windows:windows-configuration-manager",
         "//src/platform/Windows:windows-connectivity-manager",
         "//src/platform/Windows:windows-device-layer",
+        "//src/platform/Windows:windows-diagnostic-data-provider",
         "//src/platform/Windows:windows-key-value-store",
         "//src/platform/Windows:windows-platform-manager",
       ]

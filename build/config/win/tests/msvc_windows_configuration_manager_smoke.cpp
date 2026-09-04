@@ -18,7 +18,9 @@
 #include <lib/support/CHIPMem.h>
 #include <platform/ConfigurationManager.h>
 #include <platform/ConnectivityManager.h>
+#include <platform/DiagnosticDataProvider.h>
 #include <platform/PlatformManager.h>
+#include <platform/Windows/DiagnosticDataProviderImpl.h>
 #include <platform/Windows/WindowsConfig.h>
 
 #include <algorithm>
@@ -145,6 +147,37 @@ bool RunScenarios(const std::string & root)
     CHECK(id == CHIP_DEVICE_CONFIG_DEVICE_VENDOR_ID);
     CHECK(WindowsConfig::ReadConfigValue(WindowsConfig::kConfigKey_ProductId, id) == CHIP_NO_ERROR);
     CHECK(id == CHIP_DEVICE_CONFIG_DEVICE_PRODUCT_ID);
+
+    DiagnosticDataProvider & diagnostics = GetDiagnosticDataProvider();
+    CHECK(&diagnostics == &DiagnosticDataProviderImpl::GetDefaultInstance());
+    uint16_t diagnosticRebootCount = 0;
+    CHECK(diagnostics.GetRebootCount(diagnosticRebootCount) == CHIP_NO_ERROR && diagnosticRebootCount == 1);
+    uint64_t upTime = 0;
+    CHECK(diagnostics.GetUpTime(upTime) == CHIP_NO_ERROR);
+    uint32_t operationalHours = 0;
+    CHECK(diagnostics.GetTotalOperationalHours(operationalHours) == CHIP_NO_ERROR);
+    BootReasonType bootReason;
+    CHECK(diagnostics.GetBootReason(bootReason) == CHIP_NO_ERROR);
+    GeneralFaults<kMaxHardwareFaults> hardwareFaults;
+    GeneralFaults<kMaxRadioFaults> radioFaults;
+    GeneralFaults<kMaxNetworkFaults> networkFaults;
+    CHECK(diagnostics.GetActiveHardwareFaults(hardwareFaults) == CHIP_NO_ERROR && hardwareFaults.size() == 0);
+    CHECK(diagnostics.GetActiveRadioFaults(radioFaults) == CHIP_NO_ERROR && radioFaults.size() == 0);
+    CHECK(diagnostics.GetActiveNetworkFaults(networkFaults) == CHIP_NO_ERROR && networkFaults.size() == 0);
+
+    NetworkInterface * interfaces = nullptr;
+    CHECK(diagnostics.GetNetworkInterfaces(&interfaces) == CHIP_NO_ERROR);
+    CHECK(interfaces != nullptr);
+    bool interfacesValid = true;
+    for (NetworkInterface * networkInterface = interfaces; networkInterface != nullptr; networkInterface = networkInterface->Next)
+    {
+        interfacesValid = interfacesValid && !networkInterface->name.empty() &&
+            networkInterface->hardwareAddress.size() <= kMaxHardwareAddrSize &&
+            networkInterface->IPv4Addresses.size() <= kMaxIPv4AddrCount &&
+            networkInterface->IPv6Addresses.size() <= kMaxIPv6AddrCount;
+    }
+    CHECK(interfacesValid);
+    diagnostics.ReleaseNetworkInterfaces(interfaces);
 
     constexpr Platform::PersistedStorage::Key kCounter = "configuration-manager-smoke";
     CHECK(Platform::PersistedStorage::Write(kCounter, 0x12345678) == CHIP_NO_ERROR);
