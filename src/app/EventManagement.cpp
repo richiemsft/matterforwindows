@@ -571,10 +571,8 @@ bool EventManagement::IncludeEventInReport(EventLoadOutContext * eventLoadOutCon
         return false;
     }
 
-    Access::RequestPath requestPath{ .cluster     = event.mClusterId,
-                                     .endpoint    = event.mEndpointId,
-                                     .requestType = Access::RequestType::kEventReadRequest,
-                                     .entityId    = event.mEventId };
+    Access::RequestPath requestPath{ event.mClusterId, event.mEndpointId, Access::RequestType::kEventReadRequest,
+                                    event.mEventId };
     CHIP_ERROR accessControlError =
         Access::GetAccessControl().Check(eventLoadOutContext->mSubjectDescriptor, requestPath, eventInfo.readPrivilege);
     if (accessControlError != CHIP_NO_ERROR)

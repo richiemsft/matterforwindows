@@ -130,9 +130,9 @@ struct AttributeEntry
                              std::optional<Access::Privilege> readPriv, std::optional<Access::Privilege> writePriv) :
         attributeId{ id },
         mask{
-            .flags          = attrQualityFlags.Raw() & kAttrQualityMask,
-            .readPrivilege  = readPriv.has_value() ? (to_underlying(*readPriv) & kPrivilegeMask) : 0,
-            .writePrivilege = writePriv.has_value() ? (to_underlying(*writePriv) & kPrivilegeMask) : 0,
+            static_cast<uint8_t>(attrQualityFlags.Raw() & kAttrQualityMask),
+            static_cast<uint8_t>(readPriv.has_value() ? (to_underlying(*readPriv) & kPrivilegeMask) : 0),
+            static_cast<uint8_t>(writePriv.has_value() ? (to_underlying(*writePriv) & kPrivilegeMask) : 0),
         }
     {}
 
@@ -186,7 +186,7 @@ private:
         //
         // Consider that any modification on the declaration of
         // "enum class AttributeQualityFlags" will affect flags.
-        std::underlying_type_t<AttributeQualityFlags> flags : kAttrQualityBits;
+        uint8_t flags : kAttrQualityBits;
 
         // read/write access privilege variables
         //
@@ -236,8 +236,8 @@ struct AcceptedCommandEntry
                                    Access::Privilege invokePriv = Access::Privilege::kOperate) :
         commandId(id),
         mask{
-            .flags           = cmdQualityFlags.Raw() & kCmdQualityMask,
-            .invokePrivilege = to_underlying(invokePriv) & kPrivilegeMask,
+            static_cast<uint8_t>(cmdQualityFlags.Raw() & kCmdQualityMask),
+            static_cast<uint8_t>(to_underlying(invokePriv) & kPrivilegeMask),
         }
     {}
 
@@ -270,7 +270,7 @@ private:
     {
         // command quality flags
         //
-        std::underlying_type_t<CommandQualityFlags> flags : 3;
+        uint8_t flags : 3;
 
         std::underlying_type_t<Access::Privilege> invokePrivilege : 5;
     };

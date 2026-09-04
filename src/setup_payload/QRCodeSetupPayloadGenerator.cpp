@@ -46,7 +46,7 @@ static CHIP_ERROR populateBits(uint8_t * bits, size_t & offset, uint64_t input, 
                                size_t totalPayloadDataSizeInBits)
 {
     VerifyOrReturnError(offset + numberOfBits <= totalPayloadDataSizeInBits, CHIP_ERROR_INVALID_ARGUMENT);
-    VerifyOrReturnError(input < 1u << numberOfBits, CHIP_ERROR_INVALID_ARGUMENT);
+    VerifyOrReturnError(input < (UINT64_C(1) << numberOfBits), CHIP_ERROR_INVALID_ARGUMENT);
 
     size_t index = offset;
     offset += numberOfBits;

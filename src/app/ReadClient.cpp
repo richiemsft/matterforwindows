@@ -447,8 +447,8 @@ CHIP_ERROR ReadClient::BuildDataVersionFilterList(DataVersionFilterIBs::Builder 
             // Packet is full, ignore the rest of the list
             aDataVersionFilterIBsBuilder.Rollback(backup);
 #if CHIP_PROGRESS_LOGGING
-            ssize_t nonSkippedFilterCount = &filter - aDataVersionFilters.data();
-            skippedFilterCount            = aDataVersionFilters.size() - static_cast<size_t>(nonSkippedFilterCount);
+            const size_t nonSkippedFilterCount = static_cast<size_t>(&filter - aDataVersionFilters.data());
+            skippedFilterCount                 = aDataVersionFilters.size() - nonSkippedFilterCount;
 #endif // CHIP_PROGRESS_LOGGING
             break;
         }

@@ -159,6 +159,20 @@ executable("msvc-canonical-platform-smoke") {
   ]
 }
 
+executable("msvc-canonical-controller-stack-smoke") {
+  sources = [ "msvc_canonical_controller_stack_smoke.cpp" ]
+  output_dir = root_out_dir
+  deps = [
+    "//src/app",
+    "//src/messaging",
+    "//src/platform",
+    "//src/platform/logging:default",
+    "//src/protocols:type_definitions",
+    "//src/protocols/secure_channel",
+    "//src/transport",
+  ]
+}
+
 executable("msvc-key-value-store-smoke") {
   sources = [ "msvc_key_value_store_smoke.cpp" ]
   output_dir = root_out_dir

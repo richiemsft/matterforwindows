@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import("//build_overrides/chip.gni")
+import("${chip_root}/build/config/compiler/compiler.gni")
 import("${chip_root}/build/chip/buildconfig_header.gni")
 import("${chip_root}/src/lib/core/core.gni")
 import("${chip_root}/src/platform/device.gni")
@@ -592,7 +593,9 @@ static_library("app") {
     ]
   }
 
-  cflags = [ "-Wconversion" ]
+  if (!is_msvc) {
+    cflags = [ "-Wconversion" ]
+  }
 
   public_configs = [ "${chip_root}/src:includes" ]
 }

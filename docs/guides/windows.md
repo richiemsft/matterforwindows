@@ -197,10 +197,11 @@ The initial build foundation provides:
     transport / secure-channel test section below.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
-The canonical library probe remains opt-in until the Windows Device Layer can
-compose the full messaging, credentials, and Interaction Model closures. This
-avoids presenting successful host-neutral library compilation as a usable
-Matter SDK port.
+The canonical library probe remains opt-in while Phase 3 is active. The
+Windows Device Layer now composes the messaging, credentials, secure-session,
+and Interaction Model closures, but no fabric-backed controller application
+exists yet; keeping the probe opt-in avoids presenting successful library
+compilation as a usable Matter SDK port.
 
 Work advances only when the preceding implementation phase is complete. Phases
 0 through 2 are complete; Phase 3 (Windows Device Layer and IP discovery) is
@@ -825,15 +826,13 @@ ninja -C out\win-canonical-devlayer-x64
 
 ### Remaining blockers to a full `//examples/chip-tool` build
 
--   `//src/messaging`, `//src/transport`'s `SecureSession`/`SessionManager`,
-    and `//src/protocols/secure_channel`'s `PASESession`/`CASESession` closures
-    still reach `platform/ConnectivityManager.h` through
-    `ReliableMessageMgr`/`ExchangeManager` and are unstarted; see "Run the
-    upstream transport and secure-channel test suites" above for the specific
-    symbols.
--   `examples/chip-tool` itself has not been attempted: its own `BUILD.gn`,
-    persistent-path, and CLI/dependency wiring for Windows do not exist yet,
-    independent of the library-closure blockers above.
+-   The canonical transport, messaging, secure-session, PASE/CASE, and
+    Interaction Model libraries now compile and link against the Windows
+    Device Layer. A real controller must still initialize them with
+    fabric-backed persistent storage and operational credentials.
+-   `examples/chip-tool` itself has not been attempted: its own Windows
+    `BUILD.gn`, persistent-path, console cancellation, and CLI/dependency
+    wiring do not exist yet.
 -   BLE, Wi-Fi/Thread network commissioning, and native ARM64 execution remain
     explicitly out of scope / unverified, as in every earlier phase.
 
@@ -1336,6 +1335,36 @@ development LAN, the executable reaches the expected exit code `2`.
     wiring. Canonical platform dispatch, credentials, storage, and DNS-SD are
     now available.
 
+## The canonical controller stack closure
+
+The next Phase 3 compile gate now builds the complete canonical
+`//src/transport`, `//src/messaging`, `//src/protocols/secure_channel`,
+`//src/app:interaction-model`, and `//src/app:app` libraries with MSVC in the
+same Windows Device Layer graph. This includes `SessionManager`,
+`ExchangeManager`, reliable messaging, PASE, CASE, read/write clients, and the
+Interaction Model engine.
+
+The port keeps its C++17 contract. MSVC portability changes replace
+GCC-supported C++20 designated initializers with C++17 initialization, use
+fixed-width bitfield storage where MSVC otherwise allocates mixed underlying
+types separately, and replace the POSIX-only `ssize_t` use in `ReadClient`.
+Generated enum-check headers are handled by the existing forced-include
+compatibility shim rather than editing generated files.
+
+`msvc-canonical-controller-stack-smoke.exe` links the complete closure,
+initializes and shuts down the canonical Windows `PlatformManager`, constructs
+the session, exchange, PASE, and CASE objects, and resolves the Interaction
+Model singleton. It passes on x64 and cross-builds for ARM64. This is a
+link/lifecycle acceptance test, not a commissioning test: it does not initialize
+a fabric-backed `SessionManager`, establish PASE or CASE, or send an
+Interaction Model request.
+
+One canonical layering defect was fixed as part of this gate:
+`//src/protocols:type_definitions` now carries `Protocols.cpp`, as its existing
+comment required. `SessionManager` and `ExchangeManager` call
+`GetProtocolName()` and `GetMessageTypeName()`, so a target containing only
+`Protocols.h` compiled but could not link a real executable.
+
 ### Cross-build
 
 The resolver target and executable cross-build and link as ARM64. They have not
@@ -1401,7 +1430,7 @@ does not hide missing runtime behavior behind stubs.
 | Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events, the General Diagnostics provider, and a native DNS-SD backend over `windns.h`; BLE and process restart after reset remain | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
-| Controller | Portable command and controller logic | Build closure, storage paths, cancellation, terminal behavior, BLE, and DNS-SD | Platform and application |
+| Controller | Portable command and controller logic | Controller library/application closure, persistent fabric wiring, cancellation, terminal behavior, and BLE. Canonical transport, messaging, PASE/CASE, and Interaction Model libraries now compile and link on Windows. | Platform and application |
 | Server | Portable cluster and Interaction Model code | No Windows host lifecycle, network driver, event transport, named-pipe replacement, or example target | Platform and application |
 | Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
 
@@ -1769,6 +1798,7 @@ are deliberate submodule bumps.
 | Canonical `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/credentials:credentials` | Supported | Compile only | Supported | Compile only |
 | Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
+| Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |

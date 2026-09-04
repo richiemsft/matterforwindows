@@ -73,9 +73,7 @@ bool MayHaveAccessibleEventPathForEndpointAndCluster(DataModel::Provider * aProv
                                                      const EventPathParams & aEventPath,
                                                      const Access::SubjectDescriptor & aSubjectDescriptor)
 {
-    Access::RequestPath requestPath{ .cluster     = path.mClusterId,
-                                     .endpoint    = path.mEndpointId,
-                                     .requestType = Access::RequestType::kEventReadRequest };
+    Access::RequestPath requestPath{ path.mClusterId, path.mEndpointId, Access::RequestType::kEventReadRequest };
 
     Access::Privilege requiredPrivilege = Access::Privilege::kView;
 
@@ -154,10 +152,8 @@ bool IsAccessibleAttributeEntry(const ConcreteAttributePath & path, const Access
         return false;
     }
 
-    Access::RequestPath requestPath{ .cluster     = path.mClusterId,
-                                     .endpoint    = path.mEndpointId,
-                                     .requestType = Access::RequestType::kAttributeReadRequest,
-                                     .entityId    = path.mAttributeId };
+    Access::RequestPath requestPath{ path.mClusterId, path.mEndpointId, Access::RequestType::kAttributeReadRequest,
+                                    path.mAttributeId };
 
     // We know entry has value and GetReadPrivilege has value according to the check above
     // the assign below is safe.
@@ -1854,10 +1850,8 @@ Protocols::InteractionModel::Status InteractionModelEngine::ValidateCommandCanBe
 Protocols::InteractionModel::Status InteractionModelEngine::CheckCommandAccess(const DataModel::InvokeRequest & aRequest,
                                                                                const Access::Privilege aRequiredPrivilege)
 {
-    Access::RequestPath requestPath{ .cluster     = aRequest.path.mClusterId,
-                                     .endpoint    = aRequest.path.mEndpointId,
-                                     .requestType = Access::RequestType::kCommandInvokeRequest,
-                                     .entityId    = aRequest.path.mCommandId };
+    Access::RequestPath requestPath{ aRequest.path.mClusterId, aRequest.path.mEndpointId,
+                                    Access::RequestType::kCommandInvokeRequest, aRequest.path.mCommandId };
 
     CHIP_ERROR err = Access::GetAccessControl().Check(aRequest.subjectDescriptor, requestPath, aRequiredPrivilege);
     if (err != CHIP_NO_ERROR)
@@ -1962,10 +1956,7 @@ DataModel::Provider * InteractionModelEngine::SetDataModelProvider(DataModel::Pr
     mDataModelProvider = model;
     if (mDataModelProvider != nullptr)
     {
-        CHIP_ERROR err = mDataModelProvider->Startup({
-            .eventsGenerator = EventManagement::GetInstance(),
-            .actionContext   = *this,
-        });
+        CHIP_ERROR err = mDataModelProvider->Startup({ EventManagement::GetInstance(), *this });
 
         if (err != CHIP_NO_ERROR)
         {
@@ -2317,10 +2308,9 @@ MessageStats InteractionModelEngine::GetMessageStats()
 
 SubscriptionStats InteractionModelEngine::GetSubscriptionStats(FabricIndex fabric)
 {
-    return SubscriptionStats{ .numTotalSubscriptions = GetReportScheduler()->GetTotalSubscriptionsEstablished(),
-                              .numCurrentSubscriptions =
-                                  static_cast<uint16_t>(GetNumActiveReadHandlers(ReadHandler::InteractionType::Subscribe)),
-                              .numCurrentSubscriptionsForFabric = static_cast<uint16_t>(
+    return SubscriptionStats{ GetReportScheduler()->GetTotalSubscriptionsEstablished(),
+                              static_cast<uint16_t>(GetNumActiveReadHandlers(ReadHandler::InteractionType::Subscribe)),
+                              static_cast<uint16_t>(
                                   GetNumActiveReadHandlers(ReadHandler::InteractionType::Subscribe, fabric)) };
 }
 

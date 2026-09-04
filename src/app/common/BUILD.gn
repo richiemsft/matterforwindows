@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import("//build_overrides/chip.gni")
+import("${chip_root}/build/config/compiler/compiler.gni")
 import("${chip_root}/src/app/common_flags.gni")
 
 config("includes") {
@@ -50,6 +51,12 @@ source_set("ids") {
 
 static_library("cluster-objects") {
   output_name = "libClusterObjects"
+
+  if (is_msvc) {
+    configs +=
+        [ "${chip_root}/src/platform/Windows:windows-generated-header-config" ]
+    cflags = [ "/wd4065" ]
+  }
 
   sources = [
     "${chip_app_zap_dir}/app-common/zap-generated/cluster-objects.h",

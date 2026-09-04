@@ -66,10 +66,7 @@ std::optional<CHIP_ERROR> ValidateReadAttributeACL(const SubjectDescriptor & sub
                                                    const ConcreteReadAttributePath & path, Privilege requiredPrivilege)
 {
 
-    RequestPath requestPath{ .cluster     = path.mClusterId,
-                             .endpoint    = path.mEndpointId,
-                             .requestType = RequestType::kAttributeReadRequest,
-                             .entityId    = path.mAttributeId };
+    RequestPath requestPath{ path.mClusterId, path.mEndpointId, RequestType::kAttributeReadRequest, path.mAttributeId };
 
     CHIP_ERROR err = GetAccessControl().Check(subjectDescriptor, requestPath, requiredPrivilege);
     if (err == CHIP_NO_ERROR)
@@ -248,12 +245,7 @@ CHIP_ERROR CheckEventValidity(const ConcreteEventPath & path, const SubjectDescr
     // to be blocked by a `Invalid endpoint id` error when checking event info.
     // As a result, we check for VIEW privilege on the cluster first (most permissive)
     // and will do a 2nd check for the actual required privilege as a followup.
-    RequestPath requestPath{
-        .cluster     = path.mClusterId,
-        .endpoint    = path.mEndpointId,
-        .requestType = RequestType::kEventReadRequest,
-        .entityId    = path.mEventId,
-    };
+    RequestPath requestPath{ path.mClusterId, path.mEndpointId, RequestType::kEventReadRequest, path.mEventId };
     CHIP_ERROR err = GetAccessControl().Check(subjectDescriptor, requestPath, Access::Privilege::kView);
     if (IsTranslatableAclError(path, err, outStatus))
     {

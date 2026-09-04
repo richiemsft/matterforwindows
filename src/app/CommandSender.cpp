@@ -405,9 +405,9 @@ void CommandSender::Close()
 CHIP_ERROR CommandSender::ProcessInvokeResponseIB(InvokeResponseIB::Parser & aInvokeResponse)
 {
     CHIP_ERROR err = CHIP_NO_ERROR;
-    ClusterId clusterId;
-    CommandId commandId;
-    EndpointId endpointId;
+    ClusterId clusterId   = kInvalidClusterId;
+    CommandId commandId   = kInvalidCommandId;
+    EndpointId endpointId = kInvalidEndpointId;
     // Default to success when an invoke response is received.
     StatusIB statusIB;
 

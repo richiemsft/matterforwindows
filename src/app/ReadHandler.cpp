@@ -840,12 +840,13 @@ void ReadHandler::PersistSubscription()
     VerifyOrReturn(subscriptionResumptionStorage != nullptr);
 
     // TODO(#31873): We need to store the CAT information to enable better interactions with ICDs
-    SubscriptionResumptionStorage::SubscriptionInfo subscriptionInfo = { .mNodeId         = GetInitiatorNodeId(),
-                                                                         .mFabricIndex    = GetAccessingFabricIndex(),
-                                                                         .mSubscriptionId = mSubscriptionId,
-                                                                         .mMinInterval    = mMinIntervalFloorSeconds,
-                                                                         .mMaxInterval    = mMaxInterval,
-                                                                         .mFabricFiltered = IsFabricFiltered() };
+    SubscriptionResumptionStorage::SubscriptionInfo subscriptionInfo{};
+    subscriptionInfo.mNodeId         = GetInitiatorNodeId();
+    subscriptionInfo.mFabricIndex    = GetAccessingFabricIndex();
+    subscriptionInfo.mSubscriptionId = mSubscriptionId;
+    subscriptionInfo.mMinInterval    = mMinIntervalFloorSeconds;
+    subscriptionInfo.mMaxInterval    = mMaxInterval;
+    subscriptionInfo.mFabricFiltered = IsFabricFiltered();
     VerifyOrReturn(subscriptionInfo.SetAttributePaths(mpAttributePathList) == CHIP_NO_ERROR);
     VerifyOrReturn(subscriptionInfo.SetEventPaths(mpEventPathList) == CHIP_NO_ERROR);
 

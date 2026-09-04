@@ -849,10 +849,8 @@ Status WriteHandler::CheckWriteAccess(const Access::SubjectDescriptor & aSubject
 
     if (checkAcl)
     {
-        Access::RequestPath requestPath{ .cluster     = aPath.mClusterId,
-                                         .endpoint    = aPath.mEndpointId,
-                                         .requestType = Access::RequestType::kAttributeWriteRequest,
-                                         .entityId    = aPath.mAttributeId };
+        Access::RequestPath requestPath{ aPath.mClusterId, aPath.mEndpointId, Access::RequestType::kAttributeWriteRequest,
+                                        aPath.mAttributeId };
 
         CHIP_ERROR err = Access::GetAccessControl().Check(aSubject, requestPath, aRequiredPrivilege);
 

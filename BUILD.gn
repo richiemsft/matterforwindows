@@ -116,11 +116,16 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-system-upstream-tests",
         "//build/config/win/tests:msvc-transport-crypto-context-tests",
         "//build/config/win/tests:msvc-transport-tests",
+        "//src/app",
+        "//src/app:interaction-model",
         "//src/credentials",
         "//src/crypto",
         "//src/inet",
+        "//src/messaging",
         "//src/messaging:configurations",
         "//src/platform",
+        "//src/protocols:type_definitions",
+        "//src/protocols/secure_channel",
         "//src/protocols/secure_channel:check-in-counter",
         "//src/protocols/secure_channel:session-resumption-storage",
         "//src/protocols/secure_channel:type_definitions",
@@ -132,6 +137,7 @@ if (chip_build_windows_bootstrap_only) {
 
     if (chip_windows_device_layer_probe) {
       deps += [
+        "//build/config/win/tests:msvc-canonical-controller-stack-smoke",
         "//build/config/win/tests:msvc-canonical-platform-smoke",
         "//build/config/win/tests:msvc-key-value-store-smoke",
         "//build/config/win/tests:msvc-platform-manager-smoke",

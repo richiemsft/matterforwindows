@@ -606,7 +606,8 @@ CHIP_ERROR PASESession::HandlePBKDFParamResponse(System::PacketBufferHandle && m
     err = SetupSpake2p();
     SuccessOrExit(err);
 
-    err = Spake2pVerifier::ComputeWS(mIterationCount, salt, mSetupPINCode, serializedWS.Bytes(), serializedWS.Capacity());
+    err = Spake2pVerifier::ComputeWS(mIterationCount, salt, mSetupPINCode, serializedWS.Bytes(),
+                                     static_cast<uint32_t>(serializedWS.Capacity()));
     SuccessOrExit(err);
 
     err = mSpake2p.BeginProver(nullptr, 0, nullptr, 0, serializedWS.Bytes(), kSpake2p_WS_Length,

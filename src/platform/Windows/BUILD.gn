@@ -45,10 +45,7 @@ config("windows-generated-header-config") {
     "//zzz_generated/app-common",
   ]
   cflags = [
-    "/FIplatform/Windows/MsvcCompilerCompatibility.h",
-    "/wd4068",
     "/wd4130",
-    "/wd4505",
     "/wd4702",
   ]
 }
