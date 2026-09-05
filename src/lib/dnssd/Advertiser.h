@@ -165,9 +165,12 @@ private:
 class CommissionAdvertisingParameters : public BaseAdvertisingParams<CommissionAdvertisingParameters>
 {
 public:
-    static constexpr uint8_t kTxtMaxNumber     = kCommonTxtMaxNumber + KeyCount(TxtKeyUse::kCommission);
-    static constexpr uint8_t kTxtMaxKeySize    = std::max(kCommonTxtMaxKeySize, MaxKeyLen(TxtKeyUse::kCommission));
-    static constexpr uint8_t kTxtMaxValueSize  = std::max(kCommonTxtMaxValueSize, MaxValueLen(TxtKeyUse::kCommission));
+    static constexpr uint8_t kTxtMaxNumber =
+        static_cast<uint8_t>(kCommonTxtMaxNumber + KeyCount(TxtKeyUse::kCommission));
+    static constexpr uint8_t kTxtMaxKeySize =
+        static_cast<uint8_t>(std::max(kCommonTxtMaxKeySize, MaxKeyLen(TxtKeyUse::kCommission)));
+    static constexpr uint8_t kTxtMaxValueSize =
+        static_cast<uint8_t>(std::max(kCommonTxtMaxValueSize, MaxValueLen(TxtKeyUse::kCommission)));
     static constexpr size_t kTxtTotalKeySize   = kCommonTxtTotalKeySize + TotalKeyLen(TxtKeyUse::kCommission);
     static constexpr size_t kTxtTotalValueSize = kCommonTxtTotalValueSize + TotalValueLen(TxtKeyUse::kCommission);
 

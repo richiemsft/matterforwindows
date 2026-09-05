@@ -176,44 +176,46 @@ CHIP_ERROR DeviceControllerFactory::InitSystemState(FactoryInitParams params)
     // The logic below expects IPv6 to be at index 0 of this tuple. Keep that logic in sync with
     // this code.
     //
-    ReturnErrorOnFailure(stateParams.transportMgr->Init(Transport::UdpListenParameters(stateParams.udpEndPointManager)
-                                                            .SetAddressType(Inet::IPAddressType::kIPv6)
-                                                            .SetListenPort(params.listenPort)
+    CHIP_ERROR transportInitError =
+        stateParams.transportMgr->Init(Transport::UdpListenParameters(stateParams.udpEndPointManager)
+                                           .SetAddressType(Inet::IPAddressType::kIPv6)
+                                           .SetListenPort(params.listenPort)
 #if INET_CONFIG_ENABLE_IPV4
-                                                            ,
-                                                        //
-                                                        // The logic below expects IPv4 to be at index 1 of this tuple,
-                                                        // if it's enabled. Keep that logic in sync with this code.
-                                                        //
-                                                        Transport::UdpListenParameters(stateParams.udpEndPointManager)
-                                                            .SetAddressType(Inet::IPAddressType::kIPv4)
-                                                            .SetListenPort(params.listenPort)
+                                       ,
+                                       //
+                                       // The logic below expects IPv4 to be at index 1 of this tuple,
+                                       // if it's enabled. Keep that logic in sync with this code.
+                                       //
+                                       Transport::UdpListenParameters(stateParams.udpEndPointManager)
+                                           .SetAddressType(Inet::IPAddressType::kIPv4)
+                                           .SetListenPort(params.listenPort)
 #endif
 #if CONFIG_NETWORK_LAYER_BLE
-                                                            ,
-                                                        Transport::BleListenParameters(stateParams.bleLayer)
+                                       ,
+                                       Transport::BleListenParameters(stateParams.bleLayer)
 #endif
 #if INET_CONFIG_ENABLE_TCP_ENDPOINT
-                                                            ,
-                                                        tcpListenParams
+                                       ,
+                                       tcpListenParams
 #if INET_CONFIG_ENABLE_IPV4
-                                                        ,
-                                                        Transport::TcpListenParameters(stateParams.tcpEndPointManager)
-                                                            .SetAddressType(Inet::IPAddressType::kIPv4)
-                                                            .SetListenPort(params.listenPort)
-                                                            .SetServerListenEnabled(params.enableTCPServer)
+                                       ,
+                                       Transport::TcpListenParameters(stateParams.tcpEndPointManager)
+                                           .SetAddressType(Inet::IPAddressType::kIPv4)
+                                           .SetListenPort(params.listenPort)
+                                           .SetServerListenEnabled(params.enableTCPServer)
 #endif
 #endif
 #if CHIP_DEVICE_CONFIG_ENABLE_WIFIPAF
-                                                            ,
-                                                        Transport::WiFiPAFListenParameters()
+                                       ,
+                                       Transport::WiFiPAFListenParameters()
 #endif
 #if CHIP_DEVICE_CONFIG_ENABLE_NFC_BASED_COMMISSIONING
-                                                            ,
-                                                        Transport::NfcListenParameters(nullptr)
+                                       ,
+                                       Transport::NfcListenParameters(nullptr)
 #endif
-                                                            ,
-                                                        Transport::ProxyListenParameters(stateParams.systemLayer)));
+                                       ,
+                                       Transport::ProxyListenParameters(stateParams.systemLayer));
+    ReturnErrorOnFailure(transportInitError);
 
     // TODO(#16231): All the new'ed state above/below in this method is never properly released or null-checked!
     stateParams.sessionMgr                = chip::Platform::New<SessionManager>();
@@ -345,25 +347,20 @@ CHIP_ERROR DeviceControllerFactory::InitSystemState(FactoryInitParams params)
     stateParams.sessionSetupPool = Platform::New<DeviceControllerSystemStateParams::SessionSetupPool>();
     stateParams.caseClientPool   = Platform::New<DeviceControllerSystemStateParams::CASEClientPool>();
 
-    CASEClientInitParams sessionInitParams = {
-        .sessionManager            = stateParams.sessionMgr,
-        .sessionResumptionStorage  = sessionResumptionStorage,
-        .certificateValidityPolicy = stateParams.certificateValidityPolicy,
-        .exchangeMgr               = stateParams.exchangeMgr,
-        .fabricTable               = stateParams.fabricTable,
-        .groupDataProvider         = stateParams.groupDataProvider,
-        // Don't provide an MRP local config, so each CASE initiation will use
-        // the then-current value.
-        .mrpLocalConfig            = NullOptional,
-        .minimumLITBackoffInterval = params.minimumLITBackoffInterval,
-        .localSessionParams        = localSessionParams,
-    };
+    // Don't provide an MRP local config, so each CASE initiation will use the
+    // then-current value.
+    CASEClientInitParams sessionInitParams{ stateParams.sessionMgr,
+                                           sessionResumptionStorage,
+                                           stateParams.certificateValidityPolicy,
+                                           stateParams.exchangeMgr,
+                                           stateParams.fabricTable,
+                                           stateParams.groupDataProvider,
+                                           NullOptional,
+                                           params.minimumLITBackoffInterval,
+                                           localSessionParams };
 
-    CASESessionManagerConfig sessionManagerConfig = {
-        .sessionInitParams = sessionInitParams,
-        .clientPool        = stateParams.caseClientPool,
-        .sessionSetupPool  = stateParams.sessionSetupPool,
-    };
+    CASESessionManagerConfig sessionManagerConfig{ sessionInitParams, stateParams.caseClientPool,
+                                                   stateParams.sessionSetupPool };
 
     // TODO: Need to be able to create a CASESessionManagerConfig here!
     stateParams.caseSessionManager = Platform::New<CASESessionManager>();

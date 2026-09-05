@@ -1359,16 +1359,72 @@ link/lifecycle acceptance test, not a commissioning test: it does not initialize
 a fabric-backed `SessionManager`, establish PASE or CASE, or send an
 Interaction Model request.
 
+Canonical `//src/controller:controller` also builds under MSVC for x64 and
+ARM64. This brought the controller factory, persistent `FabricTable`,
+commissioner, auto-commissioning, BDX, User Directed Commissioning, and
+attestation-verifier closures into the Windows graph. Windows leaves
+`chip_config_network_layer_ble` disabled by default until the Phase 4 WinRT
+transport exists; on-network commissioning does not require that transport.
+
 One canonical layering defect was fixed as part of this gate:
 `//src/protocols:type_definitions` now carries `Protocols.cpp`, as its existing
 comment required. `SessionManager` and `ExchangeManager` call
 `GetProtocolName()` and `GetMessageTypeName()`, so a target containing only
 `Protocols.h` compiled but could not link a real executable.
 
+## Focused native Windows commissioner
+
+`msvc-windows-controller.exe` is the first non-interactive controller
+executable. It composes the canonical controller library with the Windows
+Device Layer and:
+
+-   adapts the Windows KVS through `KvsPersistentStorageDelegate`;
+-   persists the operational key and certificate stores, fabric table, group
+    state, IPK, and example credential issuer under
+    `%LOCALAPPDATA%\Matter\KVS\v1`;
+-   creates one controller fabric on first launch and restores the same fabric
+    on later launches;
+-   starts setup-code pairing with
+    `DiscoveryType::kDiscoveryNetworkOnly`; and
+-   bounds pairing and cancellation waits so a missing commissioning window
+    does not leave the process running indefinitely.
+
+Build it and confirm controller-fabric persistence:
+
+```powershell
+ninja -C out\win-devlayer-x64 msvc-windows-controller.exe
+.\out\win-devlayer-x64\msvc-windows-controller.exe status
+.\out\win-devlayer-x64\msvc-windows-controller.exe status
+```
+
+The first run reports `Created controller fabric`; subsequent runs report
+`Restored controller fabric` with the same fabric index and controller node ID.
+To commission an accessory that is already on the same LAN, open its
+commissioning window and run:
+
+```powershell
+.\out\win-devlayer-x64\msvc-windows-controller.exe pair 1 <setup-code> 180
+```
+
+The node ID accepts decimal or `0x`-prefixed input. The optional timeout is
+1-600 seconds and defaults to 120.
+
+This is a development acceptance tool, not a production commissioner. Its
+example certificate authority stores private keys in cleartext, its default
+IPK is a test value, and it deliberately permits commissioning to continue
+after device-attestation verification fails. Production software must provide
+a protected operational keystore, unique IPKs, and an approved PAA trust and
+revocation policy. The current executable has proven fabric creation,
+persistence across process restart, on-network pairing startup, bounded
+cancellation, and clean teardown on x64. A real accessory has not yet completed
+PASE/commissioning through it, and CASE reconnection, attribute operations,
+subscriptions, and fabric removal remain open.
+
 ### Cross-build
 
-The resolver target and executable cross-build and link as ARM64. They have not
-run on native Windows ARM64 hardware.
+The resolver, canonical controller library, and focused commissioner executable
+cross-build and link as ARM64. They have not run on native Windows ARM64
+hardware.
 
 ## Cross-build the ARM64 smoke target
 
@@ -1799,8 +1855,9 @@ are deliberate submodule bumps.
 | Canonical `//src/credentials:credentials` | Supported | Compile only | Supported | Compile only |
 | Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
+| Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Controller CLI | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
+| Focused non-interactive controller | Supported subset | Fabric create/restore and bounded on-network pairing startup pass; real commissioning pending | Supported subset | Not yet run on native hardware |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -1827,16 +1884,18 @@ are deliberate submodule bumps.
     transport/Secure Channel components compile on Windows. The Phase 3
     canonical Device Layer composes PlatformManager, configuration, KVS,
     diagnostics, OS-managed connectivity, endpoint lifecycle, and DNS-SD for
-    x64/ARM64, with its lifecycle/storage smoke passing on x64. BLE, the full
-    controller, and server targets do not yet compile as complete Windows
-    closures. The full upstream
+    x64/ARM64, with its lifecycle/storage smoke passing on x64. The canonical
+    controller library and a focused persistent on-network commissioner now
+    compile on x64/ARM64; BLE, full command compatibility, and the server target
+    remain incomplete. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
     upstream System/Inet tests and 40 host-neutral transport/Secure Channel
     tests also pass. The monolithic `//src/credentials:credentials` library
     (`FabricTable`, `LastKnownGoodTime`, `GroupDataProvider`,
-    `PersistentStorageOpCertStore`) now compiles through the canonical Windows
-    Device Layer, but no real fabric/session commissioning flow has run yet.
+    `PersistentStorageOpCertStore`) now runs through persistent controller
+    fabric creation and process-restart restoration, but no real accessory has
+    completed PASE/CASE commissioning yet.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no

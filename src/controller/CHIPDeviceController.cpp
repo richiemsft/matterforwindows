@@ -469,10 +469,7 @@ CHIP_ERROR DeviceController::ComputePASEVerifier(uint32_t iterations, uint32_t s
 
 ControllerDeviceInitParams DeviceController::GetControllerDeviceInitParams()
 {
-    return ControllerDeviceInitParams{
-        .sessionManager = mSystemState->SessionMgr(),
-        .exchangeMgr    = mSystemState->ExchangeMgr(),
-    };
+    return ControllerDeviceInitParams{ mSystemState->SessionMgr(), mSystemState->ExchangeMgr() };
 }
 
 DeviceCommissioner::DeviceCommissioner() :
@@ -3322,16 +3319,16 @@ void DeviceCommissioner::PerformCommissioningStep(DeviceProxy * proxy, Commissio
     }
     case CommissioningStage::kConfigureUTCTime: {
         TimeSynchronization::Commands::SetUTCTime::Type request;
-        uint64_t kChipEpochUsSinceUnixEpoch = static_cast<uint64_t>(kChipEpochSecondsSinceUnixEpoch) * chip::kMicrosecondsPerSecond;
+        uint64_t chipEpochUsSinceUnixEpoch = static_cast<uint64_t>(kChipEpochSecondsSinceUnixEpoch) * chip::kMicrosecondsPerSecond;
         System::Clock::Microseconds64 utcTime;
-        if (System::SystemClock().GetClock_RealTime(utcTime) != CHIP_NO_ERROR || utcTime.count() <= kChipEpochUsSinceUnixEpoch)
+        if (System::SystemClock().GetClock_RealTime(utcTime) != CHIP_NO_ERROR || utcTime.count() <= chipEpochUsSinceUnixEpoch)
         {
             // We have no time to give, but that's OK, just complete this stage
             CommissioningStageComplete(CHIP_NO_ERROR);
             return;
         }
 
-        request.UTCTime = utcTime.count() - kChipEpochUsSinceUnixEpoch;
+        request.UTCTime = utcTime.count() - chipEpochUsSinceUnixEpoch;
         // For now, we assume a seconds granularity
         request.granularity = TimeSynchronization::GranularityEnum::kSecondsGranularity;
         CHIP_ERROR err      = SendCommissioningCommand(proxy, request, OnBasicSuccess, OnSetUTCError, endpoint, timeout);

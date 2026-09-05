@@ -574,15 +574,14 @@ void DefaultDACVerifier::VerifyAttestationInformation(const DeviceAttestationVer
         DeviceAttestationVendorReservedDeconstructor vendorReserved;
         ByteSpan certificationDeclarationPayload;
 
-        DeviceInfoForAttestation deviceInfo{
-            .vendorId     = info.vendorId,
-            .productId    = info.productId,
-            .dacVendorId  = dacVidPid.mVendorId.Value(),
-            .dacProductId = dacVidPid.mProductId.Value(),
-            .paiVendorId  = paiVidPid.mVendorId.Value(),
-            .paiProductId = paiVidPid.mProductId.ValueOr(0),
-            .paaVendorId  = paaVidPid.mVendorId.ValueOr(VendorId::NotSpecified),
-        };
+        DeviceInfoForAttestation deviceInfo;
+        deviceInfo.vendorId     = info.vendorId;
+        deviceInfo.productId    = info.productId;
+        deviceInfo.dacVendorId  = dacVidPid.mVendorId.Value();
+        deviceInfo.dacProductId = dacVidPid.mProductId.Value();
+        deviceInfo.paiVendorId  = paiVidPid.mVendorId.Value();
+        deviceInfo.paiProductId = paiVidPid.mProductId.ValueOr(0);
+        deviceInfo.paaVendorId  = paaVidPid.mVendorId.ValueOr(VendorId::NotSpecified);
 
         MutableByteSpan paaSKID(deviceInfo.paaSKID);
         VerifyOrExit(ExtractSKIDFromX509Cert(paaDerBuffer, paaSKID) == CHIP_NO_ERROR,

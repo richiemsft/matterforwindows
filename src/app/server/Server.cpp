@@ -55,7 +55,6 @@
 #include <setup_payload/AdditionalDataPayloadGenerator.h>
 #endif
 #include <setup_payload/SetupPayload.h>
-#include <sys/param.h>
 #include <system/SystemPacketBuffer.h>
 #include <system/TLVPacketBufferBackingStore.h>
 #include <transport/SessionManager.h>
@@ -587,21 +586,13 @@ CHIP_ERROR Server::Init(const ServerInitParams & initParams)
     app::DnssdServer::Instance().StartServer();
 #endif
 
+    // Don't provide an MRP local config, so each CASE initiation will use the
+    // then-current value.
     caseSessionManagerConfig = {
-        .sessionInitParams =  {
-            .sessionManager    = &mSessions,
-            .sessionResumptionStorage = mSessionResumptionStorage,
-            .certificateValidityPolicy = &mCertificateValidityPolicy,
-            .exchangeMgr       = &mExchangeMgr,
-            .fabricTable       = &mFabrics,
-            .groupDataProvider = mGroupsProvider,
-            // Don't provide an MRP local config, so each CASE initiation will use
-            // the then-current value.
-            .mrpLocalConfig = NullOptional,
-            .localSessionParams = localSessionParams,
-        },
-        .clientPool            = &mCASEClientPool,
-        .sessionSetupPool      = &mSessionSetupPool,
+        { &mSessions, mSessionResumptionStorage, &mCertificateValidityPolicy, &mExchangeMgr, &mFabrics, mGroupsProvider,
+          NullOptional, NullOptional, localSessionParams },
+        &mCASEClientPool,
+        &mSessionSetupPool,
     };
 
     err = mCASESessionManager.Init(&DeviceLayer::SystemLayer(), caseSessionManagerConfig);
@@ -807,7 +798,8 @@ void Server::CheckServerReadyEvent()
     {
         ChipLogProgress(AppServer, "Server initialization complete");
 
-        ChipDeviceEvent event = { .Type = DeviceEventType::kServerReady };
+        ChipDeviceEvent event{};
+        event.Type = DeviceEventType::kServerReady;
         PlatformMgr().PostEventOrDie(&event);
     }
 }
@@ -881,7 +873,8 @@ void Server::GenerateShutDownEvent()
 
 void Server::PostFactoryResetEvent()
 {
-    DeviceLayer::ChipDeviceEvent event{ .Type = DeviceLayer::DeviceEventType::kFactoryReset };
+    DeviceLayer::ChipDeviceEvent event{};
+    event.Type = DeviceLayer::DeviceEventType::kFactoryReset;
 
     CHIP_ERROR error = DeviceLayer::PlatformMgr().PostEvent(&event);
     if (error != CHIP_NO_ERROR)

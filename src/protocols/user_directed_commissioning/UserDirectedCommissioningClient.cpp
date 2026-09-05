@@ -28,9 +28,10 @@
 
 #ifdef __ZEPHYR__
 #include <zephyr/kernel.h>
+#else
+#include <chrono>
+#include <thread>
 #endif // __ZEPHYR__
-
-#include <unistd.h>
 
 namespace chip {
 namespace Protocols {
@@ -74,7 +75,7 @@ CHIP_ERROR UserDirectedCommissioningClient::SendUDCMessage(TransportMgrBase * tr
 #ifdef __ZEPHYR__
         k_usleep(100 * 1000); // 100ms
 #else
-        usleep(100 * 1000); // 100ms
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 #endif // __ZEPHYR__
     }
 

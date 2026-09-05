@@ -29,8 +29,6 @@
 #include <system/TLVPacketBufferBackingStore.h>
 #include <transport/raw/Base.h>
 
-#include <unistd.h>
-
 namespace chip {
 namespace Protocols {
 namespace UserDirectedCommissioning {

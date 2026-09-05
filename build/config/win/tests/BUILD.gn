@@ -234,6 +234,25 @@ executable("msvc-windows-controller-discovery") {
   configs += [ "//build/config/win:upstream_sdk_warnings" ]
 }
 
+# Focused native Windows on-network commissioner. This is intentionally
+# non-interactive: it creates or restores one persistent controller fabric and
+# pairs a commissionable device by setup code over IP.
+executable("msvc-windows-controller") {
+  sources = [
+    "../../../../src/app/server-cluster/testing/EmptyProvider.cpp",
+    "msvc_windows_controller.cpp",
+  ]
+  output_dir = root_out_dir
+  deps = [
+    "//src/app/data-model-provider",
+    "//src/controller",
+    "//src/credentials:default_attestation_verifier",
+    "//src/platform",
+    "//src/platform/logging:default",
+  ]
+  configs += [ "//build/config/win:upstream_sdk_warnings" ]
+}
+
 # Real BoringSSL CryptoPAL correctness tests (hash/HMAC/HKDF/PBKDF2/AES-CCM/
 # ECDSA/ECDH/DRBG) driven through the public Matter crypto API. The crypto
 # selection macros and include paths propagate from the windows-crypto-boringssl

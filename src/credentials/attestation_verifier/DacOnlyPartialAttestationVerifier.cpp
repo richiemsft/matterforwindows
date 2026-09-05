@@ -52,10 +52,9 @@ void PartialDACVerifier::VerifyAttestationInformation(const DeviceAttestationVer
     AttestationCertVidPid paiVidPid;
     AttestationCertVidPid paaVidPid;
 
-    DeviceInfoForAttestation deviceInfo{
-        .vendorId  = info.vendorId,
-        .productId = info.productId,
-    };
+    DeviceInfoForAttestation deviceInfo;
+    deviceInfo.vendorId  = info.vendorId;
+    deviceInfo.productId = info.productId;
 
     VerifyOrExit(!info.attestationElementsBuffer.empty() && !info.attestationChallengeBuffer.empty() &&
                      !info.attestationSignatureBuffer.empty() && !info.paiDerBuffer.empty() && !info.dacDerBuffer.empty() &&

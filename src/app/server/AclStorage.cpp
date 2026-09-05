@@ -163,15 +163,15 @@ CHIP_ERROR Convert(NodeId from, StagingSubject & to)
 {
     if (IsOperationalNodeId(from) || IsCASEAuthTag(from))
     {
-        to = { .nodeId = from, .authMode = StagingAuthMode::kCase };
+        to = { from, StagingAuthMode::kCase };
     }
     else if (IsGroupId(from))
     {
-        to = { .nodeId = GroupIdFromNodeId(from), .authMode = StagingAuthMode::kGroup };
+        to = { GroupIdFromNodeId(from), StagingAuthMode::kGroup };
     }
     else if (IsPAKEKeyId(from))
     {
-        to = { .nodeId = PAKEKeyIdFromNodeId(from), .authMode = StagingAuthMode::kPase };
+        to = { PAKEKeyIdFromNodeId(from), StagingAuthMode::kPase };
     }
     else
     {
@@ -293,7 +293,7 @@ CHIP_ERROR AclStorage::DecodableEntry::Unstage()
         auto iterator = mStagingEntry.subjects.Value().begin();
         while (iterator.Next())
         {
-            StagingSubject tmp = { .nodeId = iterator.GetValue(), .authMode = mStagingEntry.authMode };
+            StagingSubject tmp = { iterator.GetValue(), mStagingEntry.authMode };
             NodeId subject;
             ReturnErrorOnFailure(Convert(tmp, subject));
             ReturnErrorOnFailure(mEntry.AddSubject(nullptr, subject));

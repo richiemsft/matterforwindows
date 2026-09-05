@@ -39,21 +39,22 @@ static constexpr uint32_t kMaxProductIdsCount        = 100;
 static constexpr uint32_t kMaxAuthorizedPAAListCount = 10;
 static constexpr uint32_t kCertificateIdLength       = 19;
 static constexpr uint32_t kCertificationElements_TLVEncodedMaxLength =
-    TLV::EstimateStructOverhead(sizeof(uint16_t), // FormatVersion
-                                sizeof(uint16_t), // VendorId
-                                // ProductIds. Formally, the following extression should be used here:
-                                //     ( TLV::EstimateStructOverhead(sizeof(uint16_t)) * kMaxProductIdsCount ),
-                                // Because exact structure of the elements of this array is known, more accurate estimate is used.
-                                (1 + sizeof(uint16_t)) * kMaxProductIdsCount,
-                                sizeof(uint32_t),                                         // DeviceTypeId
-                                kCertificateIdLength,                                     // CertificateId
-                                sizeof(uint8_t),                                          // SecurityLevel
-                                sizeof(uint16_t),                                         // SecurityInformation
-                                sizeof(uint16_t),                                         // VersionNumber
-                                sizeof(uint8_t),                                          // CertificationType
-                                sizeof(uint16_t),                                         // DACOriginVendorId
-                                sizeof(uint16_t),                                         // DACOriginProductId
-                                (2 + kKeyIdentifierLength) * kMaxAuthorizedPAAListCount); // AuthorizedPAAList
+    static_cast<uint32_t>(TLV::EstimateStructOverhead(
+        sizeof(uint16_t), // FormatVersion
+        sizeof(uint16_t), // VendorId
+        // ProductIds. Formally, the following extression should be used here:
+        //     ( TLV::EstimateStructOverhead(sizeof(uint16_t)) * kMaxProductIdsCount ),
+        // Because exact structure of the elements of this array is known, more accurate estimate is used.
+        (1 + sizeof(uint16_t)) * kMaxProductIdsCount,
+        sizeof(uint32_t),                                        // DeviceTypeId
+        kCertificateIdLength,                                    // CertificateId
+        sizeof(uint8_t),                                         // SecurityLevel
+        sizeof(uint16_t),                                        // SecurityInformation
+        sizeof(uint16_t),                                        // VersionNumber
+        sizeof(uint8_t),                                         // CertificationType
+        sizeof(uint16_t),                                        // DACOriginVendorId
+        sizeof(uint16_t),                                        // DACOriginProductId
+        (2 + kKeyIdentifierLength) * kMaxAuthorizedPAAListCount)); // AuthorizedPAAList
 static constexpr uint32_t kMaxCMSSignedCDMessage = 183 + kCertificationElements_TLVEncodedMaxLength;
 
 struct CertificationElements

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import("//build_overrides/chip.gni")
+import("${chip_root}/build/config/compiler/compiler.gni")
 import("${chip_root}/src/access/access.gni")
 import("${chip_root}/src/app/common_flags.gni")
 import("${chip_root}/src/app/icd/icd.gni")
@@ -92,7 +93,9 @@ static_library("server") {
 
   public_configs = [ ":server_config" ]
 
-  cflags = [ "-Wconversion" ]
+  if (!is_msvc) {
+    cflags = [ "-Wconversion" ]
+  }
 
   public_deps = [
     "${chip_root}/src/access",

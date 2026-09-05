@@ -79,10 +79,11 @@ constexpr uint8_t sTestCert_PAA_NoVID_Cert_Array[] = {
 // These are used directly by the CryptoPAL test, so need to be declared extern
 extern constexpr ByteSpan sTestCert_PAA_NoVID_Cert = ByteSpan(sTestCert_PAA_NoVID_Cert_Array);
 
-const Span<const ByteSpan> kTestAttestationTrustStoreRoots((const ByteSpan[]){
+const ByteSpan kTestAttestationTrustStoreRootEntries[] = {
     sTestCert_PAA_FFF1_Cert,
     sTestCert_PAA_NoVID_Cert,
-});
+};
+const Span<const ByteSpan> kTestAttestationTrustStoreRoots(kTestAttestationTrustStoreRootEntries);
 
 const Span<const ByteSpan> & GetTestPaaRootStore()
 {
