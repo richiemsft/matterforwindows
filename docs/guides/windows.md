@@ -92,10 +92,12 @@ The initial build foundation provides:
 -   The repository's existing generated `examples/chip-tool` application as a
     native, non-interactive Windows executable. The complete generated cluster,
     pairing, discovery, subscription, storage, and session-management command
-    sets initialize and display help on x64. The same executable cross-builds
-    and inspects as `AA64` for ARM64. Interactive editline/websocket mode, YAML
-    tests, and HTTPS/DCL requests remain disabled in the initial Windows
-    configuration.
+    sets initialize on x64. On-network commissioning of a real Matter bulb
+    completed PASE, credential installation, CASE, and CommissioningComplete;
+    a new process restored the same fabric and read the bulb's OnOff attribute
+    over CASE. The same executable cross-builds and inspects as `AA64` for
+    ARM64. Interactive editline/websocket mode, YAML tests, and HTTPS/DCL
+    requests remain disabled in the initial Windows configuration.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -876,10 +878,20 @@ Windows temporary directory by default. A missing directory supplied through
 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` so updates
 work across process restarts on Windows.
 
+An x64 hardware run commissioned a Tapo Matter bulb as node 15 using on-network
+DNS-SD discovery and a manual setup code. The bulb's advertised link-local IPv6
+address did not respond, so the existing operational-session fallback retried
+its IPv4 address (`192.168.1.128`), completed CASE, and received
+`CommissioningComplete` with error code 0. A subsequent `chip-tool` process
+restored fabric index 1 with the same compressed fabric ID, repeated the
+link-local-to-IPv4 fallback, established CASE, and read endpoint 1's OnOff
+attribute as `TRUE`. Device attestation was explicitly bypassed for this
+development run because no matching production PAA trust store was configured.
+
 Use the same arguments with `target_cpu="arm64"` after initializing the ARM64
 MSVC environment to cross-build. `dumpbin /headers` confirms the resulting
-`chip-tool.exe` is an `AA64` image. Native ARM64 execution and live
-commissioning with this executable remain to be validated.
+`chip-tool.exe` is an `AA64` image. Native ARM64 execution remains to be
+validated.
 
 Canonical `//src/lib/dnssd:dnssd` now links end to end with canonical
 `//src/platform` in `msvc-windows-controller-discovery.exe`; its real
@@ -1370,15 +1382,14 @@ starts and stops correctly but the timeout expires without a node, and `1` for
 a platform or lifecycle failure. With no Matter accessory currently on the
 development LAN, the executable reaches the expected exit code `2`.
 
-### What this does not prove
+### What this discovery target does not prove
 
--   No real device has been commissioned yet. This proves the controller's
-    browse-to-resolve path, not PASE/CASE establishment, fabric persistence,
-    attribute operations, subscription, or fabric removal.
--   The full `examples/chip-tool` closure still requires messaging,
-    session-establishment, Interaction Model client, and Windows application
-    wiring. Canonical platform dispatch, credentials, storage, and DNS-SD are
-    now available.
+-   This focused discovery executable proves only its browse-to-resolve path.
+    The separate focused controller and native `chip-tool` hardware runs cover
+    PASE/CASE establishment, fabric persistence, and operational attribute
+    access.
+-   Subscription and fabric-removal coverage remains in the focused controller
+    acceptance flow rather than this discovery executable.
 
 ## The canonical controller stack closure
 
@@ -1754,7 +1765,7 @@ does not hide missing runtime behavior behind stubs.
 | Device Layer | Generic static-polymorphism mixins | Native `PlatformManager`, storage/configuration, OS-managed connectivity, diagnostics, DNS-SD, and C++/WinRT BLE are implemented; process restart after reset remains | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
-| Controller | Portable command and controller logic | Existing generated `chip-tool` builds and starts natively with pairing, discovery, cluster, subscription, storage, and session-management commands; live commissioning and interactive mode remain to validate | Platform and application |
+| Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, and session-management commands; real x64 on-network commissioning and restart-safe OnOff read pass; interactive mode remains | Platform and application |
 | Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles are implemented; POSIX named-pipe test-event transport remains | Platform and application |
 | Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
 
@@ -1770,7 +1781,7 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Native non-interactive application and storage wiring build and start on x64 and cross-build as `AA64`; live commissioning, interactive mode, YAML tests, and HTTPS/DCL remain | Phases 3–5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Native non-interactive application and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; interactive mode, YAML tests, and HTTPS/DCL remain | Phases 3–5 |
 | Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` | Interaction Model, clusters, app server, generated data model | Native lifecycle, storage, DNS-SD, network, and BLE are wired; POSIX named-pipe test-event transport remains | Phases 3, 5, and 6 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
@@ -2126,7 +2137,7 @@ are deliberate submodule bumps.
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
-| Native generated `chip-tool` | Supported non-interactive configuration | Builds, links, initializes storage, and exposes generated cluster, pairing, discovery, subscription, storage, and session-management command help | Supported (`AA64`) | Cross-build only |
+| Native generated `chip-tool` | Supported non-interactive configuration | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
@@ -2158,9 +2169,9 @@ are deliberate submodule bumps.
     controller library, a focused persistent commissioner, and the existing
     generated non-interactive `chip-tool` now compile on x64/ARM64. The
     C++/WinRT BLE central/peripheral backend also compiles on both architectures
-    and passes its hardware-free x64 smoke. Generated command registration and
-    storage initialization run on x64; live commissioning through `chip-tool`,
-    interactive mode, and native ARM64 execution remain incomplete. The full upstream
+    and passes its hardware-free x64 smoke. The generated `chip-tool` completes
+    real on-network commissioning and restart-safe operational reads on x64;
+    interactive mode and native ARM64 execution remain incomplete. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
     upstream System/Inet tests and 40 host-neutral transport/Secure Channel
