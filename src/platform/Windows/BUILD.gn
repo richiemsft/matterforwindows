@@ -137,9 +137,9 @@ static_library("windows-ble") {
 
   public_deps = [
     "//src/ble",
-    "//src/lib/core",
+    "//src/lib/core:core",
     "//src/setup_payload:additional_data_payload_buildconfig",
-    "//src/system",
+    "//src/system:system",
   ]
 
   public_configs = [
@@ -182,26 +182,26 @@ static_library("windows-platform-manager") {
   libs = [ "Ws2_32.lib" ]
 }
 
-# Canonical-config twin of ":windows-platform-manager" above: compiles the same
-# PlatformManagerImpl.cpp/DeviceSafeQueue.cpp, but against canonical
-# //src/lib/core:core and //src/system:system instead of the ad hoc,
-# command-line-configured //src/lib/core/windows:windows-core-portable and
-# //src/system/windows:windows-system-layer. This is the target canonical
+# Canonical-config twin of ":windows-platform-manager" above: compiles the
+# same PlatformManagerImpl.cpp/DeviceSafeQueue.cpp, but
+# against canonical //src/lib/core:core and //src/system:system instead of
+# the ad hoc, command-line-configured //src/lib/core/windows:windows-core-portable
+# and //src/system/windows:windows-system-layer. This is the target canonical
 # //src/platform:platform depends on for chip_device_platform=="windows" (see
 # src/platform/BUILD.gn's "_platform_target"): //src/platform:platform's own
 # "platform_base" sub-target already depends on canonical //src/lib/core,
-# //src/system, etc., so depending on the ad hoc pair above here would relink a
-# second, independently configured copy of CHIPError/TLV/the System Layer into
-# the same binary -- an ODR/link conflict under /WX (see docs/guides/windows.md,
-# "The Windows Device Layer foundation"). The plain ":windows-platform-manager"
-# above is preserved unchanged for its existing standalone smoke
-# (msvc-platform-manager-smoke) and every other Windows Device Layer target that
-# still pairs with it (":windows-dnssd", ":windows-configuration-manager", ...).
+# //src/system, etc., so depending on the ad hoc pair above here would relink
+# a second, independently configured copy of CHIPError/TLV/the System Layer
+# into the same binary -- an ODR/link conflict under /WX (see
+# docs/guides/windows.md, "The Windows Device Layer foundation"). The plain
+# ":windows-platform-manager" above is preserved unchanged for its existing
+# standalone smoke (msvc-platform-manager-smoke) and every other Windows
+# Device Layer target that still pairs with it (":windows-dnssd",
+# ":windows-configuration-manager", ...).
 static_library("windows-platform-manager-canonical") {
   sources = [
     "../DeviceSafeQueue.cpp",
     "../DeviceSafeQueue.h",
-    "../SingletonConfigurationManager.cpp",
     "//src/include/platform/internal/GenericPlatformManagerImpl_Windows.h",
     "//src/include/platform/internal/GenericPlatformManagerImpl_Windows.ipp",
     "BlePlatformConfig.h",
@@ -223,26 +223,27 @@ static_library("windows-platform-manager-canonical") {
     "SystemPlatformConfig.h",
     "WindowsConfig.cpp",
     "WindowsConfig.h",
+    "../SingletonConfigurationManager.cpp",
   ]
 
   public_deps = [
-    ":windows-ble",
     "//src/app/common:enums",
     "//src/credentials:build_time_header",
-    "//src/crypto",
-    "//src/lib/core",
+    "//src/crypto:crypto",
+    "//src/lib/core:core",
     "//src/setup_payload:additional_data_payload_buildconfig",
-    "//src/system",
+    "//src/system:system",
     "//third_party/nlio",
+    ":windows-ble",
   ]
 
   # windows-ble requires CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE; this canonical
-  # target already receives it via the generated
-  # platform/CHIPDeviceBuildConfig.h buildconfig header (chip_enable_ble, see
-  # src/platform/BUILD.gn), not a literal define here -- adding one too would
-  # redefine the same macro (C4005, fatal under /WX). See
-  # BlePlatformConfig.h/CHIPDevicePlatformConfig.h for why the header-only
-  # default stays 0 for the ad hoc, non-buildconfig Device Layer targets.
+  # target already receives it via the generated platform/CHIPDeviceBuildConfig.h
+  # buildconfig header (chip_enable_ble, see src/platform/BUILD.gn), not a
+  # literal define here -- adding one too would redefine the same macro
+  # (C4005, fatal under /WX). See BlePlatformConfig.h/CHIPDevicePlatformConfig.h
+  # for why the header-only default stays 0 for the ad hoc, non-buildconfig
+  # Device Layer targets.
   defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
 
   libs = [
@@ -266,7 +267,7 @@ static_library("windows-platform-manager-canonical") {
       "DnssdImpl.h",
     ]
     public_deps += [
-      "//src/inet",
+      "//src/inet:inet",
       "//src/lib/dnssd:naming",
       "//src/lib/dnssd:platform_header",
     ]
@@ -330,9 +331,9 @@ static_library("windows-connectivity-manager") {
   ]
 
   public_deps = [
+    "//src/lib/core/windows:windows-core-portable",
     "//src/inet/windows:windows-tcp-endpoint",
     "//src/inet/windows:windows-udp-endpoint",
-    "//src/lib/core/windows:windows-core-portable",
     "//src/system/windows:windows-system-layer",
     "//third_party/nlio",
   ]
@@ -402,14 +403,13 @@ static_library("windows-diagnostic-data-provider") {
 # lib/dnssd headers still resolve normally.
 #
 # lib/dnssd/Types.h (pulled in transitively via ServiceNaming.h) expects the
-# general //src/platform default for
-# CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES; that target itself is not yet
-# a Windows build, so the default (matching src/platform/BUILD.gn) is repeated
-# here rather than depending on it. IPv4 support is required by the Matter
-# DNS-SD contract (A and AAAA records). Both are a public_config (rather than a
-# plain "defines" list) so any consumer that also includes
-# lib/dnssd/platform/Dnssd.h (e.g. this library's smoke test) sees the same
-# defines.
+# general //src/platform default for CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES;
+# that target itself is not yet a Windows build, so the default (matching
+# src/platform/BUILD.gn) is repeated here rather than depending on it. IPv4
+# support is required by the Matter DNS-SD contract (A and AAAA records).
+# Both are a public_config (rather than a plain "defines" list) so any
+# consumer that also includes lib/dnssd/platform/Dnssd.h (e.g. this library's
+# smoke test) sees the same defines.
 config("windows-dnssd-config") {
   defines = [
     "CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES=5",

@@ -102,7 +102,7 @@ static_library("jfc-utils") {
 
   deps = [
     "${chip_root}/src/app:events",
-    "${chip_root}/src/controller/jcm",
+    "${chip_root}/src/controller/jcm:jcm",
   ]
 
   if (config_use_interactive_mode) {
@@ -135,7 +135,7 @@ static_library("jfc-utils") {
     "$dir_pw_trace",
     "$dir_pw_trace_tokenized",
     "$dir_pw_trace_tokenized:trace_rpc_service",
-    "${chip_root}/config/linux/lib/pw_rpc",
+    "${chip_root}/config/linux/lib/pw_rpc:pw_rpc",
     "${chip_root}/examples/common/pigweed:joint_fabric_service.nanopb_rpc",
     "${chip_root}/examples/common/pigweed:rpc_services",
     "${chip_root}/examples/common/tracing:commandline",
@@ -171,7 +171,7 @@ executable("jfc-app") {
 
   deps = [
     ":jfc-utils",
-    "${chip_root}/src/controller/jcm",
+    "${chip_root}/src/controller/jcm:jcm",
     "${chip_root}/src/platform/logging:stdio",
   ]
 
