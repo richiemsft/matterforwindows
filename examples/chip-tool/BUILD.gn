@@ -19,7 +19,9 @@ import("${chip_root}/build/chip/tools.gni")
 import("${chip_root}/examples/chip-tool/chip-tool.gni")
 import("${chip_root}/src/lib/core/core.gni")
 
-if (config_use_interactive_mode) {
+use_interactive_server = config_use_interactive_mode && current_os != "win"
+
+if (config_use_interactive_mode && current_os != "win") {
   import("//build_overrides/editline.gni")
 }
 
@@ -40,6 +42,7 @@ config("config") {
   defines = [
     "CONFIG_USE_SEPARATE_EVENTLOOP=${config_use_separate_eventloop}",
     "CONFIG_USE_INTERACTIVE_MODE=${config_use_interactive_mode}",
+    "CONFIG_USE_INTERACTIVE_SERVER=${use_interactive_server}",
   ]
 
   # Note: CONFIG_USE_LOCAL_STORAGE is tested for via #ifdef, not #if.
@@ -110,11 +113,15 @@ static_library("chip-tool-utils") {
 
   if (config_use_interactive_mode) {
     sources += [ "commands/interactive/InteractiveCommands.cpp" ]
-    deps += [
-      "${chip_root}/examples/common/websocket-server",
-      "${chip_root}/src/platform/logging:headers",
-      "${editline_root}:editline",
-    ]
+    deps += [ "${chip_root}/src/platform/logging:headers" ]
+
+    if (current_os != "win") {
+      deps += [ "${editline_root}:editline" ]
+    }
+  }
+
+  if (use_interactive_server) {
+    deps += [ "${chip_root}/examples/common/websocket-server" ]
   }
 
   if (chip_device_platform == "darwin") {

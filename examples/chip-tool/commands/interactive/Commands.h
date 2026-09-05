@@ -29,7 +29,9 @@ void registerCommandsInteractive(Commands & commands, CredentialIssuerCommands *
     commands_list clusterCommands = {
 #if CONFIG_USE_INTERACTIVE_MODE
         make_unique<InteractiveStartCommand>(&commands, credsIssuerConfig),
+#if CONFIG_USE_INTERACTIVE_SERVER
         make_unique<InteractiveServerCommand>(&commands, credsIssuerConfig),
+#endif // CONFIG_USE_INTERACTIVE_SERVER
 #endif // CONFIG_USE_INTERACTIVE_MODE
     };
 

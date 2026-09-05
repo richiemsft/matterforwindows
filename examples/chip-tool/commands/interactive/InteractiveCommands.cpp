@@ -20,10 +20,14 @@
 
 #include <platform/logging/LogV.h>
 
-#include <editline.h>
-
+#include <fstream>
+#include <iostream>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <editline.h>
+#endif
 
 constexpr char kInteractiveModePrompt[]               = ">>> ";
 constexpr char kInteractiveModeHistoryFileName[]      = "chip_tool_history";
@@ -59,6 +63,7 @@ private:
     std::mutex & mMutex;
 };
 
+#if CONFIG_USE_INTERACTIVE_SERVER
 struct InteractiveServerResultLog
 {
     std::string module;
@@ -266,6 +271,7 @@ void ENFORCE_FORMAT(3, 0) InteractiveServerLoggingCallback(const char * module, 
 
     gInteractiveServerResult.MaybeAddLog(module, category, base64Message);
 }
+#endif // CONFIG_USE_INTERACTIVE_SERVER
 
 } // namespace
 
@@ -277,13 +283,36 @@ char * InteractiveStartCommand::GetCommand(char * command)
         command = nullptr;
     }
 
+#ifdef _WIN32
+    std::cout << kInteractiveModePrompt;
+    std::cout.flush();
+
+    std::string line;
+    if (!std::getline(std::cin, line))
+    {
+        return nullptr;
+    }
+
+    command = static_cast<char *>(malloc(line.size() + 1));
+    VerifyOrReturnValue(command != nullptr, nullptr);
+    memcpy(command, line.c_str(), line.size() + 1);
+#else
     command = readline(kInteractiveModePrompt);
+#endif
 
     // Do not save empty lines
     if (command != nullptr && *command)
     {
+#ifdef _WIN32
+        std::ofstream history(GetHistoryFilePath(), std::ios_base::app);
+        if (history.is_open())
+        {
+            history << command << '\n';
+        }
+#else
         add_history(command);
         write_history(GetHistoryFilePath().c_str());
+#endif
     }
 
     return command;
@@ -298,18 +327,30 @@ std::string InteractiveStartCommand::GetHistoryFilePath() const
     }
     else
     {
-        // Match what GetFilename in ExamplePersistentStorage.cpp does.
+        // Match what GetUsedDirectory in ExamplePersistentStorage.cpp does.
         const char * dir = getenv("TMPDIR");
+#ifdef _WIN32
+        if (dir == nullptr)
+        {
+            dir = getenv("TEMP");
+        }
+        if (dir == nullptr)
+        {
+            dir = ".";
+        }
+#else
         if (dir == nullptr)
         {
             dir = "/tmp";
         }
+#endif
         storageDir = dir;
     }
 
     return storageDir + "/" + kInteractiveModeHistoryFileName;
 }
 
+#if CONFIG_USE_INTERACTIVE_SERVER
 CHIP_ERROR InteractiveServerCommand::RunCommand()
 {
     // Logs needs to be redirected in order to refresh the screen appropriately when something
@@ -358,10 +399,13 @@ CHIP_ERROR InteractiveServerCommand::LogJSON(const char * json)
     }
     return CHIP_NO_ERROR;
 }
+#endif // CONFIG_USE_INTERACTIVE_SERVER
 
 CHIP_ERROR InteractiveStartCommand::RunCommand()
 {
+#ifndef _WIN32
     read_history(GetHistoryFilePath().c_str());
+#endif
 
     // Logs needs to be redirected in order to refresh the screen appropriately when something
     // is dumped to stdout while the user is typing a command.
@@ -372,7 +416,7 @@ CHIP_ERROR InteractiveStartCommand::RunCommand()
     while (true)
     {
         command = GetCommand(command);
-        if (command != nullptr && !ParseCommand(command, &status))
+        if (command == nullptr || !ParseCommand(command, &status))
         {
             break;
         }

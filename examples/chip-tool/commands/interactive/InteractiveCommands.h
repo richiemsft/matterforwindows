@@ -22,7 +22,9 @@
 #include "../common/CHIPCommand.h"
 #include "../common/Commands.h"
 
+#if CONFIG_USE_INTERACTIVE_SERVER
 #include <websocket-server/WebSocketServer.h>
+#endif
 
 #include <string>
 
@@ -70,6 +72,7 @@ private:
     std::string GetHistoryFilePath() const;
 };
 
+#if CONFIG_USE_INTERACTIVE_SERVER
 class InteractiveServerCommand : public InteractiveCommand, public WebSocketServerDelegate, public RemoteDataModelLoggerDelegate
 {
 public:
@@ -93,3 +96,4 @@ private:
     WebSocketServer mWebSocketServer;
     chip::Optional<uint16_t> mPort;
 };
+#endif // CONFIG_USE_INTERACTIVE_SERVER
