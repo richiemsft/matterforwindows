@@ -130,7 +130,16 @@ void CurrentFabricRemover::OnSuccessRemoveFabric(void * context,
     VerifyOrReturn(self != nullptr,
                    ChipLogProgress(Controller, "Success Remove Fabric command callback with null context. Ignoring"));
 
-    FinishRemoveCurrentFabric(context, CHIP_NO_ERROR);
+    CHIP_ERROR err = CHIP_NO_ERROR;
+    if (data.statusCode != OperationalCredentials::NodeOperationalCertStatusEnum::kOk)
+    {
+        ChipLogError(Controller, "Remove Fabric returned operational certificate status %u",
+                     static_cast<unsigned>(data.statusCode));
+        err = data.statusCode == OperationalCredentials::NodeOperationalCertStatusEnum::kInvalidFabricIndex
+            ? CHIP_ERROR_INVALID_FABRIC_INDEX
+            : CHIP_ERROR_INTERNAL;
+    }
+    FinishRemoveCurrentFabric(context, err);
 }
 
 void CurrentFabricRemover::OnCommandFailure(void * context, CHIP_ERROR err)

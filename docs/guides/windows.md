@@ -1388,9 +1388,12 @@ Device Layer and:
 -   creates one controller fabric on first launch and restores the same fabric
     on later launches;
 -   starts setup-code pairing with
-    `DiscoveryType::kDiscoveryNetworkOnly`; and
--   bounds pairing and cancellation waits so a missing commissioning window
-    does not leave the process running indefinitely.
+    `DiscoveryType::kDiscoveryNetworkOnly`;
+-   reconnects to a commissioned node after process restart and can read its
+    OnOff attribute or invoke its On and Off commands; and
+-   bounds pairing, CASE connection, and Interaction Model waits so a missing
+    node or commissioning window does not leave the process running
+    indefinitely.
 
 Build it and confirm controller-fabric persistence:
 
@@ -1411,6 +1414,37 @@ commissioning window and run:
 
 The node ID accepts decimal or `0x`-prefixed input. The optional timeout is
 1-600 seconds and defaults to 120.
+
+After commissioning, restart the executable and use the device's OnOff
+endpoint (endpoint 1 for the hardware-tested bulb):
+
+```powershell
+.\out\win-devlayer-x64\msvc-windows-controller.exe read-onoff 1 1 180
+.\out\win-devlayer-x64\msvc-windows-controller.exe off 1 1 180
+.\out\win-devlayer-x64\msvc-windows-controller.exe on 1 1 180
+.\out\win-devlayer-x64\msvc-windows-controller.exe subscribe-onoff 1 1 30
+```
+
+Every invocation prints a prominent, authoritative `=== ... ===` result as its
+final line after the verbose Matter protocol and shutdown logs. Successful
+pairing and OnOff commands print `SUCCEEDED`; a successful attribute read
+prints `=== ON/OFF ATTRIBUTE: ON ===` or `OFF`; and failures include the
+process exit code. The subscription command allows up to 120 seconds for CASE
+and subscription establishment, then prints reports for the requested
+monitoring duration. Toggle the bulb during that window: success requires the
+initial value plus at least one reported OnOff value transition, and the final
+line includes the report and interruption counts.
+
+After all operational tests are complete, remove this controller's fabric from
+the accessory:
+
+```powershell
+.\out\win-devlayer-x64\msvc-windows-controller.exe remove-fabric 1 180
+```
+
+This removes the Windows controller from the remote node; the local controller
+identity remains persisted so it can commission another node or recommission
+the bulb after a new commissioning window is opened.
 
 This is a development acceptance tool, not a production commissioner. Its
 example certificate authority stores private keys in cleartext, its default
@@ -1447,9 +1481,20 @@ controller key and commits it with the new fabric. At startup it detects and
 deletes a legacy fabric whose operational key is missing before creating a
 valid replacement. An x64 two-process test confirmed the repair on the first
 run and restoration of the replacement fabric and key on the second.
-Hardware validation through Sigma3 and `CommissioningComplete`, followed by
-CASE reconnection, attribute operations, subscriptions, and fabric removal,
-remains open.
+
+A third hardware run validated the repaired path end to end. CASE timed out on
+the link-local IPv6 address, retried the retained IPv4 address, received
+Sigma2, signed and sent Sigma3 with the restored controller key, and activated
+the secure session. The bulb then returned `errorCode=0` to
+`CommissioningComplete`, and commissioning completed successfully for node 1.
+Restart-based CASE reconnection and OnOff read, Off, and On operations were
+then validated from separate processes on the Windows machine connected to the
+bulb's LAN, including visible changes from both commands. Because operational
+discovery ranks the bulb's advertised link-local IPv6 address above IPv4, each
+new process first exhausts CASE retransmissions on the non-responsive IPv6
+address before the retained IPv4 fallback succeeds. This delay is currently a
+known interoperability issue rather than a command failure. Subscription
+delivery and fabric removal remain to be hardware-validated.
 
 ### Cross-build
 
@@ -1888,7 +1933,7 @@ are deliberate submodule bumps.
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Focused non-interactive controller | Supported subset | Fabric/key create/restore, real IPv4 PASE, trusted-root/NOC installation, and CASE IPv6-to-IPv4 fallback through Sigma2 pass; Sigma3 awaits hardware rerun | Supported subset | Not yet run on native hardware |
+| Focused non-interactive controller | Supported subset | Fabric/key create/restore; real commissioning through IPv4 PASE, trusted-root/NOC installation, CASE IPv6-to-IPv4 fallback, Sigma3, and `CommissioningComplete`; restart-safe OnOff read/invoke all pass against a real bulb. Subscription and remote-fabric-removal commands build and await hardware validation | Supported subset | Cross-build only |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -1933,8 +1978,14 @@ are deliberate submodule bumps.
     operational-key persistence defect in the focused application: its
     injected controller key had not survived restart. Controller keys are now
     generated and committed through `PersistentStorageOperationalKeystore`,
-    and legacy keyless local fabrics are replaced automatically. Hardware
-    validation through Sigma3 and `CommissioningComplete` is pending.
+    and legacy keyless local fabrics are replaced automatically. A subsequent
+    hardware run completed Sigma3, activated CASE, and received
+    `CommissioningComplete` with device error code 0. Restart-safe OnOff
+    read/invoke commands also pass against the real bulb, including visible Off
+    and On behavior. The bulb's non-responsive advertised link-local IPv6
+    address adds a CASE retry delay before IPv4 succeeds. Subscription and
+    remote fabric removal commands now build but still await LAN hardware
+    validation.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no
