@@ -1416,9 +1416,23 @@ after device-attestation verification fails. Production software must provide
 a protected operational keystore, unique IPKs, and an approved PAA trust and
 revocation policy. The current executable has proven fabric creation,
 persistence across process restart, on-network pairing startup, bounded
-cancellation, and clean teardown on x64. A real accessory has not yet completed
-PASE/commissioning through it, and CASE reconnection, attribute operations,
-subscriptions, and fabric removal remain open.
+cancellation, and clean teardown on x64. A real Smart Multicolor Bulb has also
+completed PASE over IPv4, certificate signing, trusted-root installation, and
+NOC installation. The development attestation delegate allowed commissioning
+to continue after the configured empty PAA store could not verify the vendor
+PAA; this does not constitute production attestation validation.
+
+The first hardware run did not reach `CommissioningComplete`. Operational
+DNS-SD returned both the working IPv4 address and a link-local IPv6 address.
+The generic address scorer preferred link-local IPv6, but the bulb did not
+respond to CASE Sigma1 on that address. Windows had retained only the single
+highest-scored result, so each automatic retry repeated the same unusable
+address instead of trying IPv4. `SystemPlatformConfig.h` now retains five
+resolved addresses, matching Linux and Darwin. This activates the existing
+`OperationalSessionSetup` fallback path: after a CASE timeout it can consume
+the next resolved address without starting another lookup. Hardware validation
+of the IPv6-to-IPv4 CASE fallback, followed by CASE reconnection, attribute
+operations, subscriptions, and fabric removal, remains open.
 
 ### Cross-build
 
@@ -1857,7 +1871,7 @@ are deliberate submodule bumps.
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Focused non-interactive controller | Supported subset | Fabric create/restore and bounded on-network pairing startup pass; real commissioning pending | Supported subset | Not yet run on native hardware |
+| Focused non-interactive controller | Supported subset | Fabric create/restore, real IPv4 PASE, trusted-root/NOC installation, and bounded pairing pass; post-NOC CASE IPv6-to-IPv4 fallback awaits hardware rerun | Supported subset | Not yet run on native hardware |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -1894,8 +1908,12 @@ are deliberate submodule bumps.
     tests also pass. The monolithic `//src/credentials:credentials` library
     (`FabricTable`, `LastKnownGoodTime`, `GroupDataProvider`,
     `PersistentStorageOpCertStore`) now runs through persistent controller
-    fabric creation and process-restart restoration, but no real accessory has
-    completed PASE/CASE commissioning yet.
+    fabric creation and process-restart restoration. A real accessory has
+    completed IPv4 PASE and accepted its trusted root and NOC, but the first
+    post-NOC CASE attempt repeatedly selected an unresponsive link-local IPv6
+    address and did not reach `CommissioningComplete`. Windows now retains
+    alternate DNS-SD results so the existing CASE timeout path can retry the
+    working IPv4 address; the hardware rerun is pending.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no

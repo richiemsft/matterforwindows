@@ -49,3 +49,7 @@ struct ChipDeviceEvent;
 #ifndef CHIP_SYSTEM_CONFIG_POOL_USE_HEAP
 #define CHIP_SYSTEM_CONFIG_POOL_USE_HEAP 1
 #endif
+
+// Retain alternate DNS-SD addresses so operational CASE can fall back when
+// the highest-scored address is not reachable.
+#define CHIP_CONFIG_MDNS_RESOLVE_LOOKUP_RESULTS 5
