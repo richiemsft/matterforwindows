@@ -42,7 +42,9 @@ source_set("scenes") {
     "${chip_root}/zzz_generated/app-common/clusters/ScenesManagement",
   ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }
 
 source_set("scenes-server") {

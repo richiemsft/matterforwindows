@@ -322,6 +322,8 @@ template("chip_data_model") {
       public_deps += [ "${chip_root}/src/app/server" ]
     }
 
-    cflags += [ "-Wconversion" ]
+    if (current_os != "win") {
+      cflags += [ "-Wconversion" ]
+    }
   }
 }

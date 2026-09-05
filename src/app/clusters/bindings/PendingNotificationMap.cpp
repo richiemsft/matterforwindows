@@ -62,7 +62,7 @@ CHIP_ERROR PendingNotificationMap::FindLRUConnectPeer(ScopedNodeId & nodeId)
         lastAppear[bindingWithSamePeer[pendingNotification.mBindingEntryId]] = appearIndex;
         appearIndex++;
     }
-    uint8_t lruBindingEntryIndex;
+    uint8_t lruBindingEntryIndex = 0;
     uint16_t minLastAppearValue = UINT16_MAX;
     for (uint8_t i = 0; i < Table::kMaxBindingEntries; i++)
     {

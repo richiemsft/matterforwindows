@@ -216,6 +216,24 @@ executable("msvc-windows-dnssd-discovery") {
   ]
 }
 
+# Phase 4 native Windows CHIPoBLE backend: deterministic, hardware-free smoke
+# for service-data parsing/matching, callback-guard invalidation, connection
+# lifecycle, and the BLEManagerImpl peripheral/central Init()/Shutdown()
+# lifecycle through the canonical PlatformManager. See
+# //docs/guides/windows.md for what this does and does not prove; live
+# pairing between a real controller and a real commissionee is hardware-only
+# validation.
+executable("msvc-windows-ble-smoke") {
+  sources = [ "msvc_windows_ble_smoke.cpp" ]
+  output_dir = root_out_dir
+  configs -= [ "//build/config/win:default" ]
+  configs += [ "//src/platform/Windows:windows-ble-compiler-defaults" ]
+  deps = [
+    "//src/platform",
+    "//src/platform/logging:default",
+  ]
+}
+
 # Phase 3 native Windows controller-side acceptance tool: real
 # controller-facing chip::Dnssd::Resolver / DiscoveryImplPlatform discovery
 # start/stop. See //docs/guides/windows.md for what this does and does not
@@ -247,6 +265,70 @@ executable("msvc-windows-controller") {
     "//src/app/data-model-provider",
     "//src/controller",
     "//src/credentials:default_attestation_verifier",
+    "//src/platform",
+    "//src/platform/logging:default",
+  ]
+  configs += [ "//build/config/win:upstream_sdk_warnings" ]
+}
+
+# Focused native Windows commissionee harness. It initializes the canonical
+# Matter server and opens a BLE commissioning window with deterministic test
+# credentials so the WinRT peripheral backend can be exercised on hardware.
+executable("msvc-windows-commissionee") {
+  sources = [ "msvc_windows_commissionee.cpp" ]
+  output_dir = root_out_dir
+  deps = [
+    "//examples/lighting-app/lighting-common",
+    "//examples/providers:device_info_provider_please_do_not_reuse_as_is",
+    "//src/app/server",
+    "//src/credentials",
+    "//src/platform",
+    "//src/platform/logging:default",
+  ]
+  configs += [ "//build/config/win:upstream_sdk_warnings" ]
+}
+
+# Native Windows all-clusters application. This uses the canonical generated
+# all-clusters ZAP model with the Windows server, storage, DNS-SD, and BLE
+# platform implementations.
+source_set("msvc-windows-all-clusters-delegates") {
+  sources = [
+    "../../../../examples/all-clusters-app/all-clusters-common/src/boolcfg-stub.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/dishwasher-mode.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/laundry-washer-mode.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/microwave-oven-mode.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/operational-state-delegate-impl.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/oven-modes.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/oven-operational-state-delegate.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/rvc-modes.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/rvc-operational-state-delegate-impl.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/soil-measurement-stub.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/tcc-mode.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/test-hidden-manufacturer-specific-stub.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/tls-certificate-management-instance.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/tls-client-management-instance.cpp",
+  ]
+  include_dirs = [
+    "//examples/all-clusters-app/all-clusters-common/include",
+  ]
+  deps = [
+    "//examples/all-clusters-app/all-clusters-common",
+  ]
+  configs += [ "//build/config/win:upstream_sdk_warnings" ]
+}
+
+executable("msvc-windows-all-clusters") {
+  sources = [ "msvc_windows_all_clusters.cpp" ]
+  output_dir = root_out_dir
+  include_dirs = [
+    "//examples/all-clusters-app/all-clusters-common/include",
+  ]
+  deps = [
+    ":msvc-windows-all-clusters-delegates",
+    "//examples/all-clusters-app/all-clusters-common",
+    "//examples/providers:device_info_provider_please_do_not_reuse_as_is",
+    "//src/app/server",
+    "//src/credentials",
     "//src/platform",
     "//src/platform/logging:default",
   ]

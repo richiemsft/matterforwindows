@@ -168,7 +168,7 @@ public:
     /// not use internal classes directly.
     ///
     /// Returns true on success, false on failure. On failure the string is reset to empty.
-    bool LoadString(const ConcreteAttributePath & path, Storage::Internal::ShortString & value);
+    bool LoadStringValue(const ConcreteAttributePath & path, Storage::Internal::ShortString & value);
 
     /// Store the given string in persistent storage.
     ///

@@ -20,7 +20,11 @@
 
 #include <platform/ConnectivityManager.h>
 #include <platform/internal/GenericConnectivityManagerImpl.h>
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+#include <platform/internal/GenericConnectivityManagerImpl_BLE.h>
+#else
 #include <platform/internal/GenericConnectivityManagerImpl_NoBLE.h>
+#endif
 #include <platform/internal/GenericConnectivityManagerImpl_NoThread.h>
 #include <platform/internal/GenericConnectivityManagerImpl_NoWiFi.h>
 #include <platform/internal/GenericConnectivityManagerImpl_TCP.h>
@@ -33,7 +37,11 @@ namespace chip {
 namespace DeviceLayer {
 
 class ConnectivityManagerImpl final : public ConnectivityManager,
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+                                      public Internal::GenericConnectivityManagerImpl_BLE<ConnectivityManagerImpl>,
+#else
                                       public Internal::GenericConnectivityManagerImpl_NoBLE<ConnectivityManagerImpl>,
+#endif
                                       public Internal::GenericConnectivityManagerImpl_NoThread<ConnectivityManagerImpl>,
                                       public Internal::GenericConnectivityManagerImpl_NoWiFi<ConnectivityManagerImpl>,
                                       public Internal::GenericConnectivityManagerImpl_UDP<ConnectivityManagerImpl>,

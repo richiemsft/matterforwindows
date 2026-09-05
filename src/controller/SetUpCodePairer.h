@@ -114,6 +114,7 @@ enum class DiscoveryType : uint8_t
     kDiscoveryNetworkOnly,
     kDiscoveryNetworkOnlyWithoutPASEAutoRetry,
     kAll,
+    kDiscoveryBleOnly,
 };
 
 class DLL_EXPORT SetUpCodePairer : public DevicePairingDelegate

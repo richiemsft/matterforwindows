@@ -1055,7 +1055,7 @@ TEST_F(TestBridgedDeviceBasicInformationCluster, TestNodeLabelPersistence)
     // Verify it is in persistence
     AttributePersistence persistence(mContext.Get().attributeStorage);
     Storage::String<32> storedLabel;
-    EXPECT_TRUE(persistence.LoadString({ kTestEndpointId, Id, Attributes::NodeLabel::Id }, storedLabel));
+    EXPECT_TRUE(persistence.LoadStringValue({ kTestEndpointId, Id, Attributes::NodeLabel::Id }, storedLabel));
     EXPECT_TRUE(storedLabel.Content().data_equal("PersistentLabel"_span));
 }
 

@@ -25,6 +25,7 @@
 
 #include <lib/core/CHIPError.h>
 #include <platform/CHIPDeviceEvent.h>
+#include <system/SystemPacketBuffer.h>
 
 namespace chip {
 namespace DeviceLayer {
@@ -41,24 +42,72 @@ enum PublicPlatformSpecificEventTypes
 
 /**
  * Enumerates Windows platform-specific event types that are internal to the chip Device Layer.
+ *
+ * These marshal a native C++/WinRT BLE callback (central connect/connect-failure,
+ * write/subscribe completion, TX indication receipt, and peripheral GATT
+ * server register/advertising completion) onto PlatformMgr() so BLEManagerImpl
+ * only ever reacts to them on the Matter event-loop thread. See
+ * src/platform/Windows/BLEManagerImpl.cpp.
  */
 enum InternalPlatformSpecificEventTypes
 {
     kPlatformWindowsEvent = kRange_InternalPlatformSpecific,
+    kPlatformWindowsBLECentralConnected,
+    kPlatformWindowsBLECentralConnectFailed,
+    kPlatformWindowsBLEWriteComplete,
+    kPlatformWindowsBLESubscribeOpComplete,
+    kPlatformWindowsBLEIndicationReceived,
+    kPlatformWindowsBLEPeripheralRegisterAppComplete,
+    kPlatformWindowsBLEPeripheralAdvStartComplete,
+    kPlatformWindowsBLEPeripheralAdvStopComplete,
 };
 
 } // namespace DeviceEventType
 
 /**
  * Represents platform-specific event information for native Windows hosts.
- *
- * No connectivity, BLE, or discovery events are defined for the Phase 3
- * foundation. A placeholder member keeps the aggregate a complete type for the
- * shared ChipDeviceEvent union without implying any feature.
  */
 struct ChipDevicePlatformEvent
 {
-    uint32_t Unused;
+    union
+    {
+        struct
+        {
+            BLE_CONNECTION_OBJECT mConnection;
+        } BLECentralConnected;
+        struct
+        {
+            CHIP_ERROR mError;
+        } BLECentralConnectFailed;
+        struct
+        {
+            BLE_CONNECTION_OBJECT mConnection;
+        } BLEWriteComplete;
+        struct
+        {
+            BLE_CONNECTION_OBJECT mConnection;
+            bool mIsSubscribed;
+        } BLESubscribeOpComplete;
+        struct
+        {
+            BLE_CONNECTION_OBJECT mConnection;
+            chip::System::PacketBuffer * mData;
+        } BLEIndicationReceived;
+        struct
+        {
+            CHIP_ERROR mError;
+        } BLEPeripheralRegisterAppComplete;
+        struct
+        {
+            CHIP_ERROR mError;
+        } BLEPeripheralAdvStartComplete;
+        struct
+        {
+            CHIP_ERROR mError;
+        } BLEPeripheralAdvStopComplete;
+        // Kept so this union is never empty on non-BLE builds; harmless otherwise.
+        uint32_t Unused;
+    };
 };
 
 } // namespace DeviceLayer

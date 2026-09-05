@@ -25,6 +25,9 @@
 #if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
 #include <platform/ConfigurationManager.h>
 #include <platform/ConnectivityManager.h>
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+#include <platform/internal/BLEManager.h>
+#endif
 #endif
 
 // Pull in the non-inline definitions for the generic Windows PlatformManager
@@ -71,9 +74,26 @@ CHIP_ERROR PlatformManagerImpl::_InitChipStack()
     }
 #endif
 
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+    error = Internal::BLEMgr().Init();
+    if (error != CHIP_NO_ERROR)
+    {
+#if INET_CONFIG_ENABLE_TCP_ENDPOINT
+        TCPEndPointManager()->Shutdown();
+#endif
+        UDPEndPointManager()->Shutdown();
+        ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
+        Internal::GenericPlatformManagerImpl_Windows<PlatformManagerImpl>::_Shutdown();
+        return error;
+    }
+#endif
+
     error = ConnectivityMgr().Init();
     if (error != CHIP_NO_ERROR)
     {
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+        Internal::BLEMgr().Shutdown();
+#endif
 #if INET_CONFIG_ENABLE_TCP_ENDPOINT
         TCPEndPointManager()->Shutdown();
 #endif
@@ -94,6 +114,9 @@ void PlatformManagerImpl::_Shutdown()
     UDPEndPointManager()->Shutdown();
 #if INET_CONFIG_ENABLE_TCP_ENDPOINT
     TCPEndPointManager()->Shutdown();
+#endif
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+    Internal::BLEMgr().Shutdown();
 #endif
     ConfigurationManagerImpl::GetDefaultInstance().Shutdown();
 #endif

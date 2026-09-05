@@ -30,6 +30,7 @@ if (-not $ToolsDirectory) {
 
 $gnInstance = "6KccwOIUe7fkTjqmAJhCuY51aVrCKpbiSXk10DnD4T4C"
 $ninjaInstance = "3TgJ1Ckw_8bqhqyrAzltNPV1oYhZClrVWwXWMVE8RVgC"
+$zapVersion = "v2026.08.24.2"
 
 function Install-CipdTool {
     param(
@@ -197,8 +198,17 @@ $ninja = Install-CipdTool `
     -InstanceId $ninjaInstance `
     -Executable "ninja.exe" `
     -Destination $ninjaDirectory
+$zapDirectory = Join-Path $ToolsDirectory "zap"
+$zapPackageUri =
+    "https://chrome-infra-packages.appspot.com/dl/experimental/matter/zap/windows-amd64/+/version:$zapVersion"
+$zap = Install-CipdTool `
+    -PackageUri $zapPackageUri `
+    -InstanceId $zapVersion `
+    -Executable "zap-cli.exe" `
+    -Destination $zapDirectory
 
-$env:PATH = "$gnDirectory;$ninjaDirectory;$env:PATH"
+$env:PATH = "$gnDirectory;$ninjaDirectory;$zapDirectory;$env:PATH"
+$env:ZAP_INSTALL_PATH = $zapDirectory
 Initialize-PythonEnvironment `
     -EnvironmentDirectory (Join-Path $ToolsDirectory "python")
 
@@ -216,3 +226,4 @@ Write-Host "Matter Windows build environment initialized for $Architecture."
 Write-Host "  MSVC:  $env:VCToolsVersion"
 Write-Host "  GN:    $gn"
 Write-Host "  Ninja: $ninja"
+Write-Host "  ZAP:   $zap"

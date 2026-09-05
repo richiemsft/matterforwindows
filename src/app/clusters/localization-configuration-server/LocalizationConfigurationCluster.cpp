@@ -62,7 +62,8 @@ CHIP_ERROR LocalizationConfigurationCluster::Startup(ServerClusterContext & cont
 
     // Load the active locale from persistence if it exists, otherwise use the default locale and store it in persistence.
     Storage::String<kActiveLocaleMaxLength> storedLocale;
-    if (persistence.LoadString({ mPath.mEndpointId, LocalizationConfiguration::Id, Attributes::ActiveLocale::Id }, storedLocale))
+    if (persistence.LoadStringValue({ mPath.mEndpointId, LocalizationConfiguration::Id, Attributes::ActiveLocale::Id },
+                                    storedLocale))
     {
         SetActiveLocale(storedLocale.Content());
     }

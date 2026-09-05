@@ -61,7 +61,7 @@ bool AttributePersistence::InternalRawLoadNativeEndianValue(const ConcreteAttrib
     return true;
 }
 
-bool AttributePersistence::LoadString(const ConcreteAttributePath & path, Storage::Internal::ShortString & value)
+bool AttributePersistence::LoadStringValue(const ConcreteAttributePath & path, Storage::Internal::ShortString & value)
 {
     Storage::Internal::ShortStringInputAdapter io(value);
     MutableByteSpan rawBytes = io.ReadBuffer();

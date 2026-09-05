@@ -212,8 +212,10 @@ void MatterDishwasherAlarmClusterShutdownCallback(EndpointId endpointId, MatterC
         integrationDelegate, shutdownType);
 }
 
+#if !defined(_MSC_VER)
 __attribute__((weak)) void MatterDishwasherAlarmPluginServerInitCallback() {}
 __attribute__((weak)) void MatterDishwasherAlarmPluginServerShutdownCallback() {}
+#endif
 
 namespace chip::app::Clusters::DishwasherAlarm {
 

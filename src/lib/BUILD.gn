@@ -69,7 +69,9 @@ source_set("without-logging") {
         [ "${chip_root}/src/credentials:default_attestation_verifier" ]
   }
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }
 
 static_library("lib") {

@@ -152,7 +152,7 @@ TEST(TestAttributePersistence, TestStrings)
 
     {
         Storage::String<16> readString;
-        ASSERT_TRUE(persistence.LoadString(path, readString));
+        ASSERT_TRUE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().data_equal("foo"_span));
         ASSERT_STREQ(readString.c_str(), "foo");
     }
@@ -160,7 +160,7 @@ TEST(TestAttributePersistence, TestStrings)
     // fits exactly. Load should succeed
     {
         Storage::String<3> readString;
-        ASSERT_TRUE(persistence.LoadString(path, readString));
+        ASSERT_TRUE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().data_equal("foo"_span));
         ASSERT_STREQ(readString.c_str(), "foo");
     }
@@ -168,12 +168,12 @@ TEST(TestAttributePersistence, TestStrings)
     // no space: data is cleared on load error
     {
         Storage::String<2> readString;
-        ASSERT_FALSE(persistence.LoadString(path, readString));
+        ASSERT_FALSE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().empty());
 
         ASSERT_TRUE(readString.SetContent("xy"_span));
         ASSERT_FALSE(readString.Content().empty());
-        ASSERT_FALSE(persistence.LoadString(path, readString));
+        ASSERT_FALSE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().empty());
         ASSERT_STREQ(readString.c_str(), "");
     }
@@ -184,7 +184,7 @@ TEST(TestAttributePersistence, TestStrings)
 
         ASSERT_TRUE(readString.SetContent("xy"_span));
         ASSERT_FALSE(readString.Content().empty());
-        ASSERT_FALSE(persistence.LoadString(wrongPath, readString));
+        ASSERT_FALSE(persistence.LoadStringValue(wrongPath, readString));
         ASSERT_TRUE(readString.Content().empty());
         ASSERT_STREQ(readString.c_str(), "");
     }
@@ -198,7 +198,7 @@ TEST(TestAttributePersistence, TestStrings)
         ASSERT_EQ(persistence.StoreString(path, testString), CHIP_NO_ERROR);
 
         ASSERT_TRUE(readString.SetContent("some value"_span));
-        ASSERT_TRUE(persistence.LoadString(path, readString));
+        ASSERT_TRUE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().empty());
         ASSERT_STREQ(readString.c_str(), "");
     }
@@ -386,7 +386,7 @@ TEST(TestAttributePersistence, TestInvalidPascalLengthStored)
         Storage::String<16> readString;
 
         ASSERT_TRUE(readString.SetContent("some value"_span));
-        ASSERT_FALSE(persistence.LoadString(path, readString));
+        ASSERT_FALSE(persistence.LoadStringValue(path, readString));
         ASSERT_TRUE(readString.Content().empty());
     }
 }

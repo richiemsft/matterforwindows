@@ -157,7 +157,7 @@ CHIP_ERROR PolicyBased<Policy>::Startup(ServerClusterContext & context)
 
     AttributePersistence persistence(context.attributeStorage);
 
-    (void) persistence.LoadString({ kRootEndpointId, Id, Attributes::NodeLabel::Id }, mNodeLabel);
+    (void) persistence.LoadStringValue({ kRootEndpointId, Id, Attributes::NodeLabel::Id }, mNodeLabel);
 
     bool localConfigDisabled = false;
     (void) persistence.LoadNativeEndianValue<bool>({ kRootEndpointId, Id, Attributes::LocalConfigDisabled::Id },

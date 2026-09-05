@@ -101,6 +101,12 @@ CHIP_ERROR SetUpCodePairer::PairDevice(NodeId remoteId, const char * setUpCode, 
 
 CHIP_ERROR SetUpCodePairer::Connect()
 {
+    if (mDiscoveryType == DiscoveryType::kDiscoveryBleOnly)
+    {
+        VerifyOrReturnError(ShouldDiscoverUsing(RendezvousInformationFlag::kBLE), CHIP_ERROR_INVALID_ARGUMENT);
+        return StartDiscoveryOverBLE();
+    }
+
     if (mDiscoveryType == DiscoveryType::kAll)
     {
         if (ShouldDiscoverUsing(RendezvousInformationFlag::kBLE))
@@ -1055,8 +1061,7 @@ SetUpCodePairerParameters::SetUpCodePairerParameters(const Dnssd::CommonResoluti
 
 #if CONFIG_NETWORK_LAYER_BLE
 SetUpCodePairerParameters::SetUpCodePairerParameters(BLE_CONNECTION_OBJECT connObj, std::optional<uint16_t> longDiscriminator,
-                                                     bool connected) :
-    mLongDiscriminator(longDiscriminator)
+                                                     bool connected) : mLongDiscriminator(longDiscriminator)
 {
     Transport::PeerAddress peerAddress = Transport::PeerAddress::BLE();
     SetPeerAddress(peerAddress);

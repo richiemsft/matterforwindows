@@ -32,6 +32,8 @@ using namespace chip;
 
 void MatterTestHiddenManufacturerSpecificPluginServerInitCallback() {}
 
+#if !defined(_MSC_VER)
 void emberAfTestHiddenManufacturerSpecificClusterInitCallback(EndpointId endpoint) {}
 
 void emberAfTestHiddenManufacturerSpecificClusterShutdownCallback(EndpointId endpoint) {}
+#endif

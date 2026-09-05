@@ -58,6 +58,8 @@ template <class>
 class GenericPlatformManagerImpl_FreeRTOS;
 template <class>
 class GenericPlatformManagerImpl_POSIX;
+template <class>
+class GenericPlatformManagerImpl_Windows;
 } // namespace Internal
 
 class ConnectivityManager;
@@ -273,6 +275,8 @@ private:
     friend class Internal::GenericPlatformManagerImpl_FreeRTOS;
     template <class>
     friend class Internal::GenericPlatformManagerImpl_POSIX;
+    template <class>
+    friend class Internal::GenericPlatformManagerImpl_Windows;
 
     CHIP_ERROR Init();
     void OnPlatformEvent(const ChipDeviceEvent * event);

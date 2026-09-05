@@ -26,12 +26,10 @@
  *          the C++ standard threading library (std::thread / std::mutex /
  *          std::condition_variable) rather than POSIX pthreads.
  *
- *          The event dispatch surface intentionally handles only the platform
- *          neutral event kinds (no-op, lambda, and scheduled work) plus
- *          application event handlers. Dispatch to Device Layer component
- *          managers (Connectivity, BLE, Thread) is deliberately absent because
- *          those managers are not part of this milestone; wiring them in is a
- *          later phase and must not be faked here.
+ *          The standalone foundation dispatches platform-neutral events and
+ *          application handlers. The canonical Windows Device Layer
+ *          composition additionally dispatches events to ConnectivityManager
+ *          and, when enabled, BLEManager.
  */
 
 #pragma once

@@ -41,7 +41,7 @@ The initial build foundation provides:
     addresses, prefix lengths, and IPv6 link-local lookup. This has x64 runtime
     and ARM64 cross-build coverage.
 -   A native `ConnectivityManager` composition for OS-managed Ethernet and
-    Wi-Fi. It reports unsupported Thread, BLE, and SDK-managed Wi-Fi
+    Wi-Fi. It reports unsupported Thread and SDK-managed Wi-Fi
     provisioning, exposes installed Ethernet/Wi-Fi adapters for diagnostics,
     and selects an operational external interface only when it is up,
     non-loopback, multicast-capable, and has a usable address. Native interface
@@ -70,6 +70,25 @@ The initial build foundation provides:
     seams, the init/shutdown/reinit lifecycle, a live GUID-service publish,
     and a live browse/`StopBrowse()` cancellation cycle (exactly one final
     callback) on x64, and cross-builds as ARM64.
+-   A native C++/WinRT CHIPoBLE backend supporting controller/central scanning,
+    discriminator matching, GATT discovery, subscription, writes, and
+    indications, plus commissionee/peripheral GATT service publication,
+    advertising, writes, and indications. WinRT completions are marshaled onto
+    the Matter event loop, scan/connect attempts time out after 20 seconds, and
+    generation guards suppress callbacks after cancellation or shutdown. The
+    hardware-free smoke passes 39 checks on x64 (including graceful
+    no-adapter behavior) and cross-builds as ARM64.
+-   A focused native commissionee executable with a generated lighting-device
+    data model. It initializes the canonical server, opens a basic
+    commissioning window, publishes commissionable DNS-SD, and exercises the
+    WinRT BLE peripheral path. Its complete server dependency graph builds and
+    runs on x64 and cross-builds for ARM64.
+-   A native all-clusters executable using the generated
+    `all-clusters-app.zap` data model. It initializes the complete endpoint
+    metadata and cluster-server graph, installs the mode and TLS management
+    delegates required by that model, publishes commissionable DNS-SD, opens
+    PASE, and shuts down cleanly on x64. The same executable cross-builds as
+    ARM64.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -238,12 +257,13 @@ changes remain in the current PowerShell process:
 . .\scripts\setup\windows.ps1 -Architecture x64
 ```
 
-The script discovers Visual Studio through `vswhere.exe` and downloads GN and
-Ninja from Chromium's CIPD service into `.environment\windows` when they are
-not already installed. The downloads use content-addressed CIPD instance IDs
-recorded in the script so separate workstations acquire the same tool binaries.
-It also creates an isolated Python environment under `.environment\windows`
-and installs the repository's constrained build requirements when they change.
+The script discovers Visual Studio through `vswhere.exe` and downloads GN,
+Ninja, and the repository-pinned ZAP release from Chromium's CIPD service into
+`.environment\windows` when they are not already installed. The downloads use
+pinned instance IDs or version tags recorded in the script so separate
+workstations acquire the same tool binaries. It also creates an isolated Python
+environment under `.environment\windows` and installs the repository's
+constrained build requirements when they change.
 
 Initialize the dependencies exercised by the Windows bootstrap graph:
 
@@ -833,8 +853,8 @@ ninja -C out\win-canonical-devlayer-x64
 -   `examples/chip-tool` itself has not been attempted: its own Windows
     `BUILD.gn`, persistent-path, console cancellation, and CLI/dependency
     wiring do not exist yet.
--   BLE, Wi-Fi/Thread network commissioning, and native ARM64 execution remain
-    explicitly out of scope / unverified, as in every earlier phase.
+-   BLE commissioning through that controller executable, Wi-Fi/Thread network
+    commissioning, and native ARM64 execution remain out of scope / unverified.
 
 Canonical `//src/lib/dnssd:dnssd` now links end to end with canonical
 `//src/platform` in `msvc-windows-controller-discovery.exe`; its real
@@ -1362,9 +1382,9 @@ Interaction Model request.
 Canonical `//src/controller:controller` also builds under MSVC for x64 and
 ARM64. This brought the controller factory, persistent `FabricTable`,
 commissioner, auto-commissioning, BDX, User Directed Commissioning, and
-attestation-verifier closures into the Windows graph. Windows leaves
-`chip_config_network_layer_ble` disabled by default until the Phase 4 WinRT
-transport exists; on-network commissioning does not require that transport.
+attestation-verifier closures into the Windows graph. The Phase 4 WinRT
+transport now enables `chip_config_network_layer_ble`; on-network
+commissioning does not require that transport.
 
 One canonical layering defect was fixed as part of this gate:
 `//src/protocols:type_definitions` now carries `Protocols.cpp`, as its existing
@@ -1533,9 +1553,121 @@ its five-second timer and uses the supplied address when discovery is silent.
 
 ### Cross-build
 
-The resolver, canonical controller library, and focused commissioner executable
-cross-build and link as ARM64. They have not run on native Windows ARM64
-hardware.
+The resolver, canonical controller library, focused commissioner executable,
+and C++/WinRT BLE backend cross-build and link as ARM64. They have not run on
+native Windows ARM64 hardware.
+
+## The Windows CHIPoBLE backend
+
+The canonical Windows Device Layer includes a C++/WinRT backend in
+`src/platform/Windows`:
+
+-   `BleCentral` scans Matter service data, matches the requested setup
+    discriminator, discovers the Matter service and C1/C2 characteristics, and
+    establishes the controller-side GATT connection.
+-   `BlePeripheral` publishes the Matter GATT service and characteristics,
+    advertises commissionable-device service data, tracks one subscribed
+    central, receives C1 writes, and sends C2 indications.
+-   `BleConnection` owns the WinRT device, service, characteristic, and
+    subscribed-client handles behind `BLE_CONNECTION_OBJECT`.
+-   `BLEManagerImpl` connects those native operations to the shared Matter BLE
+    state machine. All native completions enter it through
+    `ChipDeviceEvent`s on the Matter event-loop thread.
+
+The Matter event-loop thread initializes a WinRT multithreaded apartment before
+processing BLE work. Scan/connect requests have a 20-second deadline.
+Cancellation, shutdown, and connection close invalidate generation guards so
+late WinRT callbacks cannot act on superseded state.
+
+`GattServiceProvider` uses the local radio's OS-managed Bluetooth name; an
+unpackaged application cannot set a service-specific advertised local name.
+The local adapter must support the Windows GATT-server/peripheral role.
+Packaged applications must declare the `bluetooth` device capability. Adapter
+unavailability or lack of peripheral support is reported as
+`BLE_ERROR_ADAPTER_UNAVAILABLE`, not as successful advertising.
+
+Build and run the deterministic x64 smoke with:
+
+```powershell
+ninja -C out\win-canonical-devlayer-x64 msvc-windows-ble-smoke
+.\out\win-canonical-devlayer-x64\msvc-windows-ble-smoke.exe
+```
+
+The smoke validates Matter service-data encoding/parsing, discriminator
+matching, callback invalidation, connection close semantics, both manager
+roles, event dispatch, and graceful operation without Bluetooth hardware. It
+does not prove over-the-air commissioning. Final acceptance still requires a
+Bluetooth-equipped x64 Windows 11 host for both central commissioning and
+peripheral commissioning, plus native ARM64 hardware.
+
+The focused Windows commissioner exposes a BLE-capable pairing command:
+
+```powershell
+.\out\win-canonical-devlayer-x64\msvc-windows-controller.exe pair-ble <node-id> <setup-code> 180
+```
+
+`pair-ble` configures the Windows BLE manager as a central and restricts
+setup-code discovery to BLE, so an on-network DNS-SD advertisement cannot mask
+a BLE discovery failure. The existing `pair` command remains network-only.
+
+### Focused Windows commissionee
+
+`msvc-windows-commissionee.exe` exercises the other CHIPoBLE role. It runs the
+canonical Matter server with the generated lighting-app data model, opens a
+basic commissioning window, and advertises fixed development credentials:
+
+-   Manual setup code: `34970112332`
+-   PIN: `20202021`
+-   Long discriminator: `3840`
+-   Test vendor/product IDs: `0xFFF1`/`0x8001`
+
+The generated server and cluster sources use standard C++20 designated
+initializers. Enable those sources explicitly when generating this output
+directory; the Windows bootstrap and controller targets otherwise retain their
+C++17 default:
+
+```powershell
+gn gen out\win-canonical-devlayer-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
+ninja -C out\win-canonical-devlayer-x64 msvc-windows-commissionee
+.\out\win-canonical-devlayer-x64\msvc-windows-commissionee.exe 180
+```
+
+The optional run duration is 1-3600 seconds and defaults to 300. Persistent
+state is isolated under `windows-commissionee-kvs` in the process working
+directory. Delete that directory only when a fresh test identity is required.
+
+On a machine without a Bluetooth adapter, or with a driver that lacks the
+Windows GATT-server/peripheral role, the process reports
+`BLE_ERROR_ADAPTER_UNAVAILABLE` while continuing to advertise over DNS-SD.
+That is useful lifecycle coverage but does not validate CHIPoBLE. For live
+validation, run the executable on a Bluetooth-equipped Windows 11 machine and
+commission setup code `34970112332` from a separate Matter controller. Confirm
+that the controller discovers Matter service UUID `0xFFF6`, completes the GATT
+and PASE exchanges, installs operational credentials, and establishes CASE.
+
+### Windows all-clusters app
+
+`msvc-windows-all-clusters.exe` runs the canonical generated
+`examples/all-clusters-app/all-clusters-common/all-clusters-app.zap` model on
+the native Windows Device Layer. It uses the same deterministic development
+credentials as the focused commissionee and adds the all-clusters mode and TLS
+management integrations:
+
+```powershell
+ninja -C out\win-canonical-devlayer-x64 msvc-windows-all-clusters
+.\out\win-canonical-devlayer-x64\msvc-windows-all-clusters.exe 180
+```
+
+Generate this output directory with `chip_windows_enable_cxx20=true`, as shown
+for the focused commissionee above. The optional run duration is 1-3600
+seconds and defaults to 300. Persistent state is isolated under
+`windows-all-clusters-kvs` in the process working directory.
+
+The executable is intended for native server and broad generated-cluster
+validation. It currently uses a bounded console runtime and does not yet
+provide the Linux example's POSIX named-pipe test-event transport. Application
+delegates that depend on that transport remain outside the Windows target; the
+generated attributes and command dispatch are present.
 
 ## Cross-build the ARM64 smoke target
 
@@ -1571,7 +1703,7 @@ macOS/Darwin is the functional baseline for the Windows desktop port:
 |---|---|---|
 | Core Matter SDK | Supported | Planned |
 | Controller CLI | `chip-tool` and Darwin framework tool | Native non-interactive `chip-tool` equivalent |
-| Device/server examples | Broad host-example coverage | `all-clusters-app` first |
+| Device/server examples | Broad host-example coverage | Native generated-model `all-clusters-app`; POSIX test-event transport remains |
 | Operational IP | IPv4/IPv6, UDP/TCP | WinSock IPv4/IPv6, UDP/TCP |
 | Service discovery | Apple DNS-SD | Windows DNS Service Discovery |
 | BLE commissioning | CoreBluetooth central and peripheral | C++/WinRT central and peripheral |
@@ -1594,9 +1726,9 @@ does not hide missing runtime behavior behind stubs.
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
 | Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
-| Device Layer | Generic static-polymorphism mixins | Phase 3 lands the native `PlatformManager` (lifecycle, event loop, cross-thread work posting), `KeyValueStoreManager` (per-user versioned root, safe key encoding, atomic durable writes, integrity checks), typed/public configuration management with scoped reset, OS-managed Ethernet/Wi-Fi `ConnectivityManager` with native interface/address change events, the General Diagnostics provider, and a native DNS-SD backend over `windns.h`; BLE and process restart after reset remain | Platform contract |
+| Device Layer | Generic static-polymorphism mixins | Native `PlatformManager`, storage/configuration, OS-managed connectivity, diagnostics, DNS-SD, and C++/WinRT BLE are implemented; process restart after reset remains | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
-| BLE | Transport and commissioning state machines | No WinRT scanner, central connection, GATT server, advertising, or callback serialization | Platform contract |
+| BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
 | Controller | Portable command and controller logic | Controller library/application closure, persistent fabric wiring, cancellation, terminal behavior, and BLE. Canonical transport, messaging, PASE/CASE, and Interaction Model libraries now compile and link on Windows. | Platform and application |
 | Server | Portable cluster and Interaction Model code | No Windows host lifecycle, network driver, event transport, named-pipe replacement, or example target | Platform and application |
 | Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
@@ -1613,8 +1745,8 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Core closure, Windows Device Layer, DNS-SD, storage, cancellation, and BLE. The generic `//src/platform` umbrella Device Layer dispatch now composes canonical Windows configuration, connectivity, KVS, diagnostics, endpoint lifecycle, and DNS-SD without mixing the focused command-line configuration. `//src/credentials` compiles, and canonical `//src/lib/dnssd:dnssd` links and runs the real `DiscoveryImplPlatform` path in `msvc-windows-controller-discovery.exe`; the temporary `dnssd_windows` target is removed. The remaining controller closure is messaging, PASE/CASE/session establishment, the Interaction Model client, application CLI/storage wiring, and BLE -- see "Wiring the generic Device Layer dispatch to canonical libraries" above | Phases 3–5 |
-| Server | `//examples/all-clusters-app` plus a new Windows host target | Interaction Model, clusters, app server, generated data model | Windows app lifecycle, Device Layer, storage, DNS-SD, network drivers, and test-event transport | Phases 3 and 5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | The generic `//src/platform` umbrella Device Layer dispatch now composes canonical Windows configuration, connectivity, KVS, diagnostics, endpoint lifecycle, DNS-SD, and BLE. The remaining gap is full application CLI/storage wiring and live BLE commissioning through a Windows controller executable -- see "Wiring the generic Device Layer dispatch to canonical libraries" above | Phases 3–5 |
+| Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` | Interaction Model, clusters, app server, generated data model | Native lifecycle, storage, DNS-SD, network, and BLE are wired; POSIX named-pipe test-event transport remains | Phases 3, 5, and 6 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
 Failures are tracked in six categories:
@@ -1969,9 +2101,10 @@ are deliberate submodule bumps.
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
-| Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
+| Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
+| Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
-| BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
+| BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through border router | Blocked by controller/IP work | Not yet supported | Blocked by controller/IP work | Not yet supported |
 
 ## Deployment and security requirements
@@ -1997,7 +2130,9 @@ are deliberate submodule bumps.
     diagnostics, OS-managed connectivity, endpoint lifecycle, and DNS-SD for
     x64/ARM64, with its lifecycle/storage smoke passing on x64. The canonical
     controller library and a focused persistent on-network commissioner now
-    compile on x64/ARM64; BLE, full command compatibility, and the server target
+    compile on x64/ARM64. The C++/WinRT BLE central/peripheral backend also
+    compiles on both architectures and passes its hardware-free x64 smoke;
+    live BLE commissioning, full command compatibility, and the server target
     remain incomplete. The full upstream
     `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
     the canonical crypto library and a focused CHIPCert subset; 93 selected
@@ -2054,7 +2189,8 @@ are deliberate submodule bumps.
     hardware. This applies to the DNS-SD backend as much as every other
     Windows Device Layer component so far: it cross-builds and links as
     `ARM64`, but has not been run on native ARM64 hardware.
--   No Windows CI runner, BLE backend, or persistence-provider ACL hardening
-    is present yet.
+-   No Windows CI runner or persistence-provider ACL hardening is present yet.
+    The BLE backend is present, but live central/peripheral commissioning has
+    not yet been exercised on Bluetooth-equipped x64 or native ARM64 hardware.
 -   Native Wi-Fi provisioning, a local Thread stack, and a Windows Thread
     border router are outside the first-release scope.

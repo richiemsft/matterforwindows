@@ -353,7 +353,7 @@ TEST_F(TestBasicInformationReadWrite, TestNodeLabelLoadAndSave)
 
     // 6. AND THEN: The "New Label" should have been saved back to persistent storage.
     Storage::String<32> persistedLabel;
-    persistence.LoadString({ kRootEndpointId, BasicInformation::Id, Attributes::NodeLabel::Id }, persistedLabel);
+    persistence.LoadStringValue({ kRootEndpointId, BasicInformation::Id, Attributes::NodeLabel::Id }, persistedLabel);
     EXPECT_TRUE(persistedLabel.Content().data_equal(newLabelSpan));
 
     cluster.Shutdown(ClusterShutdownType::kClusterShutdown);

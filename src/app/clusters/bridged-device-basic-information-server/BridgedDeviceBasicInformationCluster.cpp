@@ -266,7 +266,8 @@ CHIP_ERROR BridgedDeviceBasicInformationCluster::Startup(ServerClusterContext & 
     // LoadString already handles logging in case of load errors
     // We do not want to re-persist what we just loaded from NVM, hence kDoNotPersist
     // Failure here is unlikely and most applications cannot recover from it, so we ignore the status
-    if (persistence.LoadString({ mPath.mEndpointId, BridgedDeviceBasicInformation::Id, Attributes::NodeLabel::Id }, storedLabel))
+    if (persistence.LoadStringValue({ mPath.mEndpointId, BridgedDeviceBasicInformation::Id, Attributes::NodeLabel::Id },
+                                    storedLabel))
     {
         // Safe to ignore result: SetNodeLabelInternal is called with kDoNotPersist, so it will not fail due to persistence errors.
         // Other failures (like constraint errors) are not expected here as the value comes from storage.

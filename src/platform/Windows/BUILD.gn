@@ -50,6 +50,110 @@ config("windows-generated-header-config") {
   ]
 }
 
+# C++/WinRT throws winrt::hresult_error (and other std::exceptions) for
+# HRESULT failures; the rest of this port compiles with exceptions and the
+# STL's exception-dependent code paths disabled entirely (see
+# //build/config/win:default's "/EHs-c-" and "_HAS_EXCEPTIONS=0"). This
+# target's own compiler-defaults config *replaces* (rather than augments)
+# that default for exactly this reason: mixing conflicting "/EH"/
+# "_HAS_EXCEPTIONS" values for the same target on one MSVC command line is a
+# real conflict (last one specified wins, so simply appending would silently
+# reorder), whereas swapping the whole default config out for an equivalent
+# one with exceptions enabled has no such ambiguity. Every public entry point
+# in the BLE library catches winrt::hresult_error (and std::exception) at its
+# boundary and converts it to a CHIP_ERROR; no exception is allowed to
+# propagate into the rest of the exception-free Windows port.
+config("windows-ble-compiler-defaults") {
+  defines = [
+    "CHIP_STATIC_LIBRARY=1",
+    "NOMINMAX",
+    "WIN32_LEAN_AND_MEAN",
+    "__LITTLE_ENDIAN__=1",
+    "_CRT_SECURE_NO_WARNINGS",
+  ]
+
+  cflags = [
+    "/nologo",
+    "/W4",
+    "/WX",
+    "/FI" +
+        rebase_path("//src/platform/Windows/MsvcCompilerCompatibility.h", ""),
+    "/wd4068",
+    "/wd4100",
+    "/wd4127",
+    "/wd4244",
+    "/wd4245",
+    "/wd4324",
+    "/wd4505",
+    "/utf-8",
+    "/Zc:__cplusplus",
+    "/Zc:preprocessor",
+    "/permissive-",
+    "/GR-",
+    "/EHsc",
+    "/Gy",
+    "/Gw",
+  ]
+
+  cflags_cc = [ "/std:c++20" ]
+
+  if (is_debug) {
+    cflags += [
+      "/MDd",
+      "/Od",
+      "/Z7",
+    ]
+  } else {
+    cflags += [
+      "/MD",
+      "/O2",
+    ]
+  }
+}
+
+# Native Windows CHIPoBLE backend (C++/WinRT Windows.Devices.Bluetooth):
+# controller-side (central) scanning/connect/GATT-client, and commissionee-side
+# (peripheral) GATT server/advertising. See docs/guides/windows.md for the
+# exact runtime constraints (peripheral role requires the local Bluetooth
+# radio to support the GATT-server role, and StartAdvertising()'s local BLE
+# name comes from the OS radio name, not from this library).
+static_library("windows-ble") {
+  sources = [
+    "BLEManagerImpl.cpp",
+    "BLEManagerImpl.h",
+    "BleAdvertisingData.cpp",
+    "BleAdvertisingData.h",
+    "BleCallbackGuard.h",
+    "BleCentral.cpp",
+    "BleCentral.h",
+    "BleConnection.cpp",
+    "BleConnection.h",
+    "BlePeripheral.cpp",
+    "BlePeripheral.h",
+  ]
+
+  configs -= [ "//build/config/win:default" ]
+  configs += [ ":windows-ble-compiler-defaults" ]
+
+  public_deps = [
+    "//src/ble",
+    "//src/lib/core:core",
+    "//src/system:system",
+  ]
+
+  public_configs = [
+    ":windows-device-layer-config",
+    ":windows-generated-header-config",
+  ]
+
+  # WindowsApp.lib is the umbrella WinRT import library that lets an
+  # unpackaged Win32 desktop process call any Windows Runtime API (including
+  # Windows.Devices.Bluetooth) without per-namespace proxy-stub registration;
+  # this is the supported unpackaged Windows 11 path documented in
+  # docs/guides/windows.md.
+  libs = [ "WindowsApp.lib" ]
+}
+
 static_library("windows-platform-manager") {
   sources = [
     "../DeviceSafeQueue.cpp",
@@ -128,8 +232,16 @@ static_library("windows-platform-manager-canonical") {
     "//src/lib/core:core",
     "//src/system:system",
     "//third_party/nlio",
+    ":windows-ble",
   ]
 
+  # windows-ble requires CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE; this canonical
+  # target already receives it via the generated platform/CHIPDeviceBuildConfig.h
+  # buildconfig header (chip_enable_ble, see src/platform/BUILD.gn), not a
+  # literal define here -- adding one too would redefine the same macro
+  # (C4005, fatal under /WX). See BlePlatformConfig.h/CHIPDevicePlatformConfig.h
+  # for why the header-only default stays 0 for the ad hoc, non-buildconfig
+  # Device Layer targets.
   defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
 
   libs = [

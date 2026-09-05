@@ -36,6 +36,11 @@
 #include <cerrno>
 #include <process.h>
 
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION && \
+    CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+#include <roapi.h>
+#endif
+
 namespace chip {
 namespace DeviceLayer {
 
@@ -204,9 +209,12 @@ void GenericPlatformManagerImpl_Windows<ImplClass>::_DispatchEvent(const ChipDev
         break;
 
     default:
-        // Device Layer component dispatch (Connectivity, BLE, Thread) is added
-        // when those managers are ported. Application handlers still receive
-        // non-internal events so the public contract is preserved.
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+        BLEMgr().OnPlatformEvent(event);
+#endif
+        ConnectivityMgr().OnPlatformEvent(event);
+#endif
         if (!event->IsInternal())
         {
             for (auto & entry : mAppEventHandlers)
@@ -242,6 +250,17 @@ CHIP_ERROR GenericPlatformManagerImpl_Windows<ImplClass>::_StartChipTimer(System
 template <class ImplClass>
 void GenericPlatformManagerImpl_Windows<ImplClass>::_RunEventLoop()
 {
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION && \
+    CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+    const HRESULT apartmentResult = RoInitialize(RO_INIT_MULTITHREADED);
+    const bool uninitializeApartment = SUCCEEDED(apartmentResult);
+    if (FAILED(apartmentResult) && apartmentResult != RPC_E_CHANGED_MODE)
+    {
+        ChipLogError(DeviceLayer, "Failed to initialize WinRT apartment: 0x%08lx",
+                     static_cast<unsigned long>(apartmentResult));
+    }
+#endif
+
     {
         std::lock_guard<std::mutex> lock(mStateLock);
 
@@ -277,6 +296,14 @@ void GenericPlatformManagerImpl_Windows<ImplClass>::_RunEventLoop()
     SystemLayerSelectLoop().EventLoopEnds();
 
     Impl()->UnlockChipStack();
+
+#if defined(CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION) && CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION && \
+    CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+    if (uninitializeApartment)
+    {
+        RoUninitialize();
+    }
+#endif
 
     {
         std::lock_guard<std::mutex> lock(mStateLock);

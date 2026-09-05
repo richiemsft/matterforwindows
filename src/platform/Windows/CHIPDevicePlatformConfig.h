@@ -47,7 +47,19 @@
 #define CHIP_DEVICE_CONFIG_ENABLE_THREAD 0
 #endif
 
-// CHIPoBLE requires the WinRT backend that is scheduled for a later phase.
+// CHIPoBLE is implemented by the native C++/WinRT backend
+// (src/platform/Windows/BLEManagerImpl.{h,cpp}); see docs/guides/windows.md
+// for the exact runtime constraints (peripheral role requires the local
+// Bluetooth radio to support the GATT-server role; not every Windows PC's
+// radio does). The BLE library's own headers pull in C++/WinRT
+// (Windows.Devices.Bluetooth) types that require C++20 coroutine support and
+// exceptions enabled, so only Windows Device Layer targets that actually
+// link windows-ble (the canonical composition, via
+// src/platform/Windows/BUILD.gn's "windows-platform-manager-canonical")
+// define this to 1; the older ad hoc, command-line-configured Device Layer
+// targets (":windows-platform-manager", ":windows-connectivity-manager",
+// ":windows-configuration-manager", ":windows-device-layer") do not link
+// windows-ble and are unaffected by this default.
 #ifndef CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
 #define CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE 0
 #endif

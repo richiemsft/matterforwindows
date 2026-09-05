@@ -23,14 +23,21 @@
 
 #pragma once
 
+namespace chip {
+namespace DeviceLayer {
+namespace Internal {
+class WinRTBleConnection;
+} // namespace Internal
+} // namespace DeviceLayer
+} // namespace chip
+
 // ==================== Platform Adaptations ====================
 
-// The native BLE backend (C++/WinRT Windows.Devices.Bluetooth) is scheduled for
-// a later phase. Until a concrete connection object type exists, the BLE
-// connection handle resolves to a plain pointer with a null sentinel so that
-// shared headers referring to BLE_CONNECTION_OBJECT still compile. No BLE
-// transport is provided by this foundation.
-#define BLE_CONNECTION_OBJECT void *
+// The native BLE backend is implemented with C++/WinRT
+// (Windows.Devices.Bluetooth). BLE_CONNECTION_OBJECT is a stable,
+// heap-allocated WinRTBleConnection owned by BLEManagerImpl for the life of
+// the connection; see src/platform/Windows/BleConnection.h.
+#define BLE_CONNECTION_OBJECT chip::DeviceLayer::Internal::WinRTBleConnection *
 #define BLE_CONNECTION_UNINITIALIZED nullptr
 
 // ========== Platform-specific Configuration Overrides =========

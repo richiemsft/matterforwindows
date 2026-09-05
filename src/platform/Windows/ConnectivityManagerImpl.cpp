@@ -25,6 +25,10 @@
 #include <platform/internal/GenericConnectivityManagerImpl_UDP.ipp>
 #include <system/SystemError.h>
 
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+#include <platform/internal/GenericConnectivityManagerImpl_BLE.ipp>
+#endif
+
 #include <cstring>
 
 #ifndef WIN32_LEAN_AND_MEAN
