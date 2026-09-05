@@ -1391,9 +1391,10 @@ Device Layer and:
     `DiscoveryType::kDiscoveryNetworkOnly`;
 -   reconnects to a commissioned node after process restart and can read its
     OnOff attribute or invoke its On and Off commands; and
--   bounds pairing, CASE connection, and Interaction Model waits so a missing
-    node or commissioning window does not leave the process running
-    indefinitely.
+-   retries operational discovery/CASE once when a transient DNS-SD miss or
+    connection failure occurs, while bounding pairing, CASE connection, and
+    Interaction Model waits so a missing node or commissioning window does not
+    leave the process running indefinitely.
 
 Build it and confirm controller-fabric persistence:
 
@@ -1436,6 +1437,20 @@ the resulting pushed value report. Success therefore proves subscription
 delivery without requiring a second process or a manual toggle. The final line
 includes the report and interruption counts; the bulb remains in the newly
 commanded state.
+
+If Windows operational DNS-SD is temporarily slow or unavailable, append a
+known device address after the timeout:
+
+```powershell
+.\out\win-devlayer-x64\msvc-windows-controller.exe read-onoff 1 1 100 192.168.1.128
+.\out\win-devlayer-x64\msvc-windows-controller.exe subscribe-onoff 1 1 30 192.168.1.128
+```
+
+The controller still starts normal operational discovery, but uses the supplied
+address after the SDK's five-second fallback interval when discovery produces
+no result. Operational commands also retry discovery/CASE once. This option is
+a resiliency mechanism for a previously verified address, not a replacement
+for DNS-SD in production.
 
 After all operational tests are complete, remove this controller's fabric from
 the accessory:

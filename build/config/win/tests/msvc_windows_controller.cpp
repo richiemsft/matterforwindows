@@ -370,6 +370,54 @@ struct FabricRemovalState
     Callback::Callback<Controller::OnCurrentFabricRemove> callback;
 };
 
+struct ConnectionState
+{
+    ConnectionState() : onConnected(&HandleConnected, this), onConnectionFailure(&HandleConnectionFailure, this) {}
+
+    void Finish(CHIP_ERROR result)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            error    = result;
+            complete = true;
+        }
+        condition.notify_all();
+    }
+
+    static void HandleConnected(void * context, Messaging::ExchangeManager &, const SessionHandle &)
+    {
+        static_cast<ConnectionState *>(context)->Finish(CHIP_NO_ERROR);
+    }
+
+    static void HandleConnectionFailure(void * context, const ScopedNodeId &, CHIP_ERROR error)
+    {
+        static_cast<ConnectionState *>(context)->Finish(error);
+    }
+
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool complete    = false;
+    CHIP_ERROR error = CHIP_NO_ERROR;
+    Callback::Callback<OnDeviceConnected> onConnected;
+    Callback::Callback<OnDeviceConnectionFailure> onConnectionFailure;
+};
+
+CHIP_ERROR ConnectWithRetry(DeviceController & controller, NodeId nodeId, Callback::Callback<OnDeviceConnected> * onConnected,
+                            Callback::Callback<OnDeviceConnectionFailure> * onFailure,
+                            const Optional<AddressResolve::ResolveResult> & fallbackResult)
+{
+    auto * caseSessionManager = controller.CASESessionMgr();
+    VerifyOrReturnError(caseSessionManager != nullptr, CHIP_ERROR_INCORRECT_STATE);
+
+    caseSessionManager->FindOrEstablishSession(
+        controller.GetPeerScopedId(nodeId), onConnected, onFailure,
+#if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
+        2, nullptr,
+#endif
+        TransportPayloadCapability::kMRPPayload, fallbackResult);
+    return CHIP_NO_ERROR;
+}
+
 bool ParseUnsigned(const char * text, uint64_t minimum, uint64_t maximum, uint64_t & value)
 {
     char * end                       = nullptr;
@@ -506,14 +554,17 @@ void PrintUsage(const char * executable)
     std::fprintf(stderr, "Usage:\n");
     std::fprintf(stderr, "  %s status\n", executable);
     std::fprintf(stderr, "  %s pair <node-id> <setup-code> [timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s on <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s off <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s read-onoff <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s subscribe-onoff <node-id> <endpoint-id> [report-timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s remove-fabric <node-id> [timeout-seconds: 1-600]\n", executable);
+    std::fprintf(stderr, "  %s on <node-id> <endpoint-id> [timeout-seconds: 1-600] [fallback-ip]\n", executable);
+    std::fprintf(stderr, "  %s off <node-id> <endpoint-id> [timeout-seconds: 1-600] [fallback-ip]\n", executable);
+    std::fprintf(stderr, "  %s read-onoff <node-id> <endpoint-id> [timeout-seconds: 1-600] [fallback-ip]\n", executable);
+    std::fprintf(stderr,
+                 "  %s subscribe-onoff <node-id> <endpoint-id> [report-timeout-seconds: 1-600] [fallback-ip]\n",
+                 executable);
+    std::fprintf(stderr, "  %s remove-fabric <node-id> [timeout-seconds: 1-600] [fallback-ip]\n", executable);
 }
 
-int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * setupCode, unsigned timeoutSeconds)
+int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * setupCode, unsigned timeoutSeconds,
+                  const char * fallbackIp)
 {
     ControllerState state;
     bool restored    = false;
@@ -538,9 +589,22 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
                 static_cast<unsigned>(state.commissioner.GetFabricIndex()),
                 static_cast<unsigned long long>(state.commissioner.GetNodeId()));
 
+    Optional<AddressResolve::ResolveResult> fallbackResult;
+    if (fallbackIp != nullptr)
+    {
+        Inet::IPAddress address;
+        VerifyOrDie(Inet::IPAddress::FromString(fallbackIp, address));
+        AddressResolve::ResolveResult result;
+        result.address = Transport::PeerAddress::UDP(address, CHIP_PORT);
+        fallbackResult.SetValue(result);
+        std::printf("Using %s:%u if operational DNS-SD does not resolve within %u seconds.\n", fallbackIp, CHIP_PORT,
+                    CHIP_CONFIG_ADDRESS_RESOLVE_FALLBACK_TIMEOUT_SECONDS);
+    }
+
     OnOffOperationState onOffOperation(mode, endpointId);
     SubscriptionState subscription(endpointId);
     FabricRemovalState fabricRemoval(&state.commissioner);
+    ConnectionState connection;
     int exitCode = 0;
     if (mode == Mode::kPair)
     {
@@ -584,7 +648,8 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
     else if (mode == Mode::kOn || mode == Mode::kOff || mode == Mode::kReadOnOff)
     {
         PlatformMgr().LockChipStack();
-        error = state.commissioner.GetConnectedDevice(nodeId, &onOffOperation.onConnected, &onOffOperation.onConnectionFailure);
+        error = ConnectWithRetry(state.commissioner, nodeId, &onOffOperation.onConnected, &onOffOperation.onConnectionFailure,
+                                 fallbackResult);
         PlatformMgr().UnlockChipStack();
         if (error != CHIP_NO_ERROR)
         {
@@ -610,7 +675,8 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
     else if (mode == Mode::kSubscribeOnOff)
     {
         PlatformMgr().LockChipStack();
-        error = state.commissioner.GetConnectedDevice(nodeId, &subscription.onConnected, &subscription.onConnectionFailure);
+        error =
+            ConnectWithRetry(state.commissioner, nodeId, &subscription.onConnected, &subscription.onConnectionFailure, fallbackResult);
         PlatformMgr().UnlockChipStack();
         if (error != CHIP_NO_ERROR)
         {
@@ -645,8 +711,8 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
             if (exitCode == 0)
             {
                 PlatformMgr().LockChipStack();
-                error =
-                    state.commissioner.GetConnectedDevice(nodeId, &onOffOperation.onConnected, &onOffOperation.onConnectionFailure);
+                error = ConnectWithRetry(state.commissioner, nodeId, &onOffOperation.onConnected,
+                                         &onOffOperation.onConnectionFailure, fallbackResult);
                 PlatformMgr().UnlockChipStack();
                 if (error != CHIP_NO_ERROR)
                 {
@@ -693,6 +759,31 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
         }
     }
     else if (mode == Mode::kRemoveFabric)
+    {
+        PlatformMgr().LockChipStack();
+        error = ConnectWithRetry(state.commissioner, nodeId, &connection.onConnected, &connection.onConnectionFailure, fallbackResult);
+        PlatformMgr().UnlockChipStack();
+        if (error == CHIP_NO_ERROR)
+        {
+            std::unique_lock<std::mutex> lock(connection.mutex);
+            if (!connection.condition.wait_for(lock, std::chrono::seconds(timeoutSeconds),
+                                               [&connection]() { return connection.complete; }))
+            {
+                error = CHIP_ERROR_TIMEOUT;
+            }
+            else
+            {
+                error = connection.error;
+            }
+        }
+        if (error != CHIP_NO_ERROR)
+        {
+            std::fprintf(stderr, "Unable to establish CASE for remote fabric removal: %" CHIP_ERROR_FORMAT "\n", error.Format());
+            exitCode = (error == CHIP_ERROR_TIMEOUT) ? 2 : 1;
+        }
+    }
+
+    if (mode == Mode::kRemoveFabric && exitCode == 0)
     {
         PlatformMgr().LockChipStack();
         error = fabricRemoval.remover.RemoveCurrentFabric(nodeId, &fabricRemoval.callback);
@@ -766,14 +857,17 @@ int main(int argc, char * argv[])
     Mode mode             = Mode::kStatus;
     const bool statusMode = argc == 2 && std::strcmp(argv[1], "status") == 0;
     const bool pairMode   = (argc == 4 || argc == 5) && std::strcmp(argv[1], "pair") == 0;
-    const bool onMode     = (argc == 4 || argc == 5) && std::strcmp(argv[1], "on") == 0;
-    const bool offMode    = (argc == 4 || argc == 5) && std::strcmp(argv[1], "off") == 0;
-    const bool readMode   = (argc == 4 || argc == 5) && std::strcmp(argv[1], "read-onoff") == 0;
-    const bool subscribeMode = (argc == 4 || argc == 5) && std::strcmp(argv[1], "subscribe-onoff") == 0;
-    const bool removeMode = (argc == 3 || argc == 4) && std::strcmp(argv[1], "remove-fabric") == 0;
+    const bool onMode     = (argc >= 4 && argc <= 6) && std::strcmp(argv[1], "on") == 0;
+    const bool offMode    = (argc >= 4 && argc <= 6) && std::strcmp(argv[1], "off") == 0;
+    const bool readMode   = (argc >= 4 && argc <= 6) && std::strcmp(argv[1], "read-onoff") == 0;
+    const bool subscribeMode = (argc >= 4 && argc <= 6) && std::strcmp(argv[1], "subscribe-onoff") == 0;
+    const bool removeMode = (argc >= 3 && argc <= 5) && std::strcmp(argv[1], "remove-fabric") == 0;
     uint64_t nodeIdValue  = 0;
     uint64_t endpointValue = 0;
     uint64_t timeoutValue = kDefaultTimeoutSeconds;
+    const bool hasFallbackIp = argc == 6 || (removeMode && argc == 5);
+    const char * fallbackIp   = hasFallbackIp ? argv[argc - 1] : nullptr;
+    Inet::IPAddress parsedFallbackIp;
     if (subscribeMode)
     {
         timeoutValue = kDefaultSubscriptionSeconds;
@@ -784,9 +878,10 @@ int main(int argc, char * argv[])
         ((onMode || offMode || readMode || subscribeMode) &&
          (!ParseUnsigned(argv[2], 1, kMaxOperationalNodeId, nodeIdValue) ||
           !ParseUnsigned(argv[3], 0, static_cast<uint64_t>(kInvalidEndpointId) - 1, endpointValue) ||
-          (argc == 5 && !ParseUnsigned(argv[4], 1, 600, timeoutValue)))) ||
+          (argc >= 5 && !ParseUnsigned(argv[4], 1, 600, timeoutValue)))) ||
         (removeMode && (!ParseUnsigned(argv[2], 1, kMaxOperationalNodeId, nodeIdValue) ||
-                        (argc == 4 && !ParseUnsigned(argv[3], 1, 600, timeoutValue)))))
+                        (argc >= 4 && !ParseUnsigned(argv[3], 1, 600, timeoutValue)))) ||
+        (hasFallbackIp && !Inet::IPAddress::FromString(fallbackIp, parsedFallbackIp)))
     {
         PrintUsage(argv[0]);
         return 1;
@@ -841,7 +936,7 @@ int main(int argc, char * argv[])
     }
 
     const int exitCode = RunController(mode, static_cast<NodeId>(nodeIdValue), static_cast<EndpointId>(endpointValue),
-                                       pairMode ? argv[3] : nullptr, static_cast<unsigned>(timeoutValue));
+                                       pairMode ? argv[3] : nullptr, static_cast<unsigned>(timeoutValue), fallbackIp);
     Platform::MemoryShutdown();
     return exitCode;
 }
