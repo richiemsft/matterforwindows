@@ -563,7 +563,12 @@ KeyValueStoreManagerImpl KeyValueStoreManagerImpl::sInstance;
 CHIP_ERROR KeyValueStoreManagerImpl::Init(const char * storageRoot)
 {
     std::lock_guard<std::recursive_mutex> lock(mMutex);
-    VerifyOrReturnError(!mInitialized, CHIP_ERROR_INCORRECT_STATE);
+    if (mInitialized)
+    {
+        // Applications such as chip-tool select an explicit root before the
+        // generic ConfigurationManager performs its default initialization.
+        return storageRoot == nullptr || storageRoot[0] == '\0' ? CHIP_NO_ERROR : CHIP_ERROR_INCORRECT_STATE;
+    }
 
     std::wstring root;
     if (storageRoot != nullptr && storageRoot[0] != '\0')

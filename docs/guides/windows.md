@@ -871,7 +871,8 @@ ninja -C out\win-chip-tool-x64 chip-tool
 The root command lists the complete generated cluster and command-set surface;
 the pairing and OnOff command groups also initialize and display their command
 help. Controller state uses the existing INI storage implementation under the
-Windows temporary directory by default. Its replacement writes use
+Windows temporary directory by default. A missing directory supplied through
+`--storage-directory` is created automatically. Its replacement writes use
 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` so updates
 work across process restarts on Windows.
 

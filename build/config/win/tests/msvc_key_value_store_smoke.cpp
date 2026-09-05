@@ -127,6 +127,7 @@ bool RunScenarios(const std::string & rootUtf8, const std::wstring & rootWide, c
     // ---- Init on an isolated, freshly created root.
     CHECK(KeyValueStoreMgrImpl().Init(rootUtf8.c_str()) == CHIP_NO_ERROR);
     CHECK(KeyValueStoreMgrImpl().Init(rootUtf8.c_str()) == CHIP_ERROR_INCORRECT_STATE);
+    CHECK(KeyValueStoreMgrImpl().Init(nullptr) == CHIP_NO_ERROR);
     CHECK(PathExists(rootWide + L"\\.matter-kvs.owner"));
 
     // ---- Binary put/get round-trip (embedded NULs and high bytes).

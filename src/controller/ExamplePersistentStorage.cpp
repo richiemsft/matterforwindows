@@ -27,6 +27,7 @@
 #include <string>
 
 #ifdef _WIN32
+#include <filesystem>
 #include <windows.h>
 #endif
 
@@ -102,6 +103,12 @@ CHIP_ERROR PersistentStorage::Init(const char * name, const char * directory)
     mStorageFilePath = GenerateStoragePath(name != nullptr ? name : "");
 
     std::ifstream ifs;
+#ifdef _WIN32
+    std::error_code storageDirectoryError;
+    std::filesystem::create_directories(mUsedDirectory, storageDirectoryError);
+    VerifyOrExit(!storageDirectoryError, err = CHIP_ERROR_OPEN_FAILED);
+#endif
+
     ifs.open(mStorageFilePath, std::ifstream::in);
     if (!ifs.good())
     {
