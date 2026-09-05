@@ -1450,7 +1450,10 @@ The controller still starts normal operational discovery, but uses the supplied
 address after the SDK's five-second fallback interval when discovery produces
 no result. Operational commands also retry discovery/CASE once. This option is
 a resiliency mechanism for a previously verified address, not a replacement
-for DNS-SD in production.
+for DNS-SD in production. Windows explicitly enables the generic
+`CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK` path; without that platform
+setting, an application can pass a fallback result but
+`OperationalSessionSetup` silently compiles out the timer and fallback logic.
 
 After all operational tests are complete, remove this controller's fabric from
 the accessory:
@@ -1514,8 +1517,19 @@ address above IPv4, each new process first exhausts CASE retransmissions on the
 non-responsive IPv6 address before the retained IPv4 fallback succeeds. This
 delay is currently a known interoperability issue rather than a command
 failure. Remote fabric removal also succeeded against the bulb. Restoring the
-local controller identity and confirming that the removed fabric can no longer
-establish CASE remain the final post-removal checks.
+local controller after removal also succeeded with its original fabric index
+and node identity. A subsequent operational lookup for node 1 exhausted both
+DNS-SD attempts without finding the removed fabric, so CASE was not established
+and the OnOff read failed as expected. This completes the Windows x64 Phase 3
+IP-controller hardware acceptance flow. Native ARM64 execution remains open.
+
+That final negative test also exposed a configuration defect in the first
+deployed fallback-enabled controller: it accepted and printed a supplied
+fallback address, but Windows still inherited the SDK default
+`CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK=0`. The address was therefore
+ignored whenever DNS-SD did not resolve. The Windows Device Layer now enables
+the existing generic fallback implementation; the corrected executable starts
+its five-second timer and uses the supplied address when discovery is silent.
 
 ### Cross-build
 
@@ -1954,7 +1968,7 @@ are deliberate submodule bumps.
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Focused non-interactive controller | Supported subset | Fabric/key create/restore; real commissioning through IPv4 PASE, trusted-root/NOC installation, CASE IPv6-to-IPv4 fallback, Sigma3, and `CommissioningComplete`; restart-safe OnOff read/invoke, subscription delivery, and remote fabric removal all pass against a real bulb. Post-removal persistence and access-revocation checks remain | Supported subset | Cross-build only |
+| Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -2007,9 +2021,11 @@ are deliberate submodule bumps.
     value, invoked the opposite command, and received the resulting value
     transition with zero interruptions. The bulb's non-responsive advertised
     link-local IPv6 address adds a CASE retry delay before IPv4 succeeds.
-    Remote fabric removal also passed against the bulb. Local-controller
-    persistence and rejection of subsequent operational access remain to be
-    checked after removal.
+    Remote fabric removal also passed against the bulb, after which the
+    original local controller identity restored successfully. A subsequent
+    lookup found no operational advertisement for the removed fabric and the
+    OnOff read failed as expected. Windows x64 has therefore completed the
+    Phase 3 IP-controller hardware flow; native ARM64 execution remains open.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no

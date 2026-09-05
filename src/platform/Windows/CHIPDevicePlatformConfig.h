@@ -52,6 +52,12 @@
 #define CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE 0
 #endif
 
+// Controller tools may supply a last-known IP address to avoid waiting for a
+// full operational DNS-SD timeout when discovery is temporarily unavailable.
+#ifndef CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK
+#define CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK 1
+#endif
+
 // ========== Platform-specific Configuration Overrides =========
 
 #ifndef CHIP_DEVICE_CONFIG_CHIP_TASK_STACK_SIZE
