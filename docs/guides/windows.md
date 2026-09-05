@@ -1513,7 +1513,9 @@ Because operational discovery ranks the bulb's advertised link-local IPv6
 address above IPv4, each new process first exhausts CASE retransmissions on the
 non-responsive IPv6 address before the retained IPv4 fallback succeeds. This
 delay is currently a known interoperability issue rather than a command
-failure. Remote fabric removal remains to be hardware-validated.
+failure. Remote fabric removal also succeeded against the bulb. Restoring the
+local controller identity and confirming that the removed fabric can no longer
+establish CASE remain the final post-removal checks.
 
 ### Cross-build
 
@@ -1952,7 +1954,7 @@ are deliberate submodule bumps.
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Focused non-interactive controller | Supported subset | Fabric/key create/restore; real commissioning through IPv4 PASE, trusted-root/NOC installation, CASE IPv6-to-IPv4 fallback, Sigma3, and `CommissioningComplete`; restart-safe OnOff read/invoke and subscription delivery all pass against a real bulb. Remote fabric removal builds and awaits hardware validation | Supported subset | Cross-build only |
+| Focused non-interactive controller | Supported subset | Fabric/key create/restore; real commissioning through IPv4 PASE, trusted-root/NOC installation, CASE IPv6-to-IPv4 fallback, Sigma3, and `CommissioningComplete`; restart-safe OnOff read/invoke, subscription delivery, and remote fabric removal all pass against a real bulb. Post-removal persistence and access-revocation checks remain | Supported subset | Cross-build only |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -2005,7 +2007,9 @@ are deliberate submodule bumps.
     value, invoked the opposite command, and received the resulting value
     transition with zero interruptions. The bulb's non-responsive advertised
     link-local IPv6 address adds a CASE retry delay before IPv4 succeeds.
-    Remote fabric removal now builds but still awaits LAN hardware validation.
+    Remote fabric removal also passed against the bulb. Local-controller
+    persistence and rejection of subsequent operational access remain to be
+    checked after removal.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no
