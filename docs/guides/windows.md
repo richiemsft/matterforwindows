@@ -1382,6 +1382,9 @@ Device Layer and:
 -   persists the operational key and certificate stores, fabric table, group
     state, IPK, and example credential issuer under
     `%LOCALAPPDATA%\Matter\KVS\v1`;
+-   generates the controller operational key through
+    `PersistentStorageOperationalKeystore`, rather than injecting an
+    in-memory key into `FabricTable`;
 -   creates one controller fabric on first launch and restores the same fabric
     on later launches;
 -   starts setup-code pairing with
@@ -1430,9 +1433,23 @@ highest-scored result, so each automatic retry repeated the same unusable
 address instead of trying IPv4. `SystemPlatformConfig.h` now retains five
 resolved addresses, matching Linux and Darwin. This activates the existing
 `OperationalSessionSetup` fallback path: after a CASE timeout it can consume
-the next resolved address without starting another lookup. Hardware validation
-of the IPv6-to-IPv4 CASE fallback, followed by CASE reconnection, attribute
-operations, subscriptions, and fabric removal, remains open.
+the next resolved address without starting another lookup. A second hardware
+run confirmed that behavior: link-local CASE timed out, CASE immediately
+retried IPv4, and the bulb returned Sigma2.
+
+That run exposed a separate persistence bug in the focused application. Its
+original fabric-creation path injected a temporary operational keypair into
+`FabricTable`. The table copied the key for that process but intentionally
+persisted only fabric metadata and certificates; after restart, the restored
+fabric therefore lacked the private key needed to sign CASE Sigma3. The
+controller now asks `PersistentStorageOperationalKeystore` to generate the
+controller key and commits it with the new fabric. At startup it detects and
+deletes a legacy fabric whose operational key is missing before creating a
+valid replacement. An x64 two-process test confirmed the repair on the first
+run and restoration of the replacement fabric and key on the second.
+Hardware validation through Sigma3 and `CommissioningComplete`, followed by
+CASE reconnection, attribute operations, subscriptions, and fabric removal,
+remains open.
 
 ### Cross-build
 
@@ -1871,7 +1888,7 @@ are deliberate submodule bumps.
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
-| Focused non-interactive controller | Supported subset | Fabric create/restore, real IPv4 PASE, trusted-root/NOC installation, and bounded pairing pass; post-NOC CASE IPv6-to-IPv4 fallback awaits hardware rerun | Supported subset | Not yet run on native hardware |
+| Focused non-interactive controller | Supported subset | Fabric/key create/restore, real IPv4 PASE, trusted-root/NOC installation, and CASE IPv6-to-IPv4 fallback through Sigma2 pass; Sigma3 awaits hardware rerun | Supported subset | Not yet run on native hardware |
 | Server application | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
@@ -1910,10 +1927,14 @@ are deliberate submodule bumps.
     `PersistentStorageOpCertStore`) now runs through persistent controller
     fabric creation and process-restart restoration. A real accessory has
     completed IPv4 PASE and accepted its trusted root and NOC, but the first
-    post-NOC CASE attempt repeatedly selected an unresponsive link-local IPv6
-    address and did not reach `CommissioningComplete`. Windows now retains
-    alternate DNS-SD results so the existing CASE timeout path can retry the
-    working IPv4 address; the hardware rerun is pending.
+    post-NOC CASE attempt selected an unresponsive link-local IPv6 address.
+    Windows now retains alternate DNS-SD results, and a hardware rerun proved
+    that CASE falls back to IPv4 and receives Sigma2. Sigma3 then exposed an
+    operational-key persistence defect in the focused application: its
+    injected controller key had not survived restart. Controller keys are now
+    generated and committed through `PersistentStorageOperationalKeystore`,
+    and legacy keyless local fabrics are replaced automatically. Hardware
+    validation through Sigma3 and `CommissioningComplete` is pending.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no

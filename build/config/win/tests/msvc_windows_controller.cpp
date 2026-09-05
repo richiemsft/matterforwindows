@@ -171,26 +171,39 @@ CHIP_ERROR InitializeController(ControllerState & state, bool & restored)
     VerifyOrReturnError(fabrics != nullptr, CHIP_ERROR_INCORRECT_STATE);
     if (fabrics->FabricCount() > 0)
     {
-        std::printf("Restoring a persisted controller fabric...\n");
-        commissionerParams.fabricIndex.SetValue(fabrics->begin()->GetFabricIndex());
-        restored = true;
+        const FabricIndex fabricIndex = fabrics->begin()->GetFabricIndex();
+        if (fabrics->HasOperationalKeyForFabric(fabricIndex))
+        {
+            std::printf("Restoring a persisted controller fabric...\n");
+            commissionerParams.fabricIndex.SetValue(fabricIndex);
+            restored = true;
+        }
+        else
+        {
+            std::printf("Removing controller fabric %u because its operational key is missing...\n",
+                        static_cast<unsigned>(fabricIndex));
+            ReturnErrorOnFailure(fabrics->Delete(fabricIndex));
+        }
     }
-    else
+
+    if (!restored)
     {
         std::printf("Creating a new controller fabric...\n");
+        uint8_t csrBuffer[Crypto::kMIN_CSR_Buffer_Size];
         uint8_t nocBuffer[kMaxCHIPDERCertLength];
         uint8_t icacBuffer[kMaxCHIPDERCertLength];
         uint8_t rcacBuffer[kMaxCHIPDERCertLength];
+        MutableByteSpan csr(csrBuffer);
         MutableByteSpan noc(nocBuffer);
         MutableByteSpan icac(icacBuffer);
         MutableByteSpan rcac(rcacBuffer);
-        Crypto::P256Keypair operationalKey;
+        Crypto::P256PublicKey operationalPublicKey;
 
-        ReturnErrorOnFailure(operationalKey.Initialize(Crypto::ECPKeyTarget::ECDSA));
+        ReturnErrorOnFailure(fabrics->AllocatePendingOperationalKey(NullOptional, csr));
+        ReturnErrorOnFailure(Crypto::VerifyCertificateSigningRequest(csr.data(), csr.size(), operationalPublicKey));
         ReturnErrorOnFailure(state.credentialsIssuer.GenerateNOCChainAfterValidation(
-            kControllerNodeId, kControllerFabricId, kUndefinedCATs, operationalKey.Pubkey(), rcac, icac, noc));
+            kControllerNodeId, kControllerFabricId, kUndefinedCATs, operationalPublicKey, rcac, icac, noc));
 
-        commissionerParams.operationalKeypair = &operationalKey;
         commissionerParams.controllerRCAC     = rcac;
         commissionerParams.controllerICAC     = icac;
         commissionerParams.controllerNOC      = noc;
@@ -204,6 +217,11 @@ CHIP_ERROR InitializeController(ControllerState & state, bool & restored)
         ReturnErrorOnFailure(DeviceControllerFactory::GetInstance().SetupCommissioner(commissionerParams, state.commissioner));
         state.commissionerInitialized = true;
     }
+
+    constexpr uint8_t operationalKeyProbe = 0;
+    Crypto::P256ECDSASignature operationalKeyProbeSignature;
+    ReturnErrorOnFailure(fabrics->SignWithOpKeypair(state.commissioner.GetFabricIndex(), ByteSpan(&operationalKeyProbe, 1),
+                                                    operationalKeyProbeSignature));
 
     uint8_t compressedFabricId[sizeof(uint64_t)];
     MutableByteSpan compressedFabricIdSpan(compressedFabricId);
