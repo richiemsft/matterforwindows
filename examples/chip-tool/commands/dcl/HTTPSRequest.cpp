@@ -31,9 +31,15 @@
 
 #ifdef CONFIG_ENABLE_HTTPS_REQUESTS
 #if (CHIP_CRYPTO_OPENSSL || CHIP_CRYPTO_BORINGSSL)
+#ifdef _WIN32
+#include <windows.h>
+#include <winhttp.h>
+#include <openssl/sha.h>
+#else
 #include <netdb.h>
 #include <openssl/ssl.h>
 #include <unistd.h>
+#endif
 #ifdef SHA256_DIGEST_LENGTH
 #define USE_CHIP_CRYPTO 1
 #endif
@@ -49,13 +55,127 @@ constexpr const char * kErrorHTTPSPort     = "Invalid port: 0";
 constexpr const char * kErrorHTTPSHostName = "Invalid hostname: empty";
 constexpr const char * kErrorBase64Decode  = "Error while decoding base64 data";
 constexpr const char * kErrorSizeMismatch  = "The response size does not match the expected size: ";
+constexpr const char * kErrorDigestMismatch = "The response digest does not match the expected digest";
 } // namespace
 
 namespace chip {
 namespace tool {
 namespace https {
 namespace {
-#ifndef USE_CHIP_CRYPTO
+#if defined(_WIN32) && defined(CONFIG_ENABLE_HTTPS_REQUESTS)
+class HTTPSSessionHolder
+{
+public:
+    ~HTTPSSessionHolder()
+    {
+        if (mRequest != nullptr)
+        {
+            WinHttpCloseHandle(mRequest);
+        }
+        if (mConnection != nullptr)
+        {
+            WinHttpCloseHandle(mConnection);
+        }
+        if (mSession != nullptr)
+        {
+            WinHttpCloseHandle(mSession);
+        }
+    }
+
+    CHIP_ERROR Init(std::string & hostname, uint16_t port, HttpsSecurityMode securityMode)
+    {
+        ReturnErrorOnFailure(Utf8ToWide(hostname, mHostname));
+
+        mSecurityMode = securityMode;
+        mSession      = WinHttpOpen(L"Matter chip-tool", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                                    WINHTTP_NO_PROXY_BYPASS, 0);
+        VerifyOrReturnError(mSession != nullptr, CHIP_ERROR_WINDOWS(GetLastError()));
+
+        mConnection = WinHttpConnect(mSession, mHostname.c_str(), port, 0);
+        VerifyOrReturnError(mConnection != nullptr, CHIP_ERROR_WINDOWS(GetLastError()));
+        return CHIP_NO_ERROR;
+    }
+
+    CHIP_ERROR SendRequest(std::string & request)
+    {
+        constexpr char kGetPrefix[] = "GET ";
+        size_t pathStart             = strlen(kGetPrefix);
+        size_t pathEnd               = request.find(' ', pathStart);
+        VerifyOrReturnError(request.compare(0, pathStart, kGetPrefix) == 0 && pathEnd != std::string::npos,
+                            CHIP_ERROR_INVALID_ARGUMENT);
+
+        std::wstring path;
+        ReturnErrorOnFailure(Utf8ToWide(request.substr(pathStart, pathEnd - pathStart), path));
+
+        DWORD flags = mSecurityMode == HttpsSecurityMode::kDisableHttps ? 0 : WINHTTP_FLAG_SECURE;
+        mRequest    = WinHttpOpenRequest(mConnection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                         WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        VerifyOrReturnError(mRequest != nullptr, CHIP_ERROR_WINDOWS(GetLastError()));
+
+        if (mSecurityMode == HttpsSecurityMode::kDisableValidation)
+        {
+            DWORD securityFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                SECURITY_FLAG_IGNORE_CERT_CN_INVALID | SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+            VerifyOrReturnError(WinHttpSetOption(mRequest, WINHTTP_OPTION_SECURITY_FLAGS, &securityFlags, sizeof(securityFlags)),
+                                CHIP_ERROR_WINDOWS(GetLastError()));
+        }
+
+        VerifyOrReturnError(WinHttpSendRequest(mRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0),
+                            CHIP_ERROR_WINDOWS(GetLastError()));
+        VerifyOrReturnError(WinHttpReceiveResponse(mRequest, nullptr), CHIP_ERROR_WINDOWS(GetLastError()));
+        return CHIP_NO_ERROR;
+    }
+
+    CHIP_ERROR ReceiveResponse(std::string & response)
+    {
+        // Keep the response contract shared with the socket implementation:
+        // RemoveHeader() below expects a header delimiter before the body.
+        response = "\r\n\r\n";
+
+        while (true)
+        {
+            DWORD available = 0;
+            VerifyOrReturnError(WinHttpQueryDataAvailable(mRequest, &available), CHIP_ERROR_WINDOWS(GetLastError()));
+            if (available == 0)
+            {
+                return CHIP_NO_ERROR;
+            }
+
+            size_t offset = response.size();
+            response.resize(offset + available);
+
+            DWORD bytesRead = 0;
+            VerifyOrReturnError(WinHttpReadData(mRequest, response.data() + offset, available, &bytesRead),
+                                CHIP_ERROR_WINDOWS(GetLastError()));
+            response.resize(offset + bytesRead);
+            if (bytesRead == 0)
+            {
+                return CHIP_NO_ERROR;
+            }
+        }
+    }
+
+private:
+    static CHIP_ERROR Utf8ToWide(const std::string & input, std::wstring & output)
+    {
+        VerifyOrReturnError(CanCastTo<int>(input.size()), CHIP_ERROR_INVALID_ARGUMENT);
+        int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.c_str(), static_cast<int>(input.size()), nullptr, 0);
+        VerifyOrReturnError(length > 0, CHIP_ERROR_WINDOWS(GetLastError()));
+
+        output.resize(static_cast<size_t>(length));
+        VerifyOrReturnError(MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.c_str(), static_cast<int>(input.size()),
+                                                output.data(), length) == length,
+                            CHIP_ERROR_WINDOWS(GetLastError()));
+        return CHIP_NO_ERROR;
+    }
+
+    HINTERNET mSession    = nullptr;
+    HINTERNET mConnection = nullptr;
+    HINTERNET mRequest    = nullptr;
+    HttpsSecurityMode mSecurityMode;
+    std::wstring mHostname;
+};
+#elif !defined(USE_CHIP_CRYPTO)
 /**
  * @brief Stub implementation of HTTPSSessionHolder when neither OpenSSL nor BoringSSL is enabled.
  *
@@ -89,7 +209,7 @@ private:
         return CHIP_ERROR_NOT_IMPLEMENTED;
     }
 };
-#else // USE_CHIP_CRYPTO
+#else  // USE_CHIP_CRYPTO
 constexpr uint16_t kResponseBufferSize           = 4096;
 constexpr const char * kErrorSendHTTPRequest     = "Failed to send HTTP request";
 constexpr const char * kErrorReceiveHTTPResponse = "Failed to read HTTP response";
@@ -97,7 +217,6 @@ constexpr const char * kErrorConnection          = "Failed to connect to: ";
 constexpr const char * kErrorSSLContextCreate    = "Failed to create SSL context";
 constexpr const char * kErrorSSLObjectCreate     = "Failed to create SSL object";
 constexpr const char * kErrorSSLHandshake        = "SSL handshake failed";
-constexpr const char * kErrorDigestMismatch      = "The response digest does not match the expected digest";
 class AddressInfoHolder
 {
 public:
@@ -240,7 +359,7 @@ private:
     SSL * mSSL         = nullptr;
     int mSock          = -1;
 };
-#endif // USE_CHIP_CRYPTO
+#endif // defined(_WIN32) && defined(CONFIG_ENABLE_HTTPS_REQUESTS)
 
 std::string BuildRequest(std::string & hostname, std::string & path)
 {

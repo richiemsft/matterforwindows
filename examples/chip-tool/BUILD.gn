@@ -132,6 +132,10 @@ static_library("chip-tool-utils") {
     deps += [ "${boringssl_root}:boringssl_with_ssl_sources" ]
   }
 
+  if (config_enable_https_requests && current_os == "win") {
+    libs = [ "Winhttp.lib" ]
+  }
+
   public_deps = [
     "${chip_root}/examples/common/tracing:commandline",
     "${chip_root}/src/app/icd/client:handler",

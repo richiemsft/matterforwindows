@@ -96,8 +96,9 @@ The initial build foundation provides:
     bulb completed PASE, credential installation, CASE, and
     CommissioningComplete; a new process restored the same fabric and read the
     bulb's OnOff attribute over CASE. The same executable cross-builds and
-    inspects as `AA64` for ARM64. The interactive websocket server, YAML tests,
-    and HTTPS/DCL requests remain disabled in the initial Windows configuration.
+    inspects as `AA64` for ARM64. HTTPS/DCL requests use WinHTTP and are
+    validated against the production DCL. The interactive websocket server and
+    its dependent YAML test runner remain unavailable.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -861,12 +862,13 @@ The Windows configuration supports the local interactive shell without the
 Unix-only editline dependency. It uses the native console's line input and
 stores entered commands in `chip_tool_history`. The interactive websocket
 server remains unavailable because its libwebsockets GN integration is
-Unix-specific. YAML and HTTPS/DCL features also remain optional and disabled in
-this configuration:
+Unix-specific. The external YAML runner depends on that websocket mode.
+HTTPS/DCL requests use WinHTTP, including Windows certificate and hostname
+validation:
 
 ```powershell
 . .\scripts\setup\windows.ps1 -Architecture x64
-gn gen out\win-chip-tool-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_build_chip_tool=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=true chip_caller_handles_critical_failure=true config_use_interactive_mode=true config_enable_yaml_tests=false config_enable_https_requests=false'
+gn gen out\win-chip-tool-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_build_chip_tool=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=true chip_caller_handles_critical_failure=true config_use_interactive_mode=true config_enable_yaml_tests=false config_enable_https_requests=true'
 ninja -C out\win-chip-tool-x64 chip-tool
 .\out\win-chip-tool-x64\chip-tool.exe
 .\out\win-chip-tool-x64\chip-tool.exe pairing
@@ -884,6 +886,14 @@ stored in the same directory when one is supplied, or under `TMPDIR`, `%TEMP%`,
 or the current directory in that order. Configuration replacement writes use
 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` so updates
 work across process restarts on Windows.
+
+The HTTPS path was validated against the production DCL:
+
+```powershell
+.\out\win-chip-tool-x64\chip-tool.exe dcl model 1 257
+```
+
+The successful response included product name and label `CS/CU-HU18ZKY`.
 
 An x64 hardware run commissioned a Tapo Matter bulb as node 15 using on-network
 DNS-SD discovery and a manual setup code. The bulb's advertised link-local IPv6
@@ -1788,7 +1798,7 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL | Native application, local interactive shell, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; interactive websocket-server mode, YAML tests, and HTTPS/DCL remain | Phases 3–5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL, WinHTTP | Native application, local interactive shell, HTTPS/DCL requests, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; interactive websocket-server mode and its dependent YAML runner remain | Phases 3–5 |
 | Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` | Interaction Model, clusters, app server, generated data model | Native lifecycle, storage, DNS-SD, network, and BLE are wired; POSIX named-pipe test-event transport remains | Phases 3, 5, and 6 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
