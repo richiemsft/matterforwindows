@@ -509,7 +509,7 @@ void PrintUsage(const char * executable)
     std::fprintf(stderr, "  %s on <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
     std::fprintf(stderr, "  %s off <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
     std::fprintf(stderr, "  %s read-onoff <node-id> <endpoint-id> [timeout-seconds: 1-600]\n", executable);
-    std::fprintf(stderr, "  %s subscribe-onoff <node-id> <endpoint-id> [duration-seconds: 1-600]\n", executable);
+    std::fprintf(stderr, "  %s subscribe-onoff <node-id> <endpoint-id> [report-timeout-seconds: 1-600]\n", executable);
     std::fprintf(stderr, "  %s remove-fabric <node-id> [timeout-seconds: 1-600]\n", executable);
 }
 
@@ -619,36 +619,75 @@ int RunController(Mode mode, NodeId nodeId, EndpointId endpointId, const char * 
         }
         else
         {
-            std::unique_lock<std::mutex> lock(subscription.mutex);
-            const bool started = subscription.condition.wait_for(
-                lock, std::chrono::seconds(kDefaultTimeoutSeconds),
-                [&subscription]() { return subscription.failed || (subscription.established && subscription.reportCount > 0); });
-            if (!started)
             {
-                std::fprintf(stderr, "OnOff subscription establishment timed out.\n");
-                exitCode = 2;
-            }
-            else if (subscription.failed)
-            {
-                std::fprintf(stderr, "OnOff subscription failed: %" CHIP_ERROR_FORMAT "\n", subscription.error.Format());
-                exitCode = 1;
-            }
-            else
-            {
-                std::printf("Monitoring OnOff reports for %u seconds...\n", timeoutSeconds);
-                (void) subscription.condition.wait_for(lock, std::chrono::seconds(timeoutSeconds),
-                                                       [&subscription]() { return subscription.failed; });
-                if (subscription.failed)
+                std::unique_lock<std::mutex> lock(subscription.mutex);
+                const bool started = subscription.condition.wait_for(
+                    lock, std::chrono::seconds(kDefaultTimeoutSeconds),
+                    [&subscription]() { return subscription.failed || (subscription.established && subscription.reportCount > 0); });
+                if (!started)
+                {
+                    std::fprintf(stderr, "OnOff subscription establishment timed out.\n");
+                    exitCode = 2;
+                }
+                else if (subscription.failed)
                 {
                     std::fprintf(stderr, "OnOff subscription failed: %" CHIP_ERROR_FORMAT "\n", subscription.error.Format());
                     exitCode = 1;
                 }
-                else if (!subscription.established || !subscription.valueChanged)
+                else
                 {
-                    std::fprintf(stderr,
-                                 "OnOff subscription did not deliver a value transition; toggle the bulb during "
-                                 "the monitoring window.\n");
+                    onOffOperation.mode = subscription.lastValue ? Mode::kOff : Mode::kOn;
+                    std::printf("Sending %s to trigger a subscription report...\n",
+                                onOffOperation.mode == Mode::kOn ? "On" : "Off");
+                }
+            }
+
+            if (exitCode == 0)
+            {
+                PlatformMgr().LockChipStack();
+                error =
+                    state.commissioner.GetConnectedDevice(nodeId, &onOffOperation.onConnected, &onOffOperation.onConnectionFailure);
+                PlatformMgr().UnlockChipStack();
+                if (error != CHIP_NO_ERROR)
+                {
+                    std::fprintf(stderr, "Unable to start subscription test command: %" CHIP_ERROR_FORMAT "\n", error.Format());
+                    exitCode = 1;
+                }
+            }
+
+            if (exitCode == 0)
+            {
+                std::unique_lock<std::mutex> lock(onOffOperation.mutex);
+                if (!onOffOperation.condition.wait_for(lock, std::chrono::seconds(kDefaultTimeoutSeconds),
+                                                       [&onOffOperation]() { return onOffOperation.complete; }))
+                {
+                    std::fprintf(stderr, "Subscription test command timed out.\n");
                     exitCode = 2;
+                }
+                else if (onOffOperation.error != CHIP_NO_ERROR)
+                {
+                    std::fprintf(stderr, "Subscription test command failed: %" CHIP_ERROR_FORMAT "\n",
+                                 onOffOperation.error.Format());
+                    exitCode = 1;
+                }
+            }
+
+            if (exitCode == 0)
+            {
+                std::printf("Waiting up to %u seconds for the resulting OnOff report...\n", timeoutSeconds);
+                std::unique_lock<std::mutex> lock(subscription.mutex);
+                const bool reported = subscription.condition.wait_for(
+                    lock, std::chrono::seconds(timeoutSeconds),
+                    [&subscription]() { return subscription.failed || subscription.valueChanged; });
+                if (!reported)
+                {
+                    std::fprintf(stderr, "OnOff subscription did not report the commanded value transition.\n");
+                    exitCode = 2;
+                }
+                else if (subscription.failed)
+                {
+                    std::fprintf(stderr, "OnOff subscription failed: %" CHIP_ERROR_FORMAT "\n", subscription.error.Format());
+                    exitCode = 1;
                 }
             }
         }

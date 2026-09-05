@@ -1430,10 +1430,12 @@ final line after the verbose Matter protocol and shutdown logs. Successful
 pairing and OnOff commands print `SUCCEEDED`; a successful attribute read
 prints `=== ON/OFF ATTRIBUTE: ON ===` or `OFF`; and failures include the
 process exit code. The subscription command allows up to 120 seconds for CASE
-and subscription establishment, then prints reports for the requested
-monitoring duration. Toggle the bulb during that window: success requires the
-initial value plus at least one reported OnOff value transition, and the final
-line includes the report and interruption counts.
+and subscription establishment, records the initial value, automatically sends
+the opposite OnOff command, and waits for the requested number of seconds for
+the resulting pushed value report. Success therefore proves subscription
+delivery without requiring a second process or a manual toggle. The final line
+includes the report and interruption counts; the bulb remains in the newly
+commanded state.
 
 After all operational tests are complete, remove this controller's fabric from
 the accessory:
