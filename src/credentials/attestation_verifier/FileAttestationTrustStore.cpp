@@ -21,9 +21,13 @@
 #include <cstring>
 #include <string>
 
+#ifdef _WIN32
+#include <filesystem>
+#else
 extern "C" {
 #include <dirent.h>
 }
+#endif
 
 namespace chip {
 namespace Credentials {
@@ -37,6 +41,59 @@ const char * GetFilenameExtension(const char * filename)
         return "";
     }
     return dot + 1;
+}
+
+void AddValidCertificate(const std::string & filename, CertificateValidationMode validationMode,
+                         std::vector<std::vector<uint8_t>> & certs)
+{
+    std::vector<uint8_t> certificate(kMaxDERCertLength + 1);
+    FILE * file = fopen(filename.c_str(), "rb");
+    if (file == nullptr)
+    {
+        return;
+    }
+
+    size_t certificateLength = fread(certificate.data(), sizeof(uint8_t), certificate.size(), file);
+    fclose(file);
+    if ((certificateLength == 0) || (certificateLength > kMaxDERCertLength))
+    {
+        return;
+    }
+
+    certificate.resize(certificateLength);
+    ByteSpan certSpan{ certificate.data(), certificate.size() };
+
+    bool isValid = false;
+    switch (validationMode)
+    {
+    case CertificateValidationMode::kPAA: {
+        if (CHIP_NO_ERROR != VerifyAttestationCertificateFormat(certSpan, Crypto::AttestationCertType::kPAA))
+        {
+            break;
+        }
+
+        uint8_t kidBuf[Crypto::kSubjectKeyIdentifierLength] = { 0 };
+        MutableByteSpan kidSpan{ kidBuf };
+        if (CHIP_NO_ERROR == Crypto::ExtractSKIDFromX509Cert(certSpan, kidSpan))
+        {
+            isValid = true;
+        }
+        break;
+    }
+    case CertificateValidationMode::kPublicKeyOnly: {
+        Crypto::P256PublicKey publicKey;
+        if (CHIP_NO_ERROR == Crypto::ExtractPubkeyFromX509Cert(certSpan, publicKey))
+        {
+            isValid = true;
+        }
+        break;
+    }
+    }
+
+    if (isValid)
+    {
+        certs.push_back(std::move(certificate));
+    }
 }
 } // namespace
 
@@ -61,9 +118,21 @@ std::vector<std::vector<uint8_t>> LoadAllX509DerCerts(const char * trustStorePat
         return certs;
     }
 
-    DIR * dir;
-
-    dir = opendir(trustStorePath);
+#ifdef _WIN32
+    std::error_code error;
+    std::filesystem::directory_iterator entry(trustStorePath, error);
+    const std::filesystem::directory_iterator end;
+    while (!error && entry != end)
+    {
+        const std::string filename = entry->path().filename().string();
+        if (strcmp(GetFilenameExtension(filename.c_str()), "der") == 0)
+        {
+            AddValidCertificate(entry->path().string(), validationMode, certs);
+        }
+        entry.increment(error);
+    }
+#else
+    DIR * dir = opendir(trustStorePath);
     if (dir != nullptr)
     {
         // Nested directories are not handled.
@@ -71,64 +140,16 @@ std::vector<std::vector<uint8_t>> LoadAllX509DerCerts(const char * trustStorePat
         while ((entry = readdir(dir)) != nullptr)
         {
             const char * fileExtension = GetFilenameExtension(entry->d_name);
-            if (strncmp(fileExtension, "der", strlen("der")) == 0)
+            if (strcmp(fileExtension, "der") == 0)
             {
-                std::vector<uint8_t> certificate(kMaxDERCertLength + 1);
                 std::string filename(trustStorePath);
-
                 filename += std::string("/") + std::string(entry->d_name);
-
-                FILE * file = fopen(filename.c_str(), "rb");
-                if (file == nullptr)
-                {
-                    // On bad files, just skip.
-                    continue;
-                }
-
-                size_t certificateLength = fread(certificate.data(), sizeof(uint8_t), certificate.size(), file);
-                if ((certificateLength > 0) && (certificateLength <= kMaxDERCertLength))
-                {
-                    certificate.resize(certificateLength);
-                    ByteSpan certSpan{ certificate.data(), certificate.size() };
-
-                    // Only accumulate certificate if it passes validation.
-                    bool isValid = false;
-                    switch (validationMode)
-                    {
-                    case CertificateValidationMode::kPAA: {
-                        if (CHIP_NO_ERROR != VerifyAttestationCertificateFormat(certSpan, Crypto::AttestationCertType::kPAA))
-                        {
-                            break;
-                        }
-
-                        uint8_t kidBuf[Crypto::kSubjectKeyIdentifierLength] = { 0 };
-                        MutableByteSpan kidSpan{ kidBuf };
-                        if (CHIP_NO_ERROR == Crypto::ExtractSKIDFromX509Cert(certSpan, kidSpan))
-                        {
-                            isValid = true;
-                        }
-                        break;
-                    }
-                    case CertificateValidationMode::kPublicKeyOnly: {
-                        Crypto::P256PublicKey publicKey;
-                        if (CHIP_NO_ERROR == Crypto::ExtractPubkeyFromX509Cert(certSpan, publicKey))
-                        {
-                            isValid = true;
-                        }
-                        break;
-                    }
-                    }
-
-                    if (isValid)
-                    {
-                        certs.push_back(certificate);
-                    }
-                }
-                fclose(file);
+                AddValidCertificate(filename, validationMode, certs);
             }
         }
         closedir(dir);
     }
+#endif
 
     return certs;
 }

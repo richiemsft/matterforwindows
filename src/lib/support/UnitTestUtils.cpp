@@ -22,6 +22,9 @@
 #if CHIP_DEVICE_LAYER_TARGET_EFR32 || CHIP_DEVICE_LAYER_TARGET_AMEBA
 #include <FreeRTOS.h>
 #include <task.h>
+#elif defined(_WIN32)
+#include <chrono>
+#include <thread>
 #else
 #include <time.h>
 #include <unistd.h>
@@ -59,6 +62,24 @@ void SleepMicros(uint64_t microsecs)
 {
     // FreeRTOS currently only sleep for intervals of 1ms
     SleepMillis((microsecs + 500) / 1000);
+}
+
+#elif defined(_WIN32)
+
+void SleepMicros(uint64_t microsecs)
+{
+    std::this_thread::sleep_for(std::chrono::microseconds{ static_cast<std::chrono::microseconds::rep>(microsecs) });
+}
+
+void SleepMillis(uint64_t millisecs)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds{ static_cast<std::chrono::milliseconds::rep>(millisecs) });
+}
+
+uint64_t TimeMonotonicMillis()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
 #else

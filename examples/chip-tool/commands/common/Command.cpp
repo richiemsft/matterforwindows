@@ -22,11 +22,16 @@
 #include "platform/PlatformManager.h"
 
 #include <functional>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <netdb.h>
-#include <sstream>
-#include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
+#endif
+#include <sstream>
+#include <string>
 
 #include <math.h> // For INFINITY
 
@@ -42,6 +47,15 @@
 constexpr char kOptionalArgumentPrefix[]       = "--";
 constexpr size_t kOptionalArgumentPrefixLength = 2;
 char kOptionalArgumentNullableDefault[]        = "null";
+
+static int CaseInsensitiveCompare(const char * first, const char * second)
+{
+#ifdef _WIN32
+    return _stricmp(first, second);
+#else
+    return strcasecmp(first, second);
+#endif
+}
 
 bool Command::InitArguments(int argc, char ** argv)
 {
@@ -175,7 +189,7 @@ static bool ParseAddressWithInterface(const char * addressString, Command::Addre
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
     ret               = getaddrinfo(addressString, nullptr, &hints, &result);
-    if (ret < 0)
+    if (ret != 0 || result == nullptr)
     {
         ChipLogError(chipTool, "Invalid address: %s", addressString);
         return false;
@@ -197,9 +211,11 @@ static bool ParseAddressWithInterface(const char * addressString, Command::Addre
     else
     {
         ChipLogError(chipTool, "Unsupported address: %s", addressString);
+        freeaddrinfo(result);
         return false;
     }
 
+    freeaddrinfo(result);
     return true;
 }
 
@@ -316,11 +332,11 @@ bool Command::InitArgument(size_t argIndex, char * argValue)
             std::string valueAsString;
             getline(ss, valueAsString, ',');
 
-            if (strcasecmp(valueAsString.c_str(), "true") == 0)
+            if (CaseInsensitiveCompare(valueAsString.c_str(), "true") == 0)
             {
                 vectorArgument.push_back(true);
             }
-            else if (strcasecmp(valueAsString.c_str(), "false") == 0)
+            else if (CaseInsensitiveCompare(valueAsString.c_str(), "false") == 0)
             {
                 vectorArgument.push_back(false);
             }
@@ -439,13 +455,13 @@ bool Command::InitArgument(size_t argIndex, char * argValue)
     case ArgumentType::Bool: {
         isValidArgument = HandleNullableOptional<bool>(arg, argValue, [&](auto * value) {
             // Start with checking for actual boolean values.
-            if (strcasecmp(argValue, "true") == 0)
+            if (CaseInsensitiveCompare(argValue, "true") == 0)
             {
                 *value = true;
                 return true;
             }
 
-            if (strcasecmp(argValue, "false") == 0)
+            if (CaseInsensitiveCompare(argValue, "false") == 0)
             {
                 *value = false;
                 return true;

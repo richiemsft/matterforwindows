@@ -26,6 +26,10 @@
 #include <memory>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 using String   = std::basic_string<char>;
 using Section  = std::map<String, String>;
 using Sections = std::map<String, Section>;
@@ -41,6 +45,15 @@ constexpr char kLocalNodeIdKey[]           = "LocalNodeId";
 constexpr char kCommissionerCATsKey[]      = "CommissionerCATs";
 constexpr LogCategory kDefaultLoggingLevel = kLogCategory_Automation;
 
+static int CaseInsensitiveCompare(const char * first, const char * second)
+{
+#ifdef _WIN32
+    return _stricmp(first, second);
+#else
+    return strcasecmp(first, second);
+#endif
+}
+
 std::string GetUsedDirectory(const std::string & directory)
 {
     // Explicit directory given: use as-is.
@@ -55,8 +68,17 @@ std::string GetUsedDirectory(const std::string & directory)
         return dir;
     }
 
+#ifdef _WIN32
+    if (const char * dir = getenv("TEMP"); dir != nullptr)
+    {
+        return dir;
+    }
+
+    return ".";
+#else
     // Worst-case: just /tmp (legacy behavior from long ago).
     return "/tmp";
+#endif
 }
 
 std::string PersistentStorage::GenerateStoragePath(const std::string & name) const
@@ -213,7 +235,12 @@ CHIP_ERROR PersistentStorage::CommitConfig()
     ofs.close();
     VerifyOrExit(ofs.good(), err = CHIP_ERROR_WRITE_FAILED);
 
+#ifdef _WIN32
+    VerifyOrExit(MoveFileExA(tmpPath.c_str(), mStorageFilePath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH),
+                 err = CHIP_ERROR_WRITE_FAILED);
+#else
     VerifyOrExit(rename(tmpPath.c_str(), mStorageFilePath.c_str()) == 0, err = CHIP_ERROR_WRITE_FAILED);
+#endif
 
 exit:
     return err;
@@ -253,23 +280,23 @@ LogCategory PersistentStorage::GetLoggingLevel()
     err           = SyncGetKeyValue(kLoggingKey, value, size);
     if (CHIP_NO_ERROR == err)
     {
-        if (strcasecmp(value, "none") == 0)
+        if (CaseInsensitiveCompare(value, "none") == 0)
         {
             chipLogLevel = kLogCategory_None;
         }
-        else if (strcasecmp(value, "error") == 0)
+        else if (CaseInsensitiveCompare(value, "error") == 0)
         {
             chipLogLevel = kLogCategory_Error;
         }
-        else if (strcasecmp(value, "progress") == 0)
+        else if (CaseInsensitiveCompare(value, "progress") == 0)
         {
             chipLogLevel = kLogCategory_Progress;
         }
-        else if (strcasecmp(value, "detail") == 0)
+        else if (CaseInsensitiveCompare(value, "detail") == 0)
         {
             chipLogLevel = kLogCategory_Detail;
         }
-        else if (strcasecmp(value, "automation") == 0)
+        else if (CaseInsensitiveCompare(value, "automation") == 0)
         {
             chipLogLevel = kLogCategory_Automation;
         }

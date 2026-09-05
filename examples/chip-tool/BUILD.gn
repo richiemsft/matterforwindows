@@ -51,7 +51,11 @@ config("config") {
     defines += [ "CONFIG_ENABLE_HTTPS_REQUESTS" ]
   }
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  } else {
+    cflags = [ "/bigobj" ]
+  }
 }
 
 static_library("chip-tool-utils") {

@@ -31,7 +31,14 @@ class ExampleCredentialIssuerCommands : public CredentialIssuerCommands
 public:
     CHIP_ERROR InitializeCredentialsIssuer(chip::PersistentStorageDelegate & storage) override
     {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
         return mOpCredsIssuer.Initialize(storage);
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     }
     CHIP_ERROR SetupDeviceAttestation(chip::Controller::SetupParams & setupParams,
                                       const chip::Credentials::AttestationTrustStore * trustStore,

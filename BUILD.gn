@@ -17,6 +17,7 @@ import("//build_overrides/chip.gni")
 import("//build_overrides/mbedtls.gni")
 import("//build_overrides/pigweed.gni")
 
+import("//build/chip/tools.gni")
 import("//src/lwip/lwip.gni")
 import("//src/platform/device.gni")
 import("$dir_pw_build/python.gni")
@@ -55,6 +56,11 @@ if (chip_build_windows_bootstrap_only) {
     # the standard PlatformManager lifecycle and cross-thread work posting; it
     # does not pull the full Device Layer manager closure.
     chip_windows_device_layer_probe = false
+
+    # Build the existing generated chip-tool CLI against the native Windows
+    # Device Layer. This remains opt-in while the remaining POSIX assumptions
+    # in the application layer are removed.
+    chip_windows_build_chip_tool = false
   }
 
   # The canonical //src/system, //src/inet and //src/lib/asn1 BUILD files (and
@@ -161,6 +167,12 @@ if (chip_build_windows_bootstrap_only) {
         "//src/platform/Windows:windows-platform-manager",
         "//src/platform/Windows:windows-platform-manager-canonical",
       ]
+    }
+
+    if (chip_windows_build_chip_tool) {
+      assert(chip_build_tools,
+             "chip_windows_build_chip_tool requires chip_build_tools=true")
+      deps += [ "//examples/chip-tool" ]
     }
   }
 } else {

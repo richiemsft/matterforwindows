@@ -63,7 +63,9 @@ source_set("commandline") {
     ]
   }
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }
 
 source_set("trace_handlers") {
@@ -73,7 +75,9 @@ source_set("trace_handlers") {
 
   public_configs = [ ":default_config" ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }
 
 source_set("trace_handlers_decoder") {
@@ -100,7 +104,9 @@ source_set("trace_handlers_decoder") {
   ]
   public_deps = [ "${chip_root}/third_party/jsoncpp" ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }
 
 executable("chip-trace-decoder") {
@@ -130,5 +136,7 @@ executable("chip-trace-decoder") {
     "${chip_root}/third_party/jsoncpp",
   ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }

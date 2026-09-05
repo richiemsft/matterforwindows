@@ -126,7 +126,13 @@ constexpr const EventId generatedEvents[] = GENERATED_EVENTS;
 #define ZAP_GENERATED_EVENTS_INDEX(index) (&generatedEvents[index])
 #endif // GENERATED_EVENTS
 
+#if GENERATED_ATTRIBUTE_COUNT > 0
 [[maybe_unused]] constexpr const EmberAfAttributeMetadata generatedAttributes[] = GENERATED_ATTRIBUTES;
+#else
+[[maybe_unused]] constexpr const EmberAfAttributeMetadata generatedAttributes[] = {
+    { EmberAfDefaultOrMinMaxAttributeValue(static_cast<uint32_t>(0)), 0, 0, 0, 0 },
+};
+#endif
 #define ZAP_ATTRIBUTE_INDEX(index) (&generatedAttributes[index])
 
 #ifdef GENERATED_CLUSTERS
@@ -139,7 +145,7 @@ constexpr const EmberAfEndpointType generatedEmberAfEndpointTypes[] = GENERATED_
 constexpr const EmberAfDeviceType fixedDeviceTypeList[]             = FIXED_DEVICE_TYPES;
 
 // Not const, because these need to mutate.
-DataVersion fixedEndpointDataVersions[ZAP_FIXED_ENDPOINT_DATA_VERSION_COUNT];
+DataVersion fixedEndpointDataVersions[(ZAP_FIXED_ENDPOINT_DATA_VERSION_COUNT > 0) ? ZAP_FIXED_ENDPOINT_DATA_VERSION_COUNT : 1];
 #endif // FIXED_ENDPOINT_COUNT > 0
 
 bool emberAfIsThisDataTypeAListType(EmberAfAttributeType dataType)

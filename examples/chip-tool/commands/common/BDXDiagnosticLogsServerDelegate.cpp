@@ -20,11 +20,22 @@
 #include <lib/support/StringBuilder.h>
 
 #include <string>
+#ifdef _WIN32
+#include <filesystem>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
+#ifndef _WIN32
 constexpr const char kTmpDir[]          = "/tmp/";
+#endif
 constexpr uint8_t kMaxFileDesignatorLen = 32;
+#ifdef _WIN32
+constexpr uint16_t kMaxFilePathLen = 260;
+#else
 constexpr uint16_t kMaxFilePathLen      = kMaxFileDesignatorLen + sizeof(kTmpDir) + 1;
+#endif
 
 // For testing a few file names trigger an error depending on the current 'phase'.
 constexpr char kErrorOnTransferBegin[]            = "Error:OnTransferBegin";
@@ -60,19 +71,34 @@ CHIP_ERROR CheckFileDesignatorAllowed(const std::map<chip::app::CommandSender *,
 CHIP_ERROR GetFilePath(const chip::CharSpan & fileDesignator, chip::MutableCharSpan & outFilePath)
 {
     VerifyOrReturnError(fileDesignator.size() <= kMaxFileDesignatorLen, CHIP_ERROR_INVALID_STRING_LENGTH);
+#ifdef _WIN32
+    std::error_code error;
+    std::filesystem::path filePath = std::filesystem::temp_directory_path(error);
+    VerifyOrReturnError(!error, CHIP_ERROR_INTERNAL);
+    filePath /= std::string(fileDesignator.data(), fileDesignator.size());
+    const std::string path = filePath.string();
+    VerifyOrReturnError(outFilePath.size() >= path.size(), CHIP_ERROR_INTERNAL);
+    memcpy(outFilePath.data(), path.data(), path.size());
+    outFilePath.reduce_size(path.size());
+#else
     // sizeof(kTmpDir) includes the trailing null.
     VerifyOrReturnError(outFilePath.size() >= sizeof(kTmpDir) - 1 + fileDesignator.size(), CHIP_ERROR_INTERNAL);
 
     memcpy(outFilePath.data(), kTmpDir, sizeof(kTmpDir) - 1);
     memcpy(outFilePath.data() + sizeof(kTmpDir) - 1, fileDesignator.data(), fileDesignator.size());
     outFilePath.reduce_size(sizeof(kTmpDir) - 1 + fileDesignator.size());
+#endif
 
     return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR CheckFileExists(const char * filePath)
 {
+#ifdef _WIN32
+    if (_access(filePath, 0) != 0)
+#else
     if (access(filePath, F_OK) != 0)
+#endif
     {
         ChipLogError(chipTool, "The file '%s' for dumping the logs does not exist.", filePath);
         return CHIP_ERROR_INCORRECT_STATE;
@@ -83,7 +109,11 @@ CHIP_ERROR CheckFileExists(const char * filePath)
 
 CHIP_ERROR CheckFileDoesNotExist(const char * filePath)
 {
+#ifdef _WIN32
+    if (_access(filePath, 0) == 0)
+#else
     if (access(filePath, F_OK) == 0)
+#endif
     {
         ChipLogError(chipTool, "The file '%s' for dumping the logs already exists.", filePath);
         return CHIP_ERROR_INCORRECT_STATE;
@@ -110,7 +140,7 @@ CHIP_ERROR CreateFile(const char * filePath)
 {
     VerifyOrReturnError(nullptr != filePath, CHIP_ERROR_INVALID_ARGUMENT);
 
-    auto fd = fopen(filePath, "w+");
+    auto fd = fopen(filePath, "wb+");
     VerifyOrReturnError(nullptr != fd, CHIP_ERROR_WRITE_FAILED);
 
     auto rv = fclose(fd);
@@ -123,13 +153,14 @@ CHIP_ERROR AppendToFile(const char * filePath, const chip::ByteSpan & data)
 {
     VerifyOrReturnError(nullptr != filePath, CHIP_ERROR_INVALID_ARGUMENT);
 
-    auto fd = fopen(filePath, "a");
+    auto fd = fopen(filePath, "ab");
     VerifyOrReturnError(nullptr != fd, CHIP_ERROR_WRITE_FAILED);
 
-    fwrite(data.data(), data.size(), 1, fd);
+    const size_t bytesWritten = fwrite(data.data(), sizeof(uint8_t), data.size(), fd);
 
     auto rv = fclose(fd);
     VerifyOrReturnError(EOF != rv, CHIP_ERROR_INTERNAL);
+    VerifyOrReturnError(bytesWritten == data.size(), CHIP_ERROR_WRITE_FAILED);
 
     return CHIP_NO_ERROR;
 }

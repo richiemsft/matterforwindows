@@ -23,7 +23,9 @@ static_library("interaction_model") {
     "InteractionModel.h",
   ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 
   public_deps = [
     "${chip_root}/src/app",

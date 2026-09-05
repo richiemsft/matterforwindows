@@ -41,5 +41,7 @@ static_library("jsontlv") {
     jsoncpp_root,
   ]
 
-  cflags = [ "-Wconversion" ]
+  if (current_os != "win") {
+    cflags = [ "-Wconversion" ]
+  }
 }

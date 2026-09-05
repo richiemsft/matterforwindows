@@ -35,6 +35,15 @@
 
 namespace {
 
+int CaseInsensitiveCompare(const char * first, const char * second)
+{
+#ifdef _WIN32
+    return _stricmp(first, second);
+#else
+    return strcasecmp(first, second);
+#endif
+}
+
 char kInteractiveModeName[]                         = "";
 constexpr size_t kInteractiveModeArgumentsMaxLength = 32;
 constexpr char kOptionalArgumentPrefix[]            = "--";
@@ -84,7 +93,7 @@ bool GetArgumentsFromJson(Command * command, Json::Value & value, bool optional,
         while (memberNamesIterator != memberNames.end())
         {
             auto memberName = *memberNamesIterator;
-            if (strcasecmp(argName, memberName.c_str()) != 0)
+            if (CaseInsensitiveCompare(argName, memberName.c_str()) != 0)
             {
                 memberNamesIterator++;
                 continue;
@@ -111,7 +120,7 @@ bool GetArgumentsFromJson(Command * command, Json::Value & value, bool optional,
     if (memberNames.size())
     {
         auto memberName = memberNames.front();
-        ChipLogError(chipTool, "The argument \"\%s\" is not supported.", memberName.c_str());
+        ChipLogError(chipTool, "The argument \"%s\" is not supported.", memberName.c_str());
         return false;
     }
 

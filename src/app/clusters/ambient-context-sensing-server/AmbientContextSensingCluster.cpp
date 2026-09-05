@@ -210,7 +210,7 @@ CHIP_ERROR AmbientContextSensingCluster::AddDetection(const AmbientContextSensin
     VerifyOrDie(mACSDelegate != nullptr);
 
     // If there have already been mSimultaneousDetectionLimit items in mAmbientContextTypeList => remove the oldest ones
-    AmbientContextSensed * item;
+    AmbientContextSensed * item = nullptr;
     if (mAmbientContextTypeListSize >= mSimultaneousDetectionLimit)
     {
         // One more space is required

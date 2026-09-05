@@ -49,10 +49,7 @@
 #include <inttypes.h>
 #include <iostream>
 #include <memory>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <string>
-#include <sys/socket.h>
 
 using namespace ::chip;
 using namespace ::chip::Controller;
