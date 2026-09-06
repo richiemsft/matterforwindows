@@ -35,14 +35,16 @@ drivers:
 graph TD
     A[Platform-Agnostic Core<br>`all-devices-common/`]
     B[POSIX Platform<br>`posix/`]
-    C[ESP32 Platform<br>`esp32/`]
-    D[SiLabs Platform<br>`silabs/`]
-    E[Telink Platform<br>`telink/`]
+    C[Windows Platform<br>`windows/`]
+    D[ESP32 Platform<br>`esp32/`]
+    E[SiLabs Platform<br>`silabs/`]
+    F[Telink Platform<br>`telink/`]
 
     B -->|Instantiates & Overrides| A
     C -->|Instantiates & Overrides| A
     D -->|Instantiates & Overrides| A
     E -->|Instantiates & Overrides| A
+    F -->|Instantiates & Overrides| A
 ```
 
 ### Platform-Agnostic Core (`all-devices-common/`)
@@ -58,7 +60,7 @@ compiles independently of the operating system or hardware drivers. It includes:
     `AllDevicesExampleDeviceInfoProviderImpl`) that supply node lifecycle
     information, storage interfaces, and descriptor details.
 
-### Platform-Specific Target Builds (`posix/`, `esp32/`, `silabs/`, `telink/`)
+### Platform-Specific Target Builds (`posix/`, `windows/`, `esp32/`, `silabs/`, `telink/`)
 
 These directories contain hardware-specific or OS-specific drivers, entrypoint
 `main()` functions, and build configurations.

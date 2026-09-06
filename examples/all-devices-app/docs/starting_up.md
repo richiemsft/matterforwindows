@@ -20,6 +20,31 @@ source scripts/activate.sh
 The compiled executable will be located at
 `./out/linux-x64-all-devices-clang/all-devices-app`.
 
+### Native Windows
+
+Initialize the native build environment and generate the opt-in Windows target:
+
+```powershell
+. .\scripts\setup\windows.ps1 -Architecture x64
+gn gen out\win-all-devices-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_build_all_devices_app=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=true chip_caller_handles_critical_failure=true'
+ninja -C out\win-all-devices-x64 all-devices-app
+```
+
+Run a dynamic two-endpoint topology:
+
+```powershell
+.\out\win-all-devices-x64\all-devices-app.exe `
+    --device on-off-light:1 `
+    --device occupancy-sensor:2 `
+    --storage-directory .\all-devices-state `
+    --run-seconds 300
+```
+
+The Windows entrypoint supports repeated `--device`, `--storage-directory`, and
+`--run-seconds` arguments. It uses the native Windows persistence, WinSock,
+DNS-SD, and BLE backends. POSIX `--app-pipe`, tracing, and audio overrides are
+not exposed by this entrypoint.
+
 ---
 
 ## Startup Architecture

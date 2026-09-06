@@ -61,6 +61,10 @@ if (chip_build_windows_bootstrap_only) {
     # Device Layer. This remains opt-in while the remaining POSIX assumptions
     # in the application layer are removed.
     chip_windows_build_chip_tool = false
+
+    # Build the dynamic code-driven all-devices simulator against the native
+    # Windows Device Layer.
+    chip_windows_build_all_devices_app = false
   }
 
   # The canonical //src/system, //src/inet and //src/lib/asn1 BUILD files (and
@@ -173,6 +177,10 @@ if (chip_build_windows_bootstrap_only) {
       assert(chip_build_tools,
              "chip_windows_build_chip_tool requires chip_build_tools=true")
       deps += [ "//examples/chip-tool" ]
+    }
+
+    if (chip_windows_build_all_devices_app) {
+      deps += [ "//examples/all-devices-app/windows:all-devices-app" ]
     }
   }
 } else {

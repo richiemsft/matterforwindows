@@ -24,6 +24,12 @@ source scripts/activate.sh
 Use `chip-tool` to commission the simulator and execute Interaction Model
 commands.
 
+On native Windows, build and launch the target as described in
+[Application Initialization & Command Line Options](starting_up.md#native-windows).
+The Windows process emits the same commissioning advertisement and can be
+driven by native `chip-tool.exe`; automated Python harness integration remains
+pending.
+
 ### Launch the Simulator (Terminal A)
 
 Clean up persistent storage and launch a multi-endpoint topology (e.g., an

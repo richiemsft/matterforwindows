@@ -89,6 +89,11 @@ The initial build foundation provides:
     delegates required by that model, publishes commissionable DNS-SD, opens
     PASE, and shuts down cleanly on x64. The same executable cross-builds as
     ARM64.
+-   A native dynamic `all-devices-app` executable using the code-driven data
+    model. Repeated `--device` arguments create runtime endpoint compositions;
+    an x64 lifecycle with on-off-light and occupancy-sensor endpoints publishes
+    commissionable DNS-SD, opens PASE, and shuts down cleanly. The same target
+    cross-builds for ARM64.
 -   The repository's existing generated `examples/chip-tool` application as a
     native Windows executable. The complete generated cluster, pairing,
     discovery, subscription, storage, session-management, and local interactive
@@ -1797,7 +1802,7 @@ does not hide missing runtime behavior behind stubs.
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
 | Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local and websocket interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; YAML transport is enabled but a complete suite against a DUT remains unvalidated | Platform and application |
-| Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles are implemented; POSIX named-pipe test-event transport remains | Platform and application |
+| Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles plus the dynamic code-driven all-devices simulator are implemented; POSIX named-pipe test-event transport remains | Platform and application |
 | Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
 
 The port must not cast a WinSock `SOCKET` to `int`. `SOCKET` is pointer-sized
@@ -2171,6 +2176,7 @@ are deliberate submodule bumps.
 | Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
+| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic on-off-light and occupancy-sensor endpoints initialize, publish DNS-SD, open PASE, and shut down cleanly | Supported | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through border router | Blocked by controller/IP work | Not yet supported | Blocked by controller/IP work | Not yet supported |
