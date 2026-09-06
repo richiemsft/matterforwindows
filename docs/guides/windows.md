@@ -97,8 +97,10 @@ The initial build foundation provides:
     CommissioningComplete; a new process restored the same fabric and read the
     bulb's OnOff attribute over CASE. The same executable cross-builds and
     inspects as `AA64` for ARM64. HTTPS/DCL requests use WinHTTP and are
-    validated against the production DCL. The interactive websocket server and
-    its dependent YAML test runner remain unavailable.
+    validated against the production DCL. The interactive websocket server
+    accepts commands and returns structured logs on x64. This enables the YAML
+    runner's transport, but a complete YAML suite against a DUT remains
+    unvalidated.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -858,27 +860,34 @@ ninja -C out\win-canonical-devlayer-x64
 The existing generated `//examples/chip-tool` target builds as a native Windows
 console application. It uses the same command model and controller stack as the
 other host platforms rather than a Windows-specific command implementation.
-The Windows configuration supports the local interactive shell without the
-Unix-only editline dependency. It uses the native console's line input and
-stores entered commands in `chip_tool_history`. The interactive websocket
-server remains unavailable because its libwebsockets GN integration is
-Unix-specific. The external YAML runner depends on that websocket mode.
+The Windows configuration supports both the local interactive shell without
+the Unix-only editline dependency and the interactive websocket server through
+libwebsockets' native Windows platform sources. The local shell uses the native
+console's line input and stores entered commands in `chip_tool_history`. The
+websocket transport needed by the external YAML runner is enabled, but a
+complete YAML suite against a DUT has not yet been validated on Windows.
 HTTPS/DCL requests use WinHTTP, including Windows certificate and hostname
 validation:
 
 ```powershell
 . .\scripts\setup\windows.ps1 -Architecture x64
-gn gen out\win-chip-tool-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_build_chip_tool=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=true chip_caller_handles_critical_failure=true config_use_interactive_mode=true config_enable_yaml_tests=false config_enable_https_requests=true'
+gn gen out\win-chip-tool-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="windows" chip_windows_canonical_compile_probes=true chip_windows_device_layer_probe=true chip_windows_build_chip_tool=true chip_windows_enable_cxx20=true chip_with_nlfaultinjection=false chip_build_tests=false chip_build_tools=true chip_caller_handles_critical_failure=true config_use_interactive_mode=true config_enable_yaml_tests=true config_enable_https_requests=true'
 ninja -C out\win-chip-tool-x64 chip-tool
 .\out\win-chip-tool-x64\chip-tool.exe
 .\out\win-chip-tool-x64\chip-tool.exe pairing
 .\out\win-chip-tool-x64\chip-tool.exe onoff
 .\out\win-chip-tool-x64\chip-tool.exe interactive start --storage-directory .\chip-tool-state
+.\out\win-chip-tool-x64\chip-tool.exe interactive server --port 9102
 ```
 
 The root command lists the complete generated cluster and command-set surface;
 the pairing, OnOff, and interactive command groups also initialize and display
 their command help. Enter `quit` or `quit()` to leave the interactive shell.
+The websocket server was validated with a Node.js client: sending
+`payload parse-setup-payload 23307702240` to `ws://127.0.0.1:9102` returned
+valid JSON containing nine log entries. In a separate run on port 9103,
+sending `quit` stopped chip-tool cleanly. These checks validate the YAML
+runner's command transport, not a complete YAML test suite or DUT interaction.
 Controller state uses the existing INI storage implementation under the Windows
 temporary directory by default. A missing directory supplied through
 `--storage-directory` is created automatically. Interactive command history is
@@ -1755,7 +1764,7 @@ macOS/Darwin is the functional baseline for the Windows desktop port:
 | Capability | macOS today | Windows target |
 |---|---|---|
 | Core Matter SDK | Supported | Planned |
-| Controller CLI | `chip-tool` and Darwin framework tool | Existing native `chip-tool` with local interactive mode |
+| Controller CLI | `chip-tool` and Darwin framework tool | Existing native `chip-tool` with local and websocket interactive modes |
 | Device/server examples | Broad host-example coverage | Native generated-model `all-clusters-app`; POSIX test-event transport remains |
 | Operational IP | IPv4/IPv6, UDP/TCP | WinSock IPv4/IPv6, UDP/TCP |
 | Service discovery | Apple DNS-SD | Windows DNS Service Discovery |
@@ -1782,7 +1791,7 @@ does not hide missing runtime behavior behind stubs.
 | Device Layer | Generic static-polymorphism mixins | Native `PlatformManager`, storage/configuration, OS-managed connectivity, diagnostics, DNS-SD, and C++/WinRT BLE are implemented; process restart after reset remains | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
-| Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; interactive websocket-server mode remains unavailable | Platform and application |
+| Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local and websocket interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; YAML transport is enabled but a complete suite against a DUT remains unvalidated | Platform and application |
 | Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles are implemented; POSIX named-pipe test-event transport remains | Platform and application |
 | Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
 
@@ -1798,7 +1807,7 @@ bootstrap graph as the finished SDK:
 | Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
 |---|---|---|---|---|
 | Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL, WinHTTP | Native application, local interactive shell, HTTPS/DCL requests, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; interactive websocket-server mode and its dependent YAML runner remain | Phases 3–5 |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL, WinHTTP, libwebsockets | Native application, local and websocket interactive modes, HTTPS/DCL requests, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; YAML command transport is enabled, while a complete suite against a DUT remains unvalidated | Phases 3–5 |
 | Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` | Interaction Model, clusters, app server, generated data model | Native lifecycle, storage, DNS-SD, network, and BLE are wired; POSIX named-pipe test-event transport remains | Phases 3, 5, and 6 |
 | Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
 
@@ -2154,7 +2163,7 @@ are deliberate submodule bumps.
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
-| Native generated `chip-tool` | Supported with local interactive mode | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass | Supported (`AA64`) | Cross-build only |
+| Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
@@ -2189,12 +2198,14 @@ are deliberate submodule bumps.
     C++/WinRT BLE central/peripheral backend also compiles on both architectures
     and passes its hardware-free x64 smoke. The generated `chip-tool` completes
     real on-network commissioning and restart-safe operational reads on x64;
-    interactive websocket-server mode and native ARM64 execution remain
-    incomplete. The full upstream
-    `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on x64 against
-    the canonical crypto library and a focused CHIPCert subset; 93 selected
-    upstream System/Inet tests and 40 host-neutral transport/Secure Channel
-    tests also pass. The monolithic `//src/credentials:credentials` library
+    its interactive websocket server accepts commands and cleanly handles
+    remote shutdown. The YAML runner's transport is enabled, but a complete
+    suite against a DUT and native ARM64 execution remain unvalidated. The full
+    upstream `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on
+    x64 against the canonical crypto library and a focused CHIPCert subset; 93
+    selected upstream System/Inet tests and 40 host-neutral transport/Secure
+    Channel tests also pass. The monolithic `//src/credentials:credentials`
+    library
     (`FabricTable`, `LastKnownGoodTime`, `GroupDataProvider`,
     `PersistentStorageOpCertStore`) now runs through persistent controller
     fabric creation and process-restart restoration. A real accessory has

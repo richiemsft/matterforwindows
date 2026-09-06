@@ -27,7 +27,9 @@
 #define LWS_ROLE_H1      // "Compile with support for http/1 (needed for ws)"  - default: ON
 #define LWS_ROLE_WS      // "Compile with support for websockets"  - default: ON
 #define LWS_WITH_IPV6    // "Compile with support for ipv6" - default: OFF
+#ifndef _WIN32
 #define LWS_UNIX_SOCK    // "Compile with support for UNIX domain socket if OS supports it"  - default: ON
+#endif
 
 //
 // Client / Server / Test Apps build control

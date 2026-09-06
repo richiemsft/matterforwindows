@@ -19,7 +19,7 @@ import("${chip_root}/build/chip/tools.gni")
 import("${chip_root}/examples/chip-tool/chip-tool.gni")
 import("${chip_root}/src/lib/core/core.gni")
 
-use_interactive_server = config_use_interactive_mode && current_os != "win"
+use_interactive_server = config_use_interactive_mode
 
 if (config_use_interactive_mode && current_os != "win") {
   import("//build_overrides/editline.gni")

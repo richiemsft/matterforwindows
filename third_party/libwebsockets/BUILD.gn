@@ -22,14 +22,16 @@ config("libwebsockets_config") {
 }
 
 config("libwebsockets_config_disable_warnings") {
-  cflags = [
-    "-Wno-discarded-qualifiers",
-    "-Wno-format-nonliteral",
-    "-Wno-implicit-fallthrough",
-    "-Wno-incompatible-pointer-types-discards-qualifiers",
-    "-Wno-shadow",
-    "-Wno-unreachable-code",
-  ]
+  if (current_os != "win") {
+    cflags = [
+      "-Wno-discarded-qualifiers",
+      "-Wno-format-nonliteral",
+      "-Wno-implicit-fallthrough",
+      "-Wno-incompatible-pointer-types-discards-qualifiers",
+      "-Wno-shadow",
+      "-Wno-unreachable-code",
+    ]
+  }
 }
 
 source_set("libwebsockets") {
@@ -85,7 +87,31 @@ source_set("libwebsockets") {
     "repo/lib/system/system.c",
   ]
 
-  if (current_os == "freertos") {
+  if (current_os == "win") {
+    include_dirs += [ "repo/win32port/win32helpers" ]
+
+    sources += [
+      "repo/lib/plat/windows/windows-fds.c",
+      "repo/lib/plat/windows/windows-init.c",
+      "repo/lib/plat/windows/windows-misc.c",
+      "repo/lib/plat/windows/windows-pipe.c",
+      "repo/lib/plat/windows/windows-plugins.c",
+      "repo/lib/plat/windows/windows-service.c",
+      "repo/lib/plat/windows/windows-sockets.c",
+      "repo/win32port/win32helpers/gettimeofday.c",
+    ]
+
+    defines = [ "LWS_PLAT_WINDOWS" ]
+    cflags = [ "/FIwinsock2.h" ]
+    libs = [
+      "Crypt32.lib",
+      "Iphlpapi.lib",
+      "Psapi.lib",
+      "Userenv.lib",
+      "Ws2_32.lib",
+    ]
+    configs += [ "//build/config/win:upstream_sdk_warnings" ]
+  } else if (current_os == "freertos") {
     sources += [
       "repo/lib/plat/freertos/freertos-fds.c",
       "repo/lib/plat/freertos/freertos-init.c",
@@ -95,7 +121,7 @@ source_set("libwebsockets") {
       "repo/lib/plat/freertos/freertos-sockets.c",
     ]
 
-    cflags = [ "-DLWS_PLAT_FREERTOS" ]
+    defines = [ "LWS_PLAT_FREERTOS" ]
   } else {
     sources += [
       "repo/lib/plat/unix/unix-caps.c",
@@ -107,10 +133,10 @@ source_set("libwebsockets") {
       "repo/lib/plat/unix/unix-sockets.c",
     ]
 
-    cflags = [ "-DLWS_PLAT_UNIX" ]
+    defines = [ "LWS_PLAT_UNIX" ]
 
     if (target_os == "ios") {
-      cflags += [ "-DLWS_DETECTED_PLAT_IOS" ]
+      defines += [ "LWS_DETECTED_PLAT_IOS" ]
     }
   }
 

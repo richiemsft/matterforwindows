@@ -18,4 +18,8 @@
 
 #pragma once
 
+#ifdef _WIN32
+#define LWS_HAVE__ATOI64
+#else
 #define LWS_HAVE_SYS_RESOURCE_H
+#endif
