@@ -94,6 +94,10 @@ The initial build foundation provides:
     an x64 lifecycle with on-off-light and occupancy-sensor endpoints publishes
     commissionable DNS-SD, opens PASE, and shuts down cleanly. The same target
     cross-builds for ARM64.
+-   Native GitHub Actions coverage on `windows-latest` builds the x64 and ARM64
+    controller/server closures, executes the focused x64 Device Layer and
+    application smokes, verifies the ARM64 executable machine type, and
+    publishes short-lived executable artifacts.
 -   The repository's existing generated `examples/chip-tool` application as a
     native Windows executable. The complete generated cluster, pairing,
     discovery, subscription, storage, session-management, and local interactive
@@ -2138,7 +2142,7 @@ are deliberate submodule bumps.
 | Device Layer and IP | A controller discovers and commissions on-network, persists a fabric across restart, subscribes, and removes the fabric. |
 | BLE | Windows commissions Wi-Fi and Thread devices over BLE and can expose a commissionable Windows server over BLE. |
 | Applications | Native controller and `all-clusters-app` binaries run on a clean Windows 11 host and survive repeated commission/uncommission cycles. |
-| CI and support | Required x64 and ARM64 jobs, interoperability coverage, artifacts, troubleshooting, and an explicit support matrix are published. |
+| CI and support | Native x64 and ARM64 build jobs, x64 smoke coverage, and executable artifacts are present; hardware interoperability, native ARM64 runtime, signing, and a release support matrix remain. |
 
 ## Feature status
 
@@ -2268,10 +2272,14 @@ are deliberate submodule bumps.
     hardware. This applies to the DNS-SD backend as much as every other
     Windows Device Layer component so far: it cross-builds and links as
     `ARM64`, but has not been run on native ARM64 hardware.
--   No Windows CI runner is present yet. The KVS root and its owned files use a
-    protected DACL granting full access only to the process identity and Local
-    System; existing owned files are re-hardened during initialization. The BLE
-    backend is present, but live central/peripheral commissioning has
-    not yet been exercised on Bluetooth-equipped x64 or native ARM64 hardware.
+-   Native Windows x64 and ARM64 builds run on GitHub-hosted Windows runners,
+    with focused x64 runtime smokes and short-lived executable artifacts.
+    Hardware interoperability, native ARM64 execution, signing, and release
+packaging are not part of that workflow yet. The KVS root and its owned
+files use a protected DACL granting full access only to the process identity
+and Local System; existing owned files are re-hardened during
+initialization. The BLE backend is present, but live central/peripheral
+commissioning has not yet been exercised on Bluetooth-equipped x64 or
+native ARM64 hardware.
 -   Native Wi-Fi provisioning, a local Thread stack, and a Windows Thread
     border router are outside the first-release scope.

@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Project CHIP Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Native Windows
+
+on:
+    push:
+        branches:
+            - windows-port
+    pull_request:
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.ref }}-${{ github.workflow }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        name: Windows ${{ matrix.architecture }}
+        runs-on: windows-latest
+        timeout-minutes: 120
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - architecture: x64
+                      target_cpu: x64
+                    - architecture: arm64
+                      target_cpu: arm64
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  submodules: recursive
+
+            - name: Build native Windows targets
+              shell: pwsh
+              run: |
+                  . .\scripts\setup\windows.ps1 -Architecture ${{ matrix.architecture }}
+
+                  $output = "out\win-ci-${{ matrix.architecture }}"
+                  $arguments = @(
+                      'target_os="win"'
+                      'target_cpu="${{ matrix.target_cpu }}"'
+                      'chip_device_platform="windows"'
+                      'chip_windows_canonical_compile_probes=true'
+                      'chip_windows_device_layer_probe=true'
+                      'chip_windows_build_chip_tool=true'
+                      'chip_windows_build_all_devices_app=true'
+                      'chip_windows_enable_cxx20=true'
+                      'chip_with_nlfaultinjection=false'
+                      'chip_build_tests=false'
+                      'chip_build_tools=true'
+                      'chip_caller_handles_critical_failure=true'
+                  ) -join ' '
+
+                  gn gen $output --args=$arguments
+                  if ($LASTEXITCODE -ne 0) {
+                      exit $LASTEXITCODE
+                  }
+
+                  ninja -C $output `
+                      all-devices-app `
+                      chip-tool `
+                      msvc-canonical-controller-stack-smoke `
+                      msvc-canonical-platform-smoke `
+                      msvc-key-value-store-smoke `
+                      msvc-windows-all-clusters `
+                      msvc-windows-ble-smoke `
+                      msvc-windows-configuration-manager-smoke
+                  if ($LASTEXITCODE -ne 0) {
+                      exit $LASTEXITCODE
+                  }
+
+                  if ('${{ matrix.architecture }}' -eq 'arm64') {
+                      $headers = dumpbin /headers "$output\all-devices-app.exe"
+                      if (-not ($headers | Select-String 'AA64 machine \(ARM64\)')) {
+                          throw 'all-devices-app.exe is not an ARM64 binary'
+                      }
+                  }
+
+            - name: Run x64 smoke coverage
+              if: matrix.architecture == 'x64'
+              shell: pwsh
+              run: |
+                  $output = "out\win-ci-x64"
+                  & "$output\msvc-key-value-store-smoke.exe"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\msvc-canonical-platform-smoke.exe"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\msvc-canonical-controller-stack-smoke.exe"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\msvc-windows-configuration-manager-smoke.exe"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\msvc-windows-ble-smoke.exe"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\msvc-windows-all-clusters.exe" 1
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  & "$output\all-devices-app.exe" `
+                      --device on-off-light:1 `
+                      --device occupancy-sensor:2 `
+                      --storage-directory "$output\all-devices-state" `
+                      --run-seconds 1
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            - name: Upload executables
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: windows-${{ matrix.architecture }}-executables
+                  path: out/win-ci-${{ matrix.architecture }}/*.exe
+                  if-no-files-found: error
+                  retention-days: 7
