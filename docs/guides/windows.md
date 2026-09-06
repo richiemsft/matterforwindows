@@ -2089,6 +2089,31 @@ every shipped DLL and the loader-facing executables; and document the VC++
 redistributable/CRT servicing policy, since the debug CRT DLLs listed above are
 developer-only and must be replaced by the redistributable release CRT.
 
+### Windows application packages
+
+`scripts/tools/windows_package.ps1` creates a deployment ZIP containing
+`chip-tool.exe`, `all-clusters-app.exe`, `all-devices-app.exe`, Matter and
+BoringSSL license material, deployment requirements, and a JSON manifest with
+the source revision and SHA-256 digest of every file. Packaging requires
+`is_debug=false` so debug CRT binaries cannot be published accidentally:
+
+```powershell
+.\scripts\tools\windows_package.ps1 `
+    -OutDir .\out\win-ci-x64 `
+    -Architecture x64 `
+    -DestinationDirectory .\artifacts
+.\scripts\tools\windows_package_verify.ps1 `
+    -ArchivePath .\artifacts\matter-windows-x64.zip `
+    -Architecture x64
+```
+
+Pass `-CertificateThumbprint` to sign every executable with a certificate from
+the current user's certificate store before hashes are generated. The signing
+path requires a valid private key and timestamp service; any invalid signature
+fails packaging. CI publishes unsigned short-lived validation packages.
+Release publication still requires protected signing credentials and the
+architecture-matched Microsoft Visual C++ Redistributable.
+
 **Servicing and pinned commit.** BoringSSL is pinned at gitlink
 `9cac8a6b38c1cbd45c77aee108411d588da006fe` under
 `third_party/boringssl/repo/src` (`.gitmodules` tracks upstream `master`). The

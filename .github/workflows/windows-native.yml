@@ -68,6 +68,7 @@ jobs:
                       'chip_build_tests=false'
                       'chip_build_tools=true'
                       'chip_caller_handles_critical_failure=true'
+                      'is_debug=false'
                   ) -join ' '
 
                   gn gen $output --args=$arguments
@@ -119,11 +120,23 @@ jobs:
                       --run-seconds 1
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-            - name: Upload executables
-              if: always()
+            - name: Package applications
+              if: success()
+              shell: pwsh
+              run: |
+                  .\scripts\tools\windows_package.ps1 `
+                      -OutDir "out\win-ci-${{ matrix.architecture }}" `
+                      -Architecture ${{ matrix.architecture }} `
+                      -DestinationDirectory artifacts
+                  .\scripts\tools\windows_package_verify.ps1 `
+                      -ArchivePath "artifacts\matter-windows-${{ matrix.architecture }}.zip" `
+                      -Architecture ${{ matrix.architecture }}
+
+            - name: Upload application package
+              if: success()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
               with:
-                  name: windows-${{ matrix.architecture }}-executables
-                  path: out/win-ci-${{ matrix.architecture }}/*.exe
+                  name: matter-windows-${{ matrix.architecture }}
+                  path: artifacts/matter-windows-${{ matrix.architecture }}.zip
                   if-no-files-found: error
                   retention-days: 7
