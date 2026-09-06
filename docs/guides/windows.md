@@ -1020,12 +1020,13 @@ the ACL of the locked-down root.)
     because each value write is atomic, a concurrent reader in another process
     still never sees a torn value, but concurrent writers across processes are
     not supported.
--   **ACLs / storage expectations.** The default root lives under the user's
-    private `%LOCALAPPDATA%`, which is ACLed to that user by Windows; the store
-    relies on this inherited protection rather than setting its own DACL.
-    Deployments that place the root elsewhere (for example a machine-wide
-    `ProgramData` directory for a service) are responsible for applying an
-    appropriately restrictive ACL to that directory.
+-   **ACLs / storage expectations.** After validating the ownership marker,
+    initialization replaces inherited permissions with a protected DACL that
+    grants full access only to the process identity and Local System. The ACL is
+    inheritable by newly created values, and existing owner, lock, value, and
+    temporary files are re-hardened during initialization. This applies equally
+    to the default `%LOCALAPPDATA%` root and an injected service or machine-wide
+    path; unrelated files in an override directory are never modified.
 
 ### Deletion and factory reset
 
@@ -2261,8 +2262,10 @@ are deliberate submodule bumps.
     hardware. This applies to the DNS-SD backend as much as every other
     Windows Device Layer component so far: it cross-builds and links as
     `ARM64`, but has not been run on native ARM64 hardware.
--   No Windows CI runner or persistence-provider ACL hardening is present yet.
-    The BLE backend is present, but live central/peripheral commissioning has
+-   No Windows CI runner is present yet. The KVS root and its owned files use a
+    protected DACL granting full access only to the process identity and Local
+    System; existing owned files are re-hardened during initialization. The BLE
+    backend is present, but live central/peripheral commissioning has
     not yet been exercised on Bluetooth-equipped x64 or native ARM64 hardware.
 -   Native Wi-Fi provisioning, a local Thread stack, and a Windows Thread
     border router are outside the first-release scope.

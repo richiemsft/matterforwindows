@@ -43,6 +43,7 @@
 #endif
 #include <windows.h>
 
+#include <aclapi.h>
 #include <objbase.h>
 #include <shlobj.h> // SHGetKnownFolderPath, FOLDERID_LocalAppData
 
@@ -83,6 +84,9 @@ constexpr char kOwnerSignature[]   = "Matter Windows KVS v1\r\n";
 // expansion plus the prefix) stays well under the 255-char NTFS component
 // limit, and comfortably exceeds PersistentStorageDelegate::kKeyLengthMax (32).
 constexpr size_t kMaxKeyLength   = 64;
+
+bool IsOwnedValueFileName(const wchar_t * fileName);
+bool IsOwnedTempFileName(const wchar_t * fileName);
 
 uint32_t Crc32(const uint8_t * data, size_t len)
 {
@@ -276,6 +280,115 @@ CHIP_ERROR EnsureDirectory(const std::wstring & path)
         return CHIP_NO_ERROR;
     }
     return CHIP_ERROR_WINDOWS(GetLastError());
+}
+
+CHIP_ERROR GetProcessUserSid(std::vector<uint8_t> & tokenUserBuffer, PSID & userSid)
+{
+    HANDLE token = nullptr;
+    VerifyOrReturnError(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token), CHIP_ERROR_WINDOWS(GetLastError()));
+
+    DWORD required = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &required);
+    const DWORD sizeError = GetLastError();
+    if (sizeError != ERROR_INSUFFICIENT_BUFFER)
+    {
+        CloseHandle(token);
+        return CHIP_ERROR_WINDOWS(sizeError);
+    }
+
+    tokenUserBuffer.resize(required);
+    const bool queried =
+        GetTokenInformation(token, TokenUser, tokenUserBuffer.data(), required, &required) != FALSE;
+    const DWORD queryError = queried ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(token);
+    VerifyOrReturnError(queried, CHIP_ERROR_WINDOWS(queryError));
+
+    userSid = reinterpret_cast<TOKEN_USER *>(tokenUserBuffer.data())->User.Sid;
+    VerifyOrReturnError(IsValidSid(userSid), CHIP_ERROR_INTERNAL);
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR ApplyRestrictedDacl(const std::wstring & path, PACL acl, bool inheritToChildren)
+{
+    const SECURITY_INFORMATION securityInformation =
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
+    const DWORD result =
+        SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT, securityInformation, nullptr, nullptr, acl, nullptr);
+    VerifyOrReturnError(result == ERROR_SUCCESS, CHIP_ERROR_WINDOWS(result));
+
+    if (!inheritToChildren)
+    {
+        return CHIP_NO_ERROR;
+    }
+
+    WIN32_FIND_DATAW findData{};
+    HANDLE find = FindFirstFileW((path + L"\\*").c_str(), &findData);
+    if (find == INVALID_HANDLE_VALUE)
+    {
+        const DWORD last = GetLastError();
+        return last == ERROR_FILE_NOT_FOUND ? CHIP_NO_ERROR : CHIP_ERROR_WINDOWS(last);
+    }
+
+    CHIP_ERROR resultError = CHIP_NO_ERROR;
+    do
+    {
+        const bool isOwnedFile = std::wcscmp(findData.cFileName, kOwnerFileName) == 0 ||
+            std::wcscmp(findData.cFileName, kLockFileName) == 0 || IsOwnedValueFileName(findData.cFileName) ||
+            IsOwnedTempFileName(findData.cFileName);
+        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 || !isOwnedFile)
+        {
+            continue;
+        }
+
+        const std::wstring childPath = path + L"\\" + findData.cFileName;
+        const DWORD childResult =
+            SetNamedSecurityInfoW(const_cast<wchar_t *>(childPath.c_str()), SE_FILE_OBJECT, securityInformation, nullptr,
+                                  nullptr, acl, nullptr);
+        if (childResult != ERROR_SUCCESS && resultError == CHIP_NO_ERROR)
+        {
+            resultError = CHIP_ERROR_WINDOWS(childResult);
+        }
+    } while (FindNextFileW(find, &findData));
+
+    const DWORD terminalError = GetLastError();
+    FindClose(find);
+    if (terminalError != ERROR_NO_MORE_FILES && resultError == CHIP_NO_ERROR)
+    {
+        resultError = CHIP_ERROR_WINDOWS(terminalError);
+    }
+    return resultError;
+}
+
+CHIP_ERROR SecureOwnedRoot(const std::wstring & root)
+{
+    std::vector<uint8_t> tokenUserBuffer;
+    PSID userSid = nullptr;
+    ReturnErrorOnFailure(GetProcessUserSid(tokenUserBuffer, userSid));
+
+    DWORD systemSidSize = SECURITY_MAX_SID_SIZE;
+    std::vector<uint8_t> systemSidBuffer(systemSidSize);
+    PSID systemSid = systemSidBuffer.data();
+    VerifyOrReturnError(CreateWellKnownSid(WinLocalSystemSid, nullptr, systemSid, &systemSidSize),
+                        CHIP_ERROR_WINDOWS(GetLastError()));
+
+    std::array<EXPLICIT_ACCESSW, 2> entries{};
+    const PSID identities[] = { userSid, systemSid };
+    for (size_t index = 0; index < entries.size(); ++index)
+    {
+        entries[index].grfAccessPermissions              = FILE_ALL_ACCESS;
+        entries[index].grfAccessMode                     = SET_ACCESS;
+        entries[index].grfInheritance                    = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+        entries[index].Trustee.TrusteeForm               = TRUSTEE_IS_SID;
+        entries[index].Trustee.TrusteeType               = TRUSTEE_IS_USER;
+        entries[index].Trustee.ptstrName                 = static_cast<LPWSTR>(identities[index]);
+    }
+
+    PACL acl = nullptr;
+    const DWORD aclResult = SetEntriesInAclW(static_cast<ULONG>(entries.size()), entries.data(), nullptr, &acl);
+    VerifyOrReturnError(aclResult == ERROR_SUCCESS, CHIP_ERROR_WINDOWS(aclResult));
+    const CHIP_ERROR result = ApplyRestrictedDacl(root, acl, true);
+    LocalFree(acl);
+    return result;
 }
 
 CHIP_ERROR MakeTempPath(const std::wstring & root, std::wstring & temp)
@@ -584,6 +697,7 @@ CHIP_ERROR KeyValueStoreManagerImpl::Init(const char * storageRoot)
 
     ReturnErrorOnFailure(EnsureDirectory(root));
     ReturnErrorOnFailure(ClaimOwnedRoot(root));
+    ReturnErrorOnFailure(SecureOwnedRoot(root));
 
     // Advisory single-owner lock. Opened without write/delete sharing so a
     // second process holding the same root fails fast rather than racing.

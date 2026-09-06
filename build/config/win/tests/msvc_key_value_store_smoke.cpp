@@ -38,6 +38,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <aclapi.h>
 #include <objbase.h>
 
 using namespace chip;
@@ -119,6 +120,78 @@ bool WideToUtf8(const std::wstring & wide, std::string & utf8)
     return true;
 }
 
+bool HasRestrictedDacl(const std::wstring & path, bool requireProtected)
+{
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        return false;
+    }
+
+    DWORD required = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &required);
+    std::vector<uint8_t> tokenUserBuffer(required);
+    const bool queried = GetLastError() == ERROR_INSUFFICIENT_BUFFER &&
+        GetTokenInformation(token, TokenUser, tokenUserBuffer.data(), required, &required);
+    CloseHandle(token);
+    if (!queried)
+    {
+        return false;
+    }
+    PSID userSid = reinterpret_cast<TOKEN_USER *>(tokenUserBuffer.data())->User.Sid;
+
+    DWORD systemSidSize = SECURITY_MAX_SID_SIZE;
+    std::vector<uint8_t> systemSidBuffer(systemSidSize);
+    PSID systemSid = systemSidBuffer.data();
+    if (!CreateWellKnownSid(WinLocalSystemSid, nullptr, systemSid, &systemSidSize))
+    {
+        return false;
+    }
+
+    PACL acl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    const DWORD securityResult =
+        GetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                              nullptr, &acl, nullptr, &descriptor);
+    if (securityResult != ERROR_SUCCESS || acl == nullptr)
+    {
+        LocalFree(descriptor);
+        return false;
+    }
+
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision                      = 0;
+    bool valid = GetSecurityDescriptorControl(descriptor, &control, &revision) &&
+        (!requireProtected || (control & SE_DACL_PROTECTED) != 0);
+    for (DWORD index = 0; index < acl->AceCount; ++index)
+    {
+        void * rawAce = nullptr;
+        if (!GetAce(acl, index, &rawAce))
+        {
+            valid = false;
+            break;
+        }
+
+        const ACE_HEADER * header = static_cast<const ACE_HEADER *>(rawAce);
+        if (header->AceType != ACCESS_ALLOWED_ACE_TYPE)
+        {
+            valid = false;
+            break;
+        }
+        const ACCESS_ALLOWED_ACE * ace = static_cast<const ACCESS_ALLOWED_ACE *>(rawAce);
+        PSID aceSid = const_cast<DWORD *>(&ace->SidStart);
+        if ((!EqualSid(aceSid, userSid) && !EqualSid(aceSid, systemSid)) || (ace->Mask & FILE_ALL_ACCESS) != FILE_ALL_ACCESS)
+        {
+            valid = false;
+            break;
+        }
+    }
+
+    valid = valid && acl->AceCount >= 1;
+    LocalFree(descriptor);
+    return valid;
+}
+
 bool RunScenarios(const std::string & rootUtf8, const std::wstring & rootWide, const std::wstring & escapedSibling)
 {
     CHECK(KeyValueStoreMgrImpl().Init("relative-kvs-root") == CHIP_ERROR_INVALID_ARGUMENT);
@@ -129,10 +202,13 @@ bool RunScenarios(const std::string & rootUtf8, const std::wstring & rootWide, c
     CHECK(KeyValueStoreMgrImpl().Init(rootUtf8.c_str()) == CHIP_ERROR_INCORRECT_STATE);
     CHECK(KeyValueStoreMgrImpl().Init(nullptr) == CHIP_NO_ERROR);
     CHECK(PathExists(rootWide + L"\\.matter-kvs.owner"));
+    CHECK(HasRestrictedDacl(rootWide, true));
+    CHECK(HasRestrictedDacl(rootWide + L"\\.matter-kvs.owner", true));
 
     // ---- Binary put/get round-trip (embedded NULs and high bytes).
     const uint8_t binary[] = { 0x00, 0x01, 0xFF, 0x00, 0x7F, 0x80, 0xAA, 0x55, 0x00, 0x10 };
     CHECK(KeyValueStoreMgr().Put("bin", binary, sizeof(binary)) == CHIP_NO_ERROR);
+    CHECK(HasRestrictedDacl(rootWide + L"\\kv_bin", false));
 
     uint8_t readBuf[sizeof(binary)] = {};
     size_t readSize                 = 0;

@@ -247,6 +247,7 @@ static_library("windows-platform-manager-canonical") {
   defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
 
   libs = [
+    "Advapi32.lib",
     "Iphlpapi.lib",
     "Ole32.lib",
     "Shell32.lib",
@@ -308,7 +309,9 @@ static_library("windows-key-value-store") {
 
   # SHGetKnownFolderPath (Shell32), CoTaskMemFree, and GUID generation (Ole32)
   # resolve the Unicode known-folder root and collision-resistant temp names.
+  # Advapi32 applies the process-identity-only DACL to the owned store.
   libs = [
+    "Advapi32.lib",
     "Shell32.lib",
     "Ole32.lib",
   ]
