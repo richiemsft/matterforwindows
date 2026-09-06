@@ -98,9 +98,9 @@ The initial build foundation provides:
     bulb's OnOff attribute over CASE. The same executable cross-builds and
     inspects as `AA64` for ARM64. HTTPS/DCL requests use WinHTTP and are
     validated against the production DCL. The interactive websocket server
-    accepts commands and returns structured logs on x64. This enables the YAML
-    runner's transport, but a complete YAML suite against a DUT remains
-    unvalidated.
+    accepts commands and returns structured logs on x64, and the Python YAML
+    adapter launches that server and executes generated commands through it. A
+    complete YAML suite against a DUT remains unvalidated.
 -   The shared Inet UDP socket endpoint (`UDPEndPointImplSockets.cpp`) ported to
     native WinSock behind `#if defined(_WIN32)` branches: `WSASocketW`,
     `closesocket`, `WSAGetLastError` mapping, `WSASendMsg`/`WSARecvMsg` with
@@ -864,8 +864,9 @@ The Windows configuration supports both the local interactive shell without
 the Unix-only editline dependency and the interactive websocket server through
 libwebsockets' native Windows platform sources. The local shell uses the native
 console's line input and stores entered commands in `chip_tool_history`. The
-websocket transport needed by the external YAML runner is enabled, but a
-complete YAML suite against a DUT has not yet been validated on Windows.
+websocket transport needed by the external YAML runner is enabled, and the
+Python adapter launches it successfully on Windows. A complete YAML suite
+against a DUT has not yet been validated on Windows.
 HTTPS/DCL requests use WinHTTP, including Windows certificate and hostname
 validation:
 
@@ -878,6 +879,7 @@ ninja -C out\win-chip-tool-x64 chip-tool
 .\out\win-chip-tool-x64\chip-tool.exe onoff
 .\out\win-chip-tool-x64\chip-tool.exe interactive start --storage-directory .\chip-tool-state
 .\out\win-chip-tool-x64\chip-tool.exe interactive server --port 9102
+.\.environment\windows\python\Scripts\python.exe .\scripts\tests\chipyaml\chiptool.py payload parse-setup-payload 23307702240 --server_path .\out\win-chip-tool-x64\chip-tool.exe
 ```
 
 The root command lists the complete generated cluster and command-set surface;
@@ -886,8 +888,10 @@ their command help. Enter `quit` or `quit()` to leave the interactive shell.
 The websocket server was validated with a Node.js client: sending
 `payload parse-setup-payload 23307702240` to `ws://127.0.0.1:9102` returned
 valid JSON containing nine log entries. In a separate run on port 9103,
-sending `quit` stopped chip-tool cleanly. These checks validate the YAML
-runner's command transport, not a complete YAML test suite or DUT interaction.
+sending `quit` stopped chip-tool cleanly. The Python YAML adapter also
+launched the Windows server and executed the same payload command through
+its websocket runner. These checks validate the YAML runner's command
+transport, not a complete YAML test suite or DUT interaction.
 Controller state uses the existing INI storage implementation under the Windows
 temporary directory by default. A missing directory supplied through
 `--storage-directory` is created automatically. Interactive command history is

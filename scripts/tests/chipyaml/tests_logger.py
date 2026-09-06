@@ -31,9 +31,18 @@ def _strikethrough(s):
     return '\u0336'.join(s[i:i+1] for i in range(0, len(s), 1))
 
 
-_SUCCESS = click.style('\N{check mark}', fg='green')
-_FAILURE = click.style('\N{ballot x}', fg='red')
-_WARNING = click.style('\N{warning sign}', fg='yellow')
+def _terminal_symbol(symbol: str, fallback: str) -> str:
+    encoding = sys.stdout.encoding or 'utf-8'
+    try:
+        symbol.encode(encoding)
+        return symbol
+    except UnicodeEncodeError:
+        return fallback
+
+
+_SUCCESS = click.style(_terminal_symbol('\N{check mark}', 'PASS'), fg='green')
+_FAILURE = click.style(_terminal_symbol('\N{ballot x}', 'FAIL'), fg='red')
+_WARNING = click.style(_terminal_symbol('\N{warning sign}', 'WARN'), fg='yellow')
 
 
 class TestColoredLogPrinter:
@@ -343,20 +352,19 @@ class WebSocketRunnerLogger(WebSocketRunnerHooks):
         self.__strings = WebSocketRunnerStrings()
 
     def connecting(self, url: str):
-        print(self.__strings.connecting.format(url=url), end='')
-        sys.stdout.flush()
+        click.echo(self.__strings.connecting.format(url=url), nl=False)
 
     def abort(self, url: str):
-        print(self.__strings.abort.format(url=url))
+        click.echo(self.__strings.abort.format(url=url))
 
     def success(self, duration: int):
-        print(self.__strings.success.format(duration=duration))
+        click.echo(self.__strings.success.format(duration=duration))
 
     def failure(self, duration: int):
-        print(self.__strings.failure.format(duration=duration))
+        click.echo(self.__strings.failure.format(duration=duration))
 
     def retry(self, interval_between_retries_in_seconds: int):
-        print(self.__strings.retry.format(interval=interval_between_retries_in_seconds))
+        click.echo(self.__strings.retry.format(interval=interval_between_retries_in_seconds))
 
 
 #

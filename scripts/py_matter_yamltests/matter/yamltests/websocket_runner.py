@@ -16,7 +16,6 @@
 import asyncio
 import logging
 import re
-import select
 import subprocess
 import time
 from dataclasses import dataclass
@@ -116,10 +115,12 @@ class WebSocketRunner(TestRunner):
                 stderr=subprocess.STDOUT,
             )
 
-            # Loop to read the subprocess output with a timeout
+            # Readiness is reported on stdout. Use a worker thread because
+            # select() only accepts sockets on Windows.
             lines = []
             while True:
-                if time.time() - start_time > _WEBSOCKET_SERVER_MESSAGE_TIMEOUT:
+                remaining = _WEBSOCKET_SERVER_MESSAGE_TIMEOUT - (time.time() - start_time)
+                if remaining <= 0:
                     for line in lines:
                         print(line.decode('utf-8', errors='replace'), end='')
                     self._hooks.abort(url)
@@ -127,15 +128,20 @@ class WebSocketRunner(TestRunner):
                     raise Exception(
                         f'Connecting to {url} failed. WebSocket startup has not been detected.')
 
-                ready, _, _ = select.select([instance.stdout], [], [], 1)
-                if ready:
-                    line = instance.stdout.readline()
-                    if line:
-                        lines.append(line)
-                        if re.search(_WEBSOCKET_SERVER_MESSAGE, line.decode('utf-8', errors='replace')):
-                            break  # Exit the loop if the pattern is found
-                else:
+                try:
+                    line = await asyncio.wait_for(
+                        asyncio.to_thread(instance.stdout.readline), timeout=remaining)
+                except TimeoutError:
                     continue
+
+                if not line:
+                    await self._stop_server(instance)
+                    raise Exception(
+                        f'Connecting to {url} failed. WebSocket server exited before reporting readiness.')
+
+                lines.append(line)
+                if re.search(_WEBSOCKET_SERVER_MESSAGE, line.decode('utf-8', errors='replace')):
+                    break
             instance.stdout.close()
 
         return instance

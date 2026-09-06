@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import pty
 import queue
 import re
 import shlex
@@ -27,6 +26,11 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
 
 import python_path
 from chiptest.concurrency.context import TerminablePopen
+
+try:
+    import pty
+except ImportError:
+    pty = None
 
 if TYPE_CHECKING:
     from .test_definition import AppsRegister, ExecutionCapture
@@ -56,7 +60,7 @@ class LogPipe(threading.Thread):
 
         self.daemon = False
         self.level = level
-        self.fd_read, self.fd_write = pty.openpty()
+        self.fd_read, self.fd_write = pty.openpty() if pty is not None else os.pipe()
         self.reader = open(self.fd_read, encoding='utf-8', errors='ignore')  # noqa: SIM115
         self.captured_logs: list[str] = []
         self.capture_delegate = capture_delegate

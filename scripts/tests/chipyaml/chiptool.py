@@ -16,6 +16,7 @@
 
 import relative_importer  # isort: split # noqa: F401
 
+import os
 import sys
 
 import chiptest
@@ -61,9 +62,12 @@ CONTEXT_SETTINGS['default_map']['chiptool']['use_test_harness_log_format'] = Tru
 
 def maybe_update_server_arguments(ctx):
     if ctx.params['trace_file']:
-        ctx.params['server_arguments'] += ' --trace_file {}'.format(ctx.params['trace_file'])
+        if os.name == 'nt':
+            ctx.params['server_arguments'] += ' --trace-to json:{}'.format(ctx.params['trace_file'])
+        else:
+            ctx.params['server_arguments'] += ' --trace_file {}'.format(ctx.params['trace_file'])
 
-    if ctx.params['trace_decode']:
+    if os.name != 'nt' and ctx.params['trace_decode']:
         ctx.params['server_arguments'] += ' --trace_decode 1'
 
     del ctx.params['trace_file']
