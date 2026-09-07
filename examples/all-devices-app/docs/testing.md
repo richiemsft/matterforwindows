@@ -27,8 +27,12 @@ commands.
 On native Windows, build and launch the target as described in
 [Application Initialization & Command Line Options](starting_up.md#native-windows).
 The Windows process emits the same commissioning advertisement and can be
-driven by native `chip-tool.exe`; automated Python harness integration remains
-pending.
+driven by native `chip-tool.exe`. Its `--KVS`, `--discriminator`, and
+`--interface-id -1` arguments and setup-QR/readiness output implement the
+application-side subprocess contract used by the Python harness. The Python
+controller package itself is not yet built natively for Windows, so automated
+certification scripts must currently run on a supported test host against the
+Windows DUT.
 
 ### Launch the Simulator (Terminal A)
 

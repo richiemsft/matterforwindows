@@ -116,9 +116,22 @@ jobs:
                   & "$output\all-devices-app.exe" `
                       --device on-off-light:1 `
                       --device occupancy-sensor:2 `
-                      --storage-directory "$output\all-devices-state" `
-                      --run-seconds 1
+                      --discriminator 1234 `
+                      --KVS "$output\all-devices-state" `
+                      --interface-id -1 `
+                      --run-seconds 1 2>&1 |
+                      Tee-Object -Variable allDevicesLog
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  $allDevicesText = $allDevicesLog | Out-String
+                  foreach ($requiredOutput in @(
+                      'discriminator=1234/04',
+                      'SetupQRCode: [MT:',
+                      'APP STATUS: Starting event loop'
+                  )) {
+                      if (-not $allDevicesText.Contains($requiredOutput)) {
+                          throw "all-devices-app omitted automation marker: $requiredOutput"
+                      }
+                  }
 
             - name: Package applications
               if: success()

@@ -15,7 +15,7 @@
  *    limitations under the License.
  */
 
-#include <chrono>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,7 +23,6 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -52,12 +51,15 @@
 #include <device/types/root-node/RootNode.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
+#include <lib/support/logging/CHIPLogging.h>
 #include <platform/DefaultTimerDelegate.h>
 #include <platform/DeviceInstanceInfoProvider.h>
 #include <platform/TestOnlyCommissionableDataProvider.h>
 #include <platform/Windows/BLEManagerImpl.h>
 #include <platform/Windows/ConfigurationManagerImpl.h>
 #include <providers/AllDevicesExampleDeviceInfoProviderImpl.h>
+#include <setup_payload/OnboardingCodesUtil.h>
+#include <setup_payload/SetupPayload.h>
 
 namespace {
 
@@ -65,15 +67,36 @@ using namespace chip;
 using namespace chip::app;
 using namespace chip::DeviceLayer;
 
-constexpr uint32_t kDefaultRunSeconds = 300;
-constexpr uint32_t kMaximumRunSeconds = 3600;
-constexpr char kDefaultStorageRoot[]  = "windows-all-devices-kvs";
+constexpr uint32_t kMaximumRunSeconds    = 3600;
+constexpr char kDefaultStorageRoot[]     = "windows-all-devices-kvs";
+constexpr uint16_t kDefaultDiscriminator = 3840;
+
+std::atomic<HANDLE> gStopEvent                 = nullptr;
+std::atomic<HANDLE> gShutdownCompleteEvent     = nullptr;
+std::atomic<HANDLE> gCloseHandlerCompleteEvent = nullptr;
+std::atomic<bool> gCloseHandlerActive = false;
 
 struct AppConfig
 {
     std::vector<DeviceTypeParser::Entry> devices;
     std::string storageRoot = kDefaultStorageRoot;
-    uint32_t runSeconds     = kDefaultRunSeconds;
+    uint32_t runSeconds     = 0;
+    uint16_t discriminator  = kDefaultDiscriminator;
+};
+
+class WindowsCommissionableDataProvider final : public TestOnlyCommissionableDataProvider
+{
+public:
+    explicit WindowsCommissionableDataProvider(uint16_t discriminator) : mDiscriminator(discriminator) {}
+
+    CHIP_ERROR GetSetupDiscriminator(uint16_t & setupDiscriminator) override
+    {
+        setupDiscriminator = mDiscriminator;
+        return CHIP_NO_ERROR;
+    }
+
+private:
+    uint16_t mDiscriminator;
 };
 
 class WindowsAllDevicesInfoProvider final : public DeviceInstanceInfoProvider
@@ -137,11 +160,11 @@ private:
     }
 };
 
-bool ParseUnsigned(const char * value, uint32_t maximum, uint32_t & result)
+bool ParseUnsigned(const char * value, uint32_t maximum, bool allowZero, uint32_t & result)
 {
     char * end           = nullptr;
     const unsigned long parsed = std::strtoul(value, &end, 10);
-    if (end == value || end == nullptr || *end != '\0' || parsed == 0 || parsed > maximum)
+    if (end == value || end == nullptr || *end != '\0' || (!allowZero && parsed == 0) || parsed > maximum)
     {
         return false;
     }
@@ -162,13 +185,29 @@ bool ParseArguments(int argc, char * argv[], AppConfig & config)
                 return false;
             }
         }
-        else if (argument == "--storage-directory" && index + 1 < argc)
+        else if ((argument == "--storage-directory" || argument == "--KVS") && index + 1 < argc)
         {
             config.storageRoot = argv[++index];
         }
+        else if (argument == "--discriminator" && index + 1 < argc)
+        {
+            uint32_t discriminator = 0;
+            if (!ParseUnsigned(argv[++index], kMaxDiscriminatorValue, true, discriminator))
+            {
+                return false;
+            }
+            config.discriminator = static_cast<uint16_t>(discriminator);
+        }
+        else if (argument == "--interface-id" && index + 1 < argc)
+        {
+            if (std::strcmp(argv[++index], "-1") != 0)
+            {
+                return false;
+            }
+        }
         else if (argument == "--run-seconds" && index + 1 < argc)
         {
-            if (!ParseUnsigned(argv[++index], kMaximumRunSeconds, config.runSeconds))
+            if (!ParseUnsigned(argv[++index], kMaximumRunSeconds, true, config.runSeconds))
             {
                 return false;
             }
@@ -329,9 +368,59 @@ private:
     std::vector<std::unique_ptr<DeviceInterface>> mDevices;
 };
 
+BOOL WINAPI ConsoleControlHandler(DWORD controlType)
+{
+    switch (controlType)
+    {
+    case CTRL_C_EVENT:
+    case CTRL_BREAK_EVENT:
+        if (HANDLE stopEvent = gStopEvent.load(std::memory_order_relaxed))
+        {
+            SetEvent(stopEvent);
+            return TRUE;
+        }
+        break;
+    case CTRL_CLOSE_EVENT:
+        if (HANDLE stopEvent = gStopEvent.load(std::memory_order_relaxed))
+        {
+            gCloseHandlerActive.store(true);
+            SetEvent(stopEvent);
+            if (HANDLE shutdownCompleteEvent = gShutdownCompleteEvent.load(std::memory_order_relaxed))
+            {
+                (void) WaitForSingleObject(shutdownCompleteEvent, INFINITE);
+            }
+            if (HANDLE handlerCompleteEvent = gCloseHandlerCompleteEvent.load(std::memory_order_relaxed))
+            {
+                SetEvent(handlerCompleteEvent);
+            }
+            return TRUE;
+        }
+        break;
+    default:
+        break;
+    }
+    return FALSE;
+}
+
+CHIP_ERROR PrintOnboardingInformation()
+{
+    PayloadContents payload;
+    payload.version = 0;
+    payload.rendezvousInformation.SetValue(RendezvousInformationFlag::kBLE);
+    ReturnErrorOnFailure(GetCommissionableDataProvider()->GetSetupPasscode(payload.setUpPINCode));
+
+    uint16_t discriminator = 0;
+    ReturnErrorOnFailure(GetCommissionableDataProvider()->GetSetupDiscriminator(discriminator));
+    payload.discriminator.SetLongValue(discriminator);
+    ReturnErrorOnFailure(GetDeviceInstanceInfoProvider()->GetVendorId(payload.vendorID));
+    ReturnErrorOnFailure(GetDeviceInstanceInfoProvider()->GetProductId(payload.productID));
+    PrintOnboardingCodes(payload);
+    return CHIP_NO_ERROR;
+}
+
 int Run(const AppConfig & config)
 {
-    static TestOnlyCommissionableDataProvider commissionableDataProvider;
+    WindowsCommissionableDataProvider commissionableDataProvider(config.discriminator);
     static WindowsAllDevicesInfoProvider deviceInstanceInfoProvider;
     static AllDevicesExampleDeviceInfoProviderImpl deviceInfoProvider;
     static Credentials::GroupDataProviderImpl groupDataProvider;
@@ -339,8 +428,11 @@ int Run(const AppConfig & config)
     static DefaultTimerDelegate timerDelegate;
     static SimpleTestEventTriggerDelegate testEventTriggerDelegate;
     static constexpr uint8_t kTestEventTriggerEnableKey[16] = {};
+    HANDLE stopEvent                    = nullptr;
+    HANDLE shutdownCompleteEvent        = nullptr;
+    HANDLE closeHandlerCompleteEvent    = nullptr;
+    bool consoleControlHandlerInstalled = false;
 
-    SetCommissionableDataProvider(&commissionableDataProvider);
     SetDeviceInstanceInfoProvider(&deviceInstanceInfoProvider);
     SetDeviceInfoProvider(&deviceInfoProvider);
     Credentials::SetDeviceAttestationCredentialsProvider(Credentials::Examples::GetExampleDACProvider());
@@ -358,6 +450,10 @@ int Run(const AppConfig & config)
     if (error == CHIP_NO_ERROR)
     {
         error = PlatformMgr().InitChipStack();
+    }
+    if (error == CHIP_NO_ERROR)
+    {
+        SetCommissionableDataProvider(&commissionableDataProvider);
     }
     if (error != CHIP_NO_ERROR)
     {
@@ -409,12 +505,57 @@ int Run(const AppConfig & config)
         error = Server::GetInstance().GetCommissioningWindowManager().OpenBasicCommissioningWindow();
         PlatformMgr().UnlockChipStack();
     }
+    if (error == CHIP_NO_ERROR)
+    {
+        error = PrintOnboardingInformation();
+    }
 
     if (error == CHIP_NO_ERROR)
     {
-        std::printf("Windows Matter all-devices app is advertising for %u seconds.\n", config.runSeconds);
-        std::printf("Manual setup code: 34970112332 (PIN 20202021, discriminator 3840)\n");
-        std::this_thread::sleep_for(std::chrono::seconds(config.runSeconds));
+        stopEvent                  = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        shutdownCompleteEvent      = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        closeHandlerCompleteEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (stopEvent == nullptr)
+        {
+            error = CHIP_ERROR_WINDOWS(GetLastError());
+        }
+        else if (shutdownCompleteEvent == nullptr)
+        {
+            error = CHIP_ERROR_WINDOWS(GetLastError());
+        }
+        else if (closeHandlerCompleteEvent == nullptr)
+        {
+            error = CHIP_ERROR_WINDOWS(GetLastError());
+        }
+        else
+        {
+            gStopEvent.store(stopEvent, std::memory_order_relaxed);
+            gShutdownCompleteEvent.store(shutdownCompleteEvent, std::memory_order_relaxed);
+            gCloseHandlerCompleteEvent.store(closeHandlerCompleteEvent, std::memory_order_relaxed);
+            if (!SetConsoleCtrlHandler(ConsoleControlHandler, TRUE))
+            {
+                error = CHIP_ERROR_WINDOWS(GetLastError());
+            }
+            else
+            {
+                consoleControlHandlerInstalled = true;
+                ChipLogProgress(DeviceLayer, "===== APP STATUS: Starting event loop =====");
+                if (config.runSeconds == 0)
+                {
+                    std::printf("Windows Matter all-devices app is advertising until stopped.\n");
+                }
+                else
+                {
+                    std::printf("Windows Matter all-devices app is advertising for %u seconds.\n", config.runSeconds);
+                }
+
+                const DWORD timeout = config.runSeconds == 0 ? INFINITE : config.runSeconds * 1000;
+                if (WaitForSingleObject(stopEvent, timeout) == WAIT_FAILED)
+                {
+                    error = CHIP_ERROR_WINDOWS(GetLastError());
+                }
+            }
+        }
     }
     else
     {
@@ -427,6 +568,33 @@ int Run(const AppConfig & config)
     groupDataProvider.Finish();
     Credentials::SetGroupDataProvider(nullptr);
     PlatformMgr().Shutdown();
+    if (shutdownCompleteEvent != nullptr)
+    {
+        SetEvent(shutdownCompleteEvent);
+    }
+    if (gCloseHandlerActive.load() && closeHandlerCompleteEvent != nullptr)
+    {
+        (void) WaitForSingleObject(closeHandlerCompleteEvent, INFINITE);
+    }
+    if (consoleControlHandlerInstalled)
+    {
+        (void) SetConsoleCtrlHandler(ConsoleControlHandler, FALSE);
+    }
+    gStopEvent.store(nullptr, std::memory_order_relaxed);
+    gShutdownCompleteEvent.store(nullptr, std::memory_order_relaxed);
+    gCloseHandlerCompleteEvent.store(nullptr, std::memory_order_relaxed);
+    if (closeHandlerCompleteEvent != nullptr)
+    {
+        CloseHandle(closeHandlerCompleteEvent);
+    }
+    if (shutdownCompleteEvent != nullptr)
+    {
+        CloseHandle(shutdownCompleteEvent);
+    }
+    if (stopEvent != nullptr)
+    {
+        CloseHandle(stopEvent);
+    }
     return error == CHIP_NO_ERROR ? 0 : 1;
 }
 
@@ -450,8 +618,8 @@ int wmain(int argc, wchar_t * wideArgv[])
     if (!ParseArguments(argc, argv.data(), config))
     {
         std::fprintf(stderr,
-                     "Usage: %s [--device type[:endpoint][,parent=id]]... [--storage-directory path] "
-                     "[--run-seconds 1-3600]\n",
+                     "Usage: %s [--device type[:endpoint][,parent=id]]... [--storage-directory path|--KVS path] "
+                     "[--discriminator 0-4095] [--interface-id -1] [--run-seconds 0-3600]\n",
                      argv[0]);
         return 1;
     }

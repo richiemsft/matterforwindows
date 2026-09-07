@@ -92,12 +92,14 @@ The initial build foundation provides:
 -   A native dynamic `all-devices-app` executable using the code-driven data
     model. Repeated `--device` arguments create runtime endpoint compositions;
     an x64 lifecycle with on-off-light and occupancy-sensor endpoints publishes
-    commissionable DNS-SD, opens PASE, and shuts down cleanly. The same target
+    commissionable DNS-SD, opens PASE, and shuts down cleanly. Standard KVS,
+    discriminator, all-interface, setup-QR, and readiness contracts make the
+    application usable by an external Python test host. The same target
     cross-builds for ARM64.
 -   Native GitHub Actions coverage on `windows-latest` builds the x64 and ARM64
     controller/server closures, executes the focused x64 Device Layer and
     application smokes, verifies the ARM64 executable machine type, and
-    publishes short-lived executable artifacts.
+    publishes short-lived, hashed application packages.
 -   The repository's existing generated `examples/chip-tool` application as a
     native Windows executable. The complete generated cluster, pairing,
     discovery, subscription, storage, session-management, and local interactive
@@ -1807,7 +1809,7 @@ does not hide missing runtime behavior behind stubs.
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
 | Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local and websocket interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; YAML transport is enabled but a complete suite against a DUT remains unvalidated | Platform and application |
 | Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles plus the dynamic code-driven all-devices simulator are implemented; POSIX named-pipe test-event transport remains | Platform and application |
-| Tests | Portable C++ test bodies and Python suites | Pigweed host toolchain assumptions, executable naming, process control, paths, BLE hardware, and ARM64 runners | Build and test harness |
+| Tests | Portable C++ test bodies and Python suites | Native C++ coverage and application-side all-devices subprocess contracts are implemented; a native Windows Python controller package, BLE hardware, and ARM64 runners remain | Build and test harness |
 
 The port must not cast a WinSock `SOCKET` to `int`. `SOCKET` is pointer-sized
 on 64-bit Windows, while the existing POSIX endpoint implementation frequently
@@ -2189,7 +2191,7 @@ are deliberate submodule bumps.
 | Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
 | Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
 | Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
-| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (72 checks) | Supported | Not yet run on native hardware |
+| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (76 checks) | Supported | Not yet run on native hardware |
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
 | Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
@@ -2205,10 +2207,10 @@ are deliberate submodule bumps.
 | Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
-| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic on-off-light and occupancy-sensor endpoints initialize, publish DNS-SD, open PASE, and shut down cleanly | Supported | Cross-build only |
+| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, and clean console shutdown | Supported | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
-| Thread through border router | Blocked by controller/IP work | Not yet supported | Blocked by controller/IP work | Not yet supported |
+| Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
 
 ## Deployment and security requirements
 
@@ -2298,13 +2300,14 @@ are deliberate submodule bumps.
     Windows Device Layer component so far: it cross-builds and links as
     `ARM64`, but has not been run on native ARM64 hardware.
 -   Native Windows x64 and ARM64 builds run on GitHub-hosted Windows runners,
-    with focused x64 runtime smokes and short-lived executable artifacts.
+    with focused x64 runtime smokes and short-lived, hashed application
+    packages.
     Hardware interoperability, native ARM64 execution, signing, and release
-packaging are not part of that workflow yet. The KVS root and its owned
-files use a protected DACL granting full access only to the process identity
-and Local System; existing owned files are re-hardened during
-initialization. The BLE backend is present, but live central/peripheral
-commissioning has not yet been exercised on Bluetooth-equipped x64 or
-native ARM64 hardware.
+    publication are not part of that workflow yet. The KVS root and its owned
+    files use a protected DACL granting full access only to the process
+    identity and Local System; existing owned files are re-hardened during
+    initialization. The BLE backend is present, but live central/peripheral
+    commissioning has not yet been exercised on Bluetooth-equipped x64 or
+    native ARM64 hardware.
 -   Native Wi-Fi provisioning, a local Thread stack, and a Windows Thread
     border router are outside the first-release scope.
