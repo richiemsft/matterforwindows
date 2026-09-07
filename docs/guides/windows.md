@@ -1779,7 +1779,7 @@ macOS/Darwin is the functional baseline for the Windows desktop port:
 
 | Capability | macOS today | Windows target |
 |---|---|---|
-| Core Matter SDK | Supported | Planned |
+| Core Matter SDK | Supported | Canonical controller/server target closure supported; repository-wide umbrella build not claimed |
 | Controller CLI | `chip-tool` and Darwin framework tool | Existing native `chip-tool` with local and websocket interactive modes |
 | Device/server examples | Broad host-example coverage | Native generated-model `all-clusters-app`; POSIX test-event transport remains |
 | Operational IP | IPv4/IPv6, UDP/TCP | WinSock IPv4/IPv6, UDP/TCP |
@@ -2169,7 +2169,7 @@ are deliberate submodule bumps.
 | Device Layer and IP | A controller discovers and commissions on-network, persists a fabric across restart, subscribes, and removes the fabric. |
 | BLE | Windows commissions Wi-Fi and Thread devices over BLE and can expose a commissionable Windows server over BLE. |
 | Applications | Native controller and `all-clusters-app` binaries run on a clean Windows 11 host and survive repeated commission/uncommission cycles. |
-| CI and support | Native x64 and ARM64 build jobs, x64 smoke coverage, and executable artifacts are present; hardware interoperability, native ARM64 runtime, signing, and a release support matrix remain. |
+| CI and support | Native x64 and ARM64 build jobs, x64 smoke coverage, deterministic application packages, and an explicit preview support matrix are present; hardware interoperability, native ARM64 runtime, and signed publication remain. |
 
 ## Feature status
 
@@ -2202,7 +2202,7 @@ are deliberate submodule bumps.
 | Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
 | Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
-| Core Matter SDK | Not yet supported | Not yet supported | Not yet supported | Not yet supported |
+| Canonical controller/server SDK closure | Supported | Controller and server lifecycle coverage passes | Supported | Cross-build only |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
 | Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
@@ -2211,6 +2211,37 @@ are deliberate submodule bumps.
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
+
+## Preview support matrix
+
+The native Windows port is a development preview, not a production support
+commitment. The matrix below defines the configurations covered by repository
+builds and tests; anything not listed is unsupported rather than implicitly
+supported.
+
+| Surface | Windows 11 x64 | Windows 11 ARM64 | Release status |
+|---|---|---|---|
+| MSVC/GN/Ninja source build | Built and run locally and in CI | Cross-built in CI | Development preview |
+| `chip-tool.exe` over operational IP | Build, lifecycle, interactive modes, and real-device commissioning validated | PE architecture and link validation only | Development preview |
+| `all-clusters-app.exe` | Generated model lifecycle validated | PE architecture and link validation only | Development preview |
+| `all-devices-app.exe` | Dynamic model and external test-host subprocess contract validated | PE architecture and link validation only | Development preview |
+| BLE central/peripheral | Hardware-free state-machine coverage | Cross-build only | Experimental until live hardware validation |
+| External Thread Border Router | Uses the operational IPv6 controller path | Cross-build only | Experimental until end-to-end validation |
+| Application ZIP | Deterministic unsigned CI package with hashes and notices | Deterministic unsigned CI package with hashes and notices | Validation artifact, not a signed release |
+
+Supported builds use Windows 11, Visual Studio with the Desktop development
+with C++ workload, the Windows SDK selected by
+`scripts/setup/windows.ps1`, and the repository-pinned GN, Ninja, and
+dependencies. Windows 10, MinGW, clang-cl, MSBuild-only builds, 32-bit x86,
+native Windows Python controller bindings, packaged-app capability manifests,
+and a local Thread stack are outside this matrix.
+
+The preview makes no ABI or long-term servicing guarantee. Production release
+requires native ARM64 execution, signed artifacts from protected credentials,
+live BLE and external-Thread interoperability, complete DUT-backed
+certification, crash/update ownership, and an explicit vulnerability-servicing
+commitment. Unsigned CI packages expire after seven days and are intended only
+for validation.
 
 ## Deployment and security requirements
 
