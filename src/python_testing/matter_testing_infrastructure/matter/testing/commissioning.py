@@ -183,6 +183,18 @@ class Commission:
                 self.info.passcode
             )
 
+        if self.commissioning_info.commissioning_method == "on-network-ip":
+            ip_address = self.commissioning_info.commissionee_ip_address_just_for_testing
+            if ip_address is None:
+                raise ValueError("On-network IP PASE requires a commissionee IP address")
+
+            await self.dev_ctrl.EstablishPASESessionIP(
+                ip_address,
+                self.info.passcode,
+                self.node_id,
+            )
+            return
+
         if self.commissioning_info.commissioning_method == "thread-meshcop":
             thread_ba_host = self.commissioning_info.thread_ba_host
             thread_ba_port = self.commissioning_info.thread_ba_port

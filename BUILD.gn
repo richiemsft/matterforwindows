@@ -65,6 +65,11 @@ if (chip_build_windows_bootstrap_only) {
     # Build the dynamic code-driven all-devices simulator against the native
     # Windows Device Layer.
     chip_windows_build_all_devices_app = false
+
+    # Build the native ctypes library used by the Matter Python controller.
+    # Windows currently supports IP commissioning and operational traffic;
+    # BLE commissioning must remain disabled for this target.
+    chip_windows_build_python_controller = false
   }
 
   # The canonical //src/system, //src/inet and //src/lib/asn1 BUILD files (and
@@ -89,6 +94,15 @@ if (chip_build_windows_bootstrap_only) {
     # definition is needed here; the bootstrap "default" group never depends on
     # it, so Ninja does not build it.
     source_packages = [ "//integrations/mobly:chip_mobly" ]
+  }
+
+  group("python_wheels") {
+    assert(chip_windows_build_python_controller,
+           "Windows Python wheels require chip_windows_build_python_controller=true")
+    deps = [
+      "//src/controller/python:matter-clusters.wheel",
+      "//src/controller/python:matter-core.wheel",
+    ]
   }
 
   group("default") {
@@ -171,6 +185,10 @@ if (chip_build_windows_bootstrap_only) {
         "//src/platform/Windows:windows-platform-manager",
         "//src/platform/Windows:windows-platform-manager-canonical",
       ]
+    }
+
+    if (chip_windows_build_python_controller) {
+      deps += [ "//src/controller/python:ChipDeviceCtrl" ]
     }
 
     if (chip_windows_build_chip_tool) {

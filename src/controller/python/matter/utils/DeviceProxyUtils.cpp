@@ -35,6 +35,9 @@ using namespace chip;
 
 namespace python {
 
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct __attribute__((packed)) SessionParametersStruct
 {
     uint32_t sessionIdleInterval      = 0;
@@ -45,6 +48,9 @@ struct __attribute__((packed)) SessionParametersStruct
     uint32_t specificationVersion     = 0;
     uint16_t maxPathsPerInvoke        = 0;
 };
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 
 } // namespace python
 

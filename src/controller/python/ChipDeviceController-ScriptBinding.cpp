@@ -26,19 +26,15 @@
  */
 
 #include <errno.h>
-#include <fcntl.h>
 #include <memory>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <type_traits>
-#include <unistd.h>
 
 #include <system/SystemError.h>
 #include <system/SystemLayer.h>
 
 #include <inttypes.h>
-#include <net/if.h>
 
 #include <app/DeviceProxy.h>
 #include <app/InteractionModelEngine.h>

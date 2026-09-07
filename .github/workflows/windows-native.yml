@@ -29,6 +29,86 @@ permissions:
     contents: read
 
 jobs:
+    python-controller:
+        name: Windows Python controller ${{ matrix.architecture }}
+        runs-on: windows-latest
+        timeout-minutes: 120
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - architecture: x64
+                    - architecture: arm64
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  submodules: recursive
+
+            - name: Build Python controller wheels
+              shell: pwsh
+              run: |
+                  $parameters = @{
+                      Architecture = '${{ matrix.architecture }}'
+                      OutputRoot = 'out\windows-python-${{ matrix.architecture }}'
+                  }
+                  if ('${{ matrix.architecture }}' -eq 'x64') {
+                      $parameters.InstallVirtualEnv = 'out\venv'
+                      $parameters.BuildTestApp = $true
+                  }
+                  .\scripts\tools\windows_python_controller.ps1 @parameters
+
+                  $dll = 'out\windows-python-${{ matrix.architecture }}\obj\src\controller\python\_ChipDeviceCtrl.dll'
+                  $headers = dumpbin /headers $dll
+                  $expectedMachine = if ('${{ matrix.architecture }}' -eq 'arm64') {
+                      'AA64 machine \(ARM64\)'
+                  } else {
+                      '8664 machine \(x64\)'
+                  }
+                  if (-not ($headers | Select-String $expectedMachine)) {
+                      throw "_ChipDeviceCtrl.dll has the wrong machine type"
+                  }
+                  $exports = dumpbin /exports $dll | Out-String
+                  foreach ($requiredExport in @(
+                      'pychip_CommonStackInit',
+                      'pychip_FormatError',
+                      'pychip_DeviceController_StackInit',
+                      'pychip_DeviceController_ConnectBLE',
+                      'pychip_ReadClient_Read'
+                  )) {
+                      if (-not $exports.Contains($requiredExport)) {
+                          throw "_ChipDeviceCtrl.dll omitted export: $requiredExport"
+                      }
+                  }
+
+            - name: Run native Python integration
+              if: matrix.architecture == 'x64'
+              shell: pwsh
+              run: |
+                  $python = 'out\venv\Scripts\python.exe'
+                  & $python -m unittest -v src.python_testing.test_testing.TestWindowsHarnessPortability
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+                  & $python .\scripts\tests\run_python_test.py `
+                      --factory-reset `
+                      --app .\out\windows-python-x64\all-devices-app.exe `
+                      --app-ready-pattern 'APP STATUS: Starting event loop' `
+                      --app-args '--device temperature-sensor:1 --discriminator 1234 --KVS out/windows-python-x64/test-kvs' `
+                      --script .\src\python_testing\TC_TMP_2_1.py `
+                      --script-args '--storage-path out/windows-python-x64/admin-storage.json --commissioning-method on-network-ip --ip-addr 127.0.0.1 --discriminator 1234 --passcode 20202021 --endpoint 1'
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            - name: Upload Python wheels
+              if: success()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: matter-python-windows-${{ matrix.architecture }}
+                  path: out/windows-python-${{ matrix.architecture }}/python-wheels/*.whl
+                  if-no-files-found: error
+                  retention-days: 7
+
     build:
         name: Windows ${{ matrix.architecture }}
         runs-on: windows-latest

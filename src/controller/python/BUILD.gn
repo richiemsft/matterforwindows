@@ -20,6 +20,7 @@ import("$dir_pw_build/python.gni")
 import("$dir_pw_build/python_dist.gni")
 
 import("${chip_root}/build/chip/tools.gni")
+import("${chip_root}/build/chip/tests.gni")
 import("${chip_root}/src/app/common_flags.gni")
 import("${chip_root}/src/controller/flags.gni")
 import("${chip_root}/src/data-model-providers/codegen/model.gni")
@@ -46,7 +47,11 @@ declare_args() {
 }
 
 config("controller_wno_deprecate") {
-  cflags = [ "-Wno-deprecated-declarations" ]
+  if (current_os == "win") {
+    cflags = [ "/wd4996" ]
+  } else {
+    cflags = [ "-Wno-deprecated-declarations" ]
+  }
 }
 
 if (chip_support_commissioning_in_controller) {
@@ -57,7 +62,11 @@ if (chip_support_commissioning_in_controller) {
 
 shared_library("ChipDeviceCtrl") {
   output_name = _chip_device_ctrl_output_name
-  output_dir = "${target_out_dir}/matter"
+  if (current_os == "win" && chip_support_commissioning_in_controller) {
+    output_dir = target_out_dir
+  } else {
+    output_dir = "${target_out_dir}/matter"
+  }
   include_dirs = [ "." ]
 
   sources = [
@@ -68,6 +77,13 @@ shared_library("ChipDeviceCtrl") {
   sources += [ "matter/native/CommonStackInit.cpp" ]
 
   defines = []
+
+  if (current_os == "win") {
+    inputs = [ "ChipDeviceCtrl.def" ]
+    ldflags = [
+      "/DEF:" + rebase_path("ChipDeviceCtrl.def", root_build_dir),
+    ]
+  }
 
   if (chip_support_commissioning_in_controller) {
     sources += [
@@ -98,7 +114,6 @@ shared_library("ChipDeviceCtrl") {
       "matter/crypto/p256keypair.cpp",
       "matter/crypto/p256keypair.h",
       "matter/discovery/NodeResolution.cpp",
-      "matter/fault_injection/FaultInjection.cpp",
       "matter/icd/PyChipCheckInDelegate.cpp",
       "matter/icd/PyChipCheckInDelegate.h",
       "matter/im_capture/IMCapture.cpp",
@@ -116,6 +131,9 @@ shared_library("ChipDeviceCtrl") {
       "matter/tracing/TracingSetup.cpp",
       "matter/utils/DeviceProxyUtils.cpp",
     ]
+    if (chip_with_nlfaultinjection) {
+      sources += [ "matter/fault_injection/FaultInjection.cpp" ]
+    }
     if (chip_support_webrtc_python_bindings) {
       sources += [
         "matter/webrtc/RTCClient.cpp",
@@ -150,6 +168,8 @@ shared_library("ChipDeviceCtrl") {
         "matter/ble/darwin/Scanning.mm",
       ]
       cflags = [ "-fobjc-arc" ]
+    } else if (current_os == "win") {
+      # Commissioning uses the Device Layer's WinRT central implementation.
     } else if (current_os == "all") {
       # current_os="all" is a synthetic aggregation used at generation time.
       # Skip selecting a concrete BLE backend in this configuration.
@@ -168,7 +188,6 @@ shared_library("ChipDeviceCtrl") {
     "${chip_root}/src/lib/core",
     "${chip_root}/src/lib/dnssd",
     "${chip_root}/src/lib/support",
-    "${chip_root}/src/lib/support:arg_parser",
     "${chip_root}/src/lib/support/jsontlv",
     "${chip_root}/src/platform",
     "${chip_root}/src/platform/logging:default",
@@ -192,15 +211,23 @@ shared_library("ChipDeviceCtrl") {
       "${chip_root}/src/credentials:file_attestation_trust_store",
       "${chip_root}/src/lib/support:testing",
       "${chip_root}/src/tracing/json",
-      "${chip_root}/src/tracing/perfetto",
-      "${chip_root}/src/tracing/perfetto:file_output",
       "${chip_root}/third_party/jsoncpp",
     ]
 
-    deps = [
-      "${chip_root}/src/tracing/perfetto:event_storage",
-      "${chip_root}/src/tracing/perfetto:simple_initialization",
-    ]
+    deps = []
+    if (current_os != "win") {
+      public_deps += [
+        "${chip_root}/src/tracing/perfetto",
+        "${chip_root}/src/tracing/perfetto:file_output",
+      ]
+      deps += [
+        "${chip_root}/src/tracing/perfetto:event_storage",
+        "${chip_root}/src/tracing/perfetto:simple_initialization",
+      ]
+      defines += [ "CHIP_PYTHON_ENABLE_PERFETTO=1" ]
+    } else {
+      defines += [ "CHIP_PYTHON_ENABLE_PERFETTO=0" ]
+    }
 
     if (chip_build_controller_dynamic_server) {
       defines += [ "CHIP_CONFIG_SKIP_APP_SPECIFIC_GENERATED_HEADER_INCLUDES=1" ]
@@ -219,6 +246,7 @@ shared_library("ChipDeviceCtrl") {
       public_deps += [ "${chip_root}/src/controller/data_model" ]
     }
   } else {
+    public_deps += [ "${chip_root}/src/lib/support:arg_parser" ]
     public_deps += [ "$chip_data_model" ]
   }
 
@@ -330,7 +358,9 @@ pw_python_package("matter-core-module") {
 pw_python_distribution("matter-core") {
   packages = [ ":matter-core-module" ]
 
-  if (current_cpu == "x64") {
+  if (current_cpu == "x64" && current_os == "win") {
+    cpu_tag = "amd64"
+  } else if (current_cpu == "x64") {
     cpu_tag = "x86_64"
   } else if (current_cpu == "arm64" && current_os == "linux") {
     cpu_tag = "aarch64"
@@ -380,7 +410,16 @@ pw_python_distribution("matter-core") {
       get_label_info(":ChipDeviceCtrl", "target_out_dir")
 
   public_deps = [ ":ChipDeviceCtrl" ]
-  extra_files += [ "${_chip_device_ctrl_out_dir}/matter/${_chip_device_ctrl_output_name}.so > matter/${_chip_device_ctrl_output_name}.so" ]
+  if (current_os == "win") {
+    _chip_device_ctrl_extension = ".dll"
+    _chip_device_ctrl_source =
+        "${_chip_device_ctrl_out_dir}/${_chip_device_ctrl_output_name}${_chip_device_ctrl_extension}"
+  } else {
+    _chip_device_ctrl_extension = ".so"
+    _chip_device_ctrl_source =
+        "${_chip_device_ctrl_out_dir}/matter/${_chip_device_ctrl_output_name}${_chip_device_ctrl_extension}"
+  }
+  extra_files += [ "${_chip_device_ctrl_source} > matter/${_chip_device_ctrl_output_name}${_chip_device_ctrl_extension}" ]
 }
 
 pw_python_package("matter-clusters-module") {

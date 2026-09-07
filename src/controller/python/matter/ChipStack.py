@@ -47,9 +47,6 @@ __all__ = [
     "ChipStack",
 ]
 
-ChipStackDLLBaseName = "_ChipDeviceCtrl.so"
-
-
 def _singleton(cls):
     instance = [None]
 

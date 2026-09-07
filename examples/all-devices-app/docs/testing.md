@@ -27,12 +27,10 @@ commands.
 On native Windows, build and launch the target as described in
 [Application Initialization & Command Line Options](starting_up.md#native-windows).
 The Windows process emits the same commissioning advertisement and can be
-driven by native `chip-tool.exe`. Its `--KVS`, `--discriminator`, and
-`--interface-id -1` arguments and setup-QR/readiness output implement the
-application-side subprocess contract used by the Python harness. The Python
-controller package itself is not yet built natively for Windows, so automated
-certification scripts must currently run on a supported test host against the
-Windows DUT.
+driven by native `chip-tool.exe` or the native Windows Python controller. Its
+`--KVS`, `--discriminator`, and `--interface-id -1` arguments and
+setup-QR/readiness output implement the application-side subprocess contract
+used by the Python harness.
 
 ### Launch the Simulator (Terminal A)
 
@@ -92,6 +90,22 @@ Before running tests, compile and activate the Python virtual environment:
 source out/venv/bin/activate
 ```
 
+On Windows, build the x64 controller wheels and install them into
+`out\venv` from PowerShell:
+
+```powershell
+.\scripts\tools\windows_python_controller.ps1 `
+    -Architecture x64 `
+    -InstallVirtualEnv out\venv
+```
+
+The native Windows controller supports commissioning and operational traffic
+over IP and includes the C++/WinRT BLE central backend. Live BLE commissioning
+requires Bluetooth-equipped Windows 11 hardware and is not exercised by the
+hardware-free CI job. Perfetto tracing, packet capture, and the POSIX
+`--app-stdin-pipe`/`--app-pipe` test transports are explicitly unsupported;
+JSON tracing remains available.
+
 ### Execution Method A: Recommended CI Harness (`local.py`)
 
 The automated test runner parses target definitions from test headers. Supply
@@ -101,6 +115,16 @@ the binary override path:
 ./scripts/tests/local.py python-tests \
     --test-filter TC_IDM_2_3 \
     --override-binary-path ALL_DEVICES_APP ./out/linux-x64-all-devices-clang/all-devices-app
+```
+
+The same runner works in PowerShell when the native application path is
+overridden:
+
+```powershell
+.\out\venv\Scripts\python.exe .\scripts\tests\local.py python-tests `
+    --test-filter TC_TMP_2_1 `
+    --override-binary-path ALL_DEVICES_APP `
+        .\out\win-all-devices-x64\all-devices-app.exe
 ```
 
 ### Execution Method B: Explicit Combined Harness (`run_python_test.py`)

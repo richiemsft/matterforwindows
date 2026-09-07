@@ -162,10 +162,17 @@ class Executor(contextlib.ExitStack):
         # leader, so the teardown story is unchanged.
         #
         # Seems like LogPipe has all what Popen needs to perceive it as stdout/stderr, but mypy doesn't think the same.
+        if os.name == "nt":
+            create_popen = lambda: subprocess.Popen(  # noqa: E731
+                cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP, stdin=stdin,
+                stdout=stdout, stderr=stderr)  # type: ignore[arg-type]
+        else:
+            create_popen = lambda: subprocess.Popen(  # noqa: E731
+                cmd, start_new_session=True, stdin=stdin,
+                stdout=stdout, stderr=stderr)  # type: ignore[arg-type]
+
         terminable_process: TerminablePopen[bytes] = TerminablePopen(
-            lambda: subprocess.Popen(cmd, start_new_session=True, stdin=stdin,
-                                     stdout=stdout, stderr=stderr),  # type: ignore[arg-type]
-            name, terminate_debug_logging=False)
+            create_popen, name, terminate_debug_logging=False)
         return self.enter_context(terminable_process)
 
 

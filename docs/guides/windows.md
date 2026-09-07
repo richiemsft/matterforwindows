@@ -1747,6 +1747,34 @@ provide the Linux example's POSIX named-pipe test-event transport. Application
 delegates that depend on that transport remain outside the Windows target; the
 generated attributes and command dispatch are present.
 
+### Native Python controller
+
+The Matter Python controller is available as an x64 Windows wheel containing
+`matter\_ChipDeviceCtrl.dll`. Build and optionally install the controller and generated cluster bindings
+from PowerShell. When a virtual environment is requested, the repository's
+Python test infrastructure is also made available to that environment:
+
+```powershell
+.\scripts\tools\windows_python_controller.ps1 `
+    -Architecture x64 `
+    -InstallVirtualEnv out\venv
+```
+
+Use `-Architecture arm64` to cross-build ARM64 wheels and the DLL. Do not pass
+`-InstallVirtualEnv` unless the host Python architecture matches the target.
+The target is opt-in through `chip_windows_build_python_controller=true` and
+uses the same native Device Layer, DNS-SD, storage, transport, and controller
+implementation as `chip-tool.exe`.
+
+The Windows Python controller includes the C++/WinRT BLE central backend used by
+the native Device Layer. The packaging script enables both `chip_enable_ble`
+and `chip_config_network_layer_ble`, so `ConnectBLE` and BLE PASE commissioning
+use the same discriminator scan, GATT, and CHIPoBLE implementation as native
+Windows controllers. Live over-the-air commissioning still requires a
+Bluetooth-equipped Windows 11 host and remains outside hardware-free CI. JSON
+tracing is supported. Perfetto tracing, packet capture, and POSIX named-pipe
+test options are rejected explicitly rather than silently emulated.
+
 ## Cross-build the ARM64 smoke target
 
 Initialize a new PowerShell process for the ARM64 compiler environment:
@@ -1809,7 +1837,7 @@ does not hide missing runtime behavior behind stubs.
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
 | Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local and websocket interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; YAML transport is enabled but a complete suite against a DUT remains unvalidated | Platform and application |
 | Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles plus the dynamic code-driven all-devices simulator are implemented; POSIX named-pipe test-event transport remains | Platform and application |
-| Tests | Portable C++ test bodies and Python suites | Native C++ coverage and application-side all-devices subprocess contracts are implemented; a native Windows Python controller package, BLE hardware, and ARM64 runners remain | Build and test harness |
+| Tests | Portable C++ test bodies and Python suites | Native C++ coverage, native Python controller wheels, and `TC_TMP_2_1` against all-devices-app are implemented; BLE hardware and ARM64 runtime runners remain | Build and test harness |
 
 The port must not cast a WinSock `SOCKET` to `int`. `SOCKET` is pointer-sized
 on 64-bit Windows, while the existing POSIX endpoint implementation frequently
@@ -2208,6 +2236,7 @@ are deliberate submodule bumps.
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
 | Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, and clean console shutdown | Supported | Cross-build only |
+| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load and `TC_TMP_2_1` direct-IP integration coverage; BLE hardware validation remains | Supported (`AA64`) | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
@@ -2225,6 +2254,7 @@ supported.
 | `chip-tool.exe` over operational IP | Build, lifecycle, interactive modes, and real-device commissioning validated | PE architecture and link validation only | Development preview |
 | `all-clusters-app.exe` | Generated model lifecycle validated | PE architecture and link validation only | Development preview |
 | `all-devices-app.exe` | Dynamic model and external test-host subprocess contract validated | PE architecture and link validation only | Development preview |
+| Native Python controller | IP commissioning and test-harness execution supported; WinRT BLE included but live hardware validation remains; Perfetto excluded | PE architecture, BLE linkage, ABI exports, and wheel validation only | Development preview |
 | BLE central/peripheral | Hardware-free state-machine coverage | Cross-build only | Experimental until live hardware validation |
 | External Thread Border Router | Uses the operational IPv6 controller path | Cross-build only | Experimental until end-to-end validation |
 | Application ZIP | Deterministic unsigned CI package with hashes and notices | Deterministic unsigned CI package with hashes and notices | Validation artifact, not a signed release |
@@ -2233,8 +2263,8 @@ Supported builds use Windows 11, Visual Studio with the Desktop development
 with C++ workload, the Windows SDK selected by
 `scripts/setup/windows.ps1`, and the repository-pinned GN, Ninja, and
 dependencies. Windows 10, MinGW, clang-cl, MSBuild-only builds, 32-bit x86,
-native Windows Python controller bindings, packaged-app capability manifests,
-and a local Thread stack are outside this matrix.
+packaged-app capability manifests, and a local Thread stack are outside this
+matrix.
 
 The preview makes no ABI or long-term servicing guarantee. Production release
 requires native ARM64 execution, signed artifacts from protected credentials,

@@ -17,6 +17,7 @@
 import configparser
 import enum
 import fnmatch
+import json
 import glob
 import logging
 import multiprocessing
@@ -30,6 +31,7 @@ import textwrap
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 import alive_progress
 import click
@@ -77,8 +79,21 @@ def _get_native_machine_target():
         arch = "x86"
     elif arch in ("aarch64", "aarch64_be", "armv8b", "armv8l"):
         arch = "arm64"
+    elif arch.upper() == "AMD64":
+        arch = "x64"
+    elif arch.upper() == "ARM64":
+        arch = "arm64"
 
     return f"{current_system_info.system.lower()}-{arch}"
+
+
+def _get_windows_native_architecture() -> str:
+    architecture = platform.machine().upper()
+    if architecture in ("AMD64", "X86_64"):
+        return "x64"
+    if architecture in ("ARM64", "AARCH64"):
+        return "arm64"
+    raise ValueError(f"Unsupported Windows architecture: {platform.machine()}")
 
 
 _CONFIG_PATH = "out/local_py.ini"
@@ -516,9 +531,26 @@ def _do_build_python():
     Builds a python virtual environment into `out/venv`
     """
     log.info("Building python packages in out/venv ...")
-    subprocess.run(
-        ["./scripts/build_python.sh", "--install_virtual_env", "out/venv"], check=True
-    )
+    if sys.platform == "win32":
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts/tools/windows_python_controller.ps1",
+                "-Architecture",
+                _get_windows_native_architecture(),
+                "-InstallVirtualEnv",
+                "out/venv",
+            ],
+            check=True,
+        )
+    else:
+        subprocess.run(
+            ["./scripts/build_python.sh", "--install_virtual_env", "out/venv"], check=True
+        )
 
 
 def _do_build_apps(coverage: bool | None, ccache: bool):
@@ -971,6 +1003,8 @@ def python_tests(
         runner = BinaryRunner.COVERAGE
 
     def as_runner(path):
+        if sys.platform == "win32" and not Path(path).suffix:
+            path = f"{path}.exe"
         return _maybe_with_runner(os.path.basename(path), path, runner)
 
     # create an env file
@@ -982,7 +1016,7 @@ def python_tests(
                 run_path = as_runner(override_binaries[target.env_key])
             else:
                 run_path = as_runner(f"out/{target.target}/{target.binary}")
-            f.write(f"{target.env_key}: {run_path}\n")
+            f.write(f"{target.env_key}: {json.dumps(run_path)}\n")
 
         # PushAV is special
         f.write("PUSH_AV_SERVER: src/tools/push_av_server/src/server.py\n")
@@ -1088,11 +1122,27 @@ def python_tests(
         with alive_progress.alive_bar(len(to_run), title="Running tests") as bar:
             for script in to_run:
                 bar.text(script)
-                cmd = [
-                    "scripts/run_in_python_env.sh",
-                    "out/venv",
-                    f"./scripts/tests/run_python_test.py --load-from-env out/test_env.yaml --script {script}",
-                ]
+                if sys.platform == "win32":
+                    python_executable = Path("out/venv/Scripts/python.exe")
+                    if not python_executable.is_file():
+                        raise FileNotFoundError(
+                            "Windows Python test environment not found at out/venv/Scripts/python.exe"
+                        )
+                    cmd = [
+                        str(python_executable),
+                        "-B",
+                        "scripts/tests/run_python_test.py",
+                        "--load-from-env",
+                        "out/test_env.yaml",
+                        "--script",
+                        script,
+                    ]
+                else:
+                    cmd = [
+                        "scripts/run_in_python_env.sh",
+                        "out/venv",
+                        f"./scripts/tests/run_python_test.py --load-from-env out/test_env.yaml --script {script}",
+                    ]
 
                 if app_filter_list:
                     cmd.extend(('--app-filter', app_filter))

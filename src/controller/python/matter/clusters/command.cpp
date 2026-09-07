@@ -15,7 +15,9 @@
  *    limitations under the License.
  */
 
+#include <chrono>
 #include <memory>
+#include <thread>
 #include <type_traits>
 #include <unordered_map>
 
@@ -336,7 +338,7 @@ PyChipError SendBatchCommandsInternal(void * appContext, DeviceProxy * device, u
     // own method/primitive.
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:
@@ -415,7 +417,7 @@ PyChipError pychip_CommandSender_SendCommand(void * appContext, DeviceProxy * de
     // own method/primitive.
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:
@@ -492,7 +494,7 @@ PyChipError pychip_CommandSender_TestOnlySendCommandTimedRequestNoTimedInvoke(
     // own method/primitive.
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:
@@ -539,7 +541,7 @@ PyChipError pychip_CommandSender_SendGroupCommand(chip::GroupId groupId, chip::C
     // own method/primitive.
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:

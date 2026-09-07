@@ -83,6 +83,9 @@ namespace Controller {
 // The command status will be used for python script.
 // use packed attribute so we can unpack it from python and no need to worry about padding.
 // This struct needs to match the IMCommandStatus definition in delegate.py
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct __attribute__((packed)) CommandStatus
 {
     Protocols::InteractionModel::Status status;
@@ -120,6 +123,9 @@ struct __attribute__((packed)) AttributeWriteStatus
     chip::ClusterId clusterId;
     chip::FieldId fieldId;
 };
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 static_assert(std::is_same<chip::EndpointId, uint16_t>::value && std::is_same<chip::ClusterId, uint32_t>::value &&
                   std::is_same<chip::FieldId, uint32_t>::value,
               "Members in AttributeWriteStatus does not match interaction_model/delegate.py");

@@ -15,6 +15,7 @@
 
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -47,12 +48,17 @@ class PathsFinder:
         return None
 
     def _find_from_root(self, root: str, target_name: str) -> Path | None:
-        for path in Path(root).rglob(target_name):
-            if not path.is_file() or path.name != target_name:
-                continue
+        names = [target_name]
+        if sys.platform == "win32" and not target_name.lower().endswith(".exe"):
+            names.append(f"{target_name}.exe")
 
-            _PATHS_CACHE[target_name] = path
-            return path
+        for name in names:
+            for path in Path(root).rglob(name):
+                if not path.is_file() or path.name != name:
+                    continue
+
+                _PATHS_CACHE[target_name] = path
+                return path
 
         return None
 

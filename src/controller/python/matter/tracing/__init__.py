@@ -15,6 +15,7 @@
 #
 
 import ctypes
+import os
 from enum import Enum, auto
 
 from ..native import GetLibraryHandle, HandleFlags, NativeLibraryHandleMethodArguments, PyChipError
@@ -59,6 +60,9 @@ def StartTracingTo(trace_type: TraceType, file_name: str | None = None):
     Note that only one active trace can exist of a given type (i.e. cannot trace both
     to files and logs/system).
     """
+    if os.name == "nt" and trace_type == TraceType.PERFETTO:
+        raise ValueError("Perfetto tracing is not supported by the native Windows controller")
+
     handle = _GetTracingLibraryHandle()
 
     if trace_type == TraceType.JSON:

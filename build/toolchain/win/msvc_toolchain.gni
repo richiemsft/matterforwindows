@@ -51,7 +51,7 @@ template("msvc_toolchain") {
     }
 
     tool("solink") {
-      command = "link.exe /nologo /DLL /OUT:{{output}} /IMPLIB:{{target_out_dir}}/{{target_output_name}}.lib @{{output}}.rsp"
+      command = "link.exe /nologo /DLL /OUT:{{output_dir}}/{{target_output_name}}{{output_extension}} /IMPLIB:{{target_out_dir}}/{{target_output_name}}.lib @{{target_out_dir}}/{{target_output_name}}.rsp"
       description = "LINK(DLL) {{output}}"
       default_output_extension = ".dll"
       output_prefix = ""
@@ -63,7 +63,7 @@ template("msvc_toolchain") {
       depend_output = "{{target_out_dir}}/{{target_output_name}}.lib"
       runtime_outputs =
           [ "{{output_dir}}/{{target_output_name}}{{output_extension}}" ]
-      rspfile = "{{output}}.rsp"
+      rspfile = "{{target_out_dir}}/{{target_output_name}}.rsp"
       rspfile_content = "{{inputs}} {{solibs}} {{libs}} {{rlibs}} {{ldflags}}"
       lib_switch = ""
       lib_dir_switch = "/LIBPATH:"

@@ -722,7 +722,7 @@ def populate_commissioning_args(args: argparse.Namespace, config) -> bool:
                 return False
             config.thread_ba_host = args.thread_ba_host
             config.thread_ba_port = args.thread_ba_port
-    elif config.commissioning_method == "on-network-ip":
+    elif commissioning_method == "on-network-ip":
         if args.ip_addr is None:
             print("error: missing --ip-addr <IP_ADDRESS> for --commissioning-method on-network-ip")
             return False
@@ -1012,12 +1012,12 @@ def matter_test_args_parser() -> argparse.ArgumentParser:
 
     commission_group.add_argument('-m', '--commissioning-method', type=str,
                                   metavar='METHOD_NAME',
-                                  choices=["on-network", "ble-wifi", "ble-thread", "nfc-thread",
+                                  choices=["on-network", "on-network-ip", "ble-wifi", "ble-thread", "nfc-thread",
                                            "nfc-wifi", "nfc-ethernet", "thread-meshcop"],
                                   help='Name of commissioning method to use')
     commission_group.add_argument('--in-test-commissioning-method', type=str,
                                   metavar='METHOD_NAME',
-                                  choices=["on-network", "ble-wifi", "ble-thread", "nfc-thread",
+                                  choices=["on-network", "on-network-ip", "ble-wifi", "ble-thread", "nfc-thread",
                                            "nfc-wifi", "nfc-ethernet", "thread-meshcop"],
                                   help='Name of commissioning method to use, for commissioning tests')
     commission_group.add_argument('-d', '--discriminator', type=int_decimal_or_hex,
@@ -1037,6 +1037,9 @@ def matter_test_args_parser() -> argparse.ArgumentParser:
     commission_group.add_argument('--wifi-passphrase', type=str,
                                   metavar='PASSPHRASE',
                                   help='Wi-Fi passphrase for ble-wifi commissioning')
+    commission_group.add_argument('--ip-addr', type=str,
+                                  metavar='IP_ADDRESS',
+                                  help='Commissionee IP address for on-network-ip commissioning')
 
     commission_group.add_argument('--thread-dataset-hex', type=byte_string_from_hex,
                                   metavar='OPERATIONAL_DATASET_HEX',

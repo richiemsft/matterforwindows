@@ -234,16 +234,15 @@ static_library("windows-platform-manager-canonical") {
     "//src/setup_payload:additional_data_payload_buildconfig",
     "//src/system:system",
     "//third_party/nlio",
-    ":windows-ble",
   ]
 
-  # windows-ble requires CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE; this canonical
-  # target already receives it via the generated platform/CHIPDeviceBuildConfig.h
-  # buildconfig header (chip_enable_ble, see src/platform/BUILD.gn), not a
-  # literal define here -- adding one too would redefine the same macro
-  # (C4005, fatal under /WX). See BlePlatformConfig.h/CHIPDevicePlatformConfig.h
-  # for why the header-only default stays 0 for the ad hoc, non-buildconfig
-  # Device Layer targets.
+  if (chip_enable_ble) {
+    public_deps += [ ":windows-ble" ]
+  }
+
+  # When enabled, windows-ble receives CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE via
+  # the generated platform/CHIPDeviceBuildConfig.h buildconfig header
+  # (chip_enable_ble, see src/platform/BUILD.gn), not a literal define here.
   defines = [ "CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1" ]
 
   libs = [

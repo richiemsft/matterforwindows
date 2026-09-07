@@ -14,9 +14,12 @@
 #    limitations under the License.
 
 import logging
+import os
 import shlex
+import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -49,7 +52,10 @@ TEST_THREAD_DATASET = '0e08000000000001000000030000104a0300001635060004001fffe00
 # covered by --KVS, so they have to be removed explicitly on a factory reset. Otherwise an application inherits the vendor and
 # product ID persisted by whichever application booted first in the worker's /tmp, which makes tests using a hardcoded setup payload
 # fail with a product ID mismatch.
-PERSISTENT_CONFIG_PATHS = frozenset({'/tmp/chip_factory.ini', '/tmp/chip_config.ini', '/tmp/chip_counters.ini'})
+PERSISTENT_CONFIG_PATHS = (
+    frozenset({'/tmp/chip_factory.ini', '/tmp/chip_config.ini', '/tmp/chip_counters.ini'})
+    if sys.platform == "linux" else frozenset()
+)
 
 
 class App:
@@ -61,7 +67,7 @@ class App:
         self.cv_stopped = threading.Condition()
         self.stopped = True
         self.lastLogIndex = 0
-        self.kvsPathSet = {'/tmp/chip_kvs'}
+        self.kvsPathSet = {str(Path(tempfile.gettempdir()) / 'chip_kvs')}
         self.options: dict[str, str] | None = None
         self.killed = False
         self.setupCode: str | None = None
@@ -110,7 +116,11 @@ class App:
         wasRunning = (not self.killed) and self.stop()
 
         for path in self.kvsPathSet | PERSISTENT_CONFIG_PATHS:
-            Path(path).unlink(missing_ok=True)
+            storage_path = Path(path)
+            if storage_path.is_dir():
+                shutil.rmtree(storage_path)
+            else:
+                storage_path.unlink(missing_ok=True)
 
         if wasRunning:
             return self.start()
@@ -221,14 +231,17 @@ class App:
         Returns False if the process existed and had a nonzero exit code.
         """
         if self.process:
-            self.process.terminate()  # sends SIGTERM
+            if os.name == "nt":
+                self.process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                self.process.terminate()
             try:
                 exit_code = self.process.wait(10)
                 if exit_code:
                     log.error("Subprocess failed with exit code: %d", exit_code)
                     return False
             except subprocess.TimeoutExpired:
-                log.debug("Subprocess did not terminate on SIGTERM, killing it now")
+                log.debug("Subprocess did not terminate gracefully, killing it now")
                 self.process.kill()
                 # The exit code when using Python subprocess will be the signal used to kill it.
                 # Ideally, we would recover the original exit code, but the process was already
@@ -314,7 +327,7 @@ class SubprocessInfoRepo(dict):
 
     def addSpec(self, spec: str, kind: SubprocessKind | None = None):
         """Add a path to the repo as specified on the command line"""
-        el = spec.split(':')
+        el = spec.split(':', 1)
         if len(el) == 2:
             # <key>:<path>
             key, path_s = el
@@ -331,7 +344,7 @@ class SubprocessInfoRepo(dict):
 
         s = SubprocessInfo(kind=kind, path=path)
         if path.suffix == '.py':
-            s = s.wrap_with('python3')
+            s = s.wrap_with(sys.executable)
         self[key] = s
 
     def missing_keys(self):
@@ -381,7 +394,7 @@ class SubprocessInfoRepo(dict):
         log.info("Discovered required key '%s' path '%s'", key, path)
         s = SubprocessInfo(kind=kind, path=path)
         if path.suffix == '.py':
-            s = s.wrap_with('python3')
+            s = s.wrap_with(sys.executable)
         self[key] = s
         return self[key]
 

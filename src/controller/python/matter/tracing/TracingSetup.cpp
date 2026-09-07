@@ -20,17 +20,21 @@
 #include <controller/python/matter/native/PyChipError.h>
 
 #include <tracing/json/json_tracing.h>
+#if CHIP_PYTHON_ENABLE_PERFETTO
 #include <tracing/perfetto/event_storage.h>
 #include <tracing/perfetto/file_output.h>
 #include <tracing/perfetto/perfetto_tracing.h>
 #include <tracing/perfetto/simple_initialize.h>
+#endif
 #include <tracing/registry.h>
 
 namespace {
 chip::Tracing::Json::JsonBackend gJsonBackend;
 
+#if CHIP_PYTHON_ENABLE_PERFETTO
 chip::Tracing::Perfetto::FileTraceOutput gPerfettoFileOutput;
 chip::Tracing::Perfetto::PerfettoBackend gPerfettoBackend;
+#endif
 
 } // namespace
 
@@ -60,15 +64,18 @@ extern "C" PyChipError pychip_tracing_start_json_file(const char * file_name)
 
 extern "C" void pychip_tracing_start_perfetto_system()
 {
+#if CHIP_PYTHON_ENABLE_PERFETTO
     chip::MainLoopWork::ExecuteInMainLoop([] {
         chip::Tracing::Perfetto::Initialize(perfetto::kSystemBackend);
         chip::Tracing::Perfetto::RegisterEventTrackingStorage();
         chip::Tracing::Register(gPerfettoBackend);
     });
+#endif
 }
 
 extern "C" PyChipError pychip_tracing_start_perfetto_file(const char * file_name)
 {
+#if CHIP_PYTHON_ENABLE_PERFETTO
     CHIP_ERROR err = CHIP_NO_ERROR;
     chip::MainLoopWork::ExecuteInMainLoop([&err, file_name] {
         chip::Tracing::Perfetto::Initialize(perfetto::kInProcessBackend);
@@ -83,14 +90,20 @@ extern "C" PyChipError pychip_tracing_start_perfetto_file(const char * file_name
     });
 
     return ToPyChipError(err);
+#else
+    static_cast<void>(file_name);
+    return ToPyChipError(CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+#endif
 }
 
 extern "C" void pychip_tracing_stop()
 {
     chip::MainLoopWork::ExecuteInMainLoop([] {
+#if CHIP_PYTHON_ENABLE_PERFETTO
         chip::Tracing::Perfetto::FlushEventTrackingStorage();
         gPerfettoFileOutput.Close();
         chip::Tracing::Unregister(gPerfettoBackend);
+#endif
         chip::Tracing::Unregister(gJsonBackend);
     });
 }

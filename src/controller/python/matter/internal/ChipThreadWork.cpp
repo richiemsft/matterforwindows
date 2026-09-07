@@ -17,11 +17,8 @@
 
 #include "ChipThreadWork.h"
 
-#ifdef __APPLE__
-#include <dispatch/dispatch.h>
-#else
-#include <semaphore.h>
-#endif
+#include <condition_variable>
+#include <mutex>
 
 #include <platform/CHIPDeviceLayer.h>
 
@@ -32,21 +29,22 @@ namespace {
 struct WorkData
 {
     WorkCallback callback;
-#ifdef __APPLE__
-    dispatch_semaphore_t done;
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool done = false;
 
-    WorkData() { done = dispatch_semaphore_create(0); }
-    ~WorkData() { dispatch_release(done); }
-    void Post() { dispatch_semaphore_signal(done); }
-    void Wait() { dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER); }
-#else
-    sem_t done;
+    void Post()
+    {
+        std::lock_guard lock(mutex);
+        done = true;
+        condition.notify_one();
+    }
 
-    WorkData() { sem_init(&done, 0 /* shared */, 0); }
-    ~WorkData() { sem_destroy(&done); }
-    void Post() { sem_post(&done); }
-    void Wait() { sem_wait(&done); }
-#endif
+    void Wait()
+    {
+        std::unique_lock lock(mutex);
+        condition.wait(lock, [&] { return done; });
+    }
 };
 
 void PerformWork(intptr_t arg)

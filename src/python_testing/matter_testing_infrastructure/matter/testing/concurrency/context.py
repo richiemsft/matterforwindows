@@ -194,10 +194,13 @@ class TerminablePopen(TerminableResourceBase[subprocess.Popen[PopenT]]):
                 return
             cmd = str(self._process.args)
 
-            # SIGTERM
+            graceful_signal = signal.CTRL_BREAK_EVENT if os.name == "nt" else signal.SIGTERM
             log.debug('Terminating leftover process "%s"', cmd)
             try:
-                self._signal_process_group(self._process, signal.SIGTERM)
+                if os.name == "nt":
+                    self._process.send_signal(graceful_signal)
+                else:
+                    self._signal_process_group(self._process, graceful_signal)
             except OSError:
                 # Can occur in case of race condition when process exits between poll and terminate.
                 return
@@ -205,10 +208,12 @@ class TerminablePopen(TerminableResourceBase[subprocess.Popen[PopenT]]):
                 self._process.wait(self.RESOURCE_TIMEOUT_TERMINATE_S)
                 return
 
-            # SIGKILL
             log.warning('Failed to terminate the process "%s". Killing instead', cmd)
             try:
-                self._signal_process_group(self._process, signal.SIGKILL)
+                if os.name == "nt":
+                    self._process.kill()
+                else:
+                    self._signal_process_group(self._process, signal.SIGKILL)
             except OSError:
                 return
             with contextlib.suppress(subprocess.TimeoutExpired):

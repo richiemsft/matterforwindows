@@ -18,6 +18,8 @@
 """
 This module contains global variables that are used across several scripts and classes.
 """
+import tempfile
+from pathlib import Path
 from typing import final
 
 
@@ -25,7 +27,7 @@ class TestingDefaults:
 
     ADMIN_VENDOR_ID: final = 0xFFF1
     STORAGE_PATH: final = "admin_storage.json"
-    LOG_PATH: final = "/tmp/matter_testing/logs"
+    LOG_PATH: final = str(Path(tempfile.gettempdir()) / "matter_testing" / "logs")
     CONTROLLER_NODE_ID: final = 112233
     DUT_NODE_ID: final = 0x12344321
     TRUST_ROOT_INDEX: final = 1

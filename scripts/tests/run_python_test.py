@@ -28,7 +28,9 @@ import pathlib
 import re
 import select
 import shlex
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import typing
@@ -88,6 +90,8 @@ def process_test_script_output(line, is_stderr):
 
 def forward_fifo(path: str, f_out: typing.BinaryIO, stop_event: threading.Event):
     """Forward the content of a named pipe to a file-like object."""
+    if sys.platform == "win32":
+        raise RuntimeError("POSIX application FIFO forwarding is not supported on Windows")
     if not os.path.exists(path):
         with contextlib.suppress(OSError):
             os.mkfifo(path)
@@ -112,6 +116,33 @@ class TestRunConfig:
     app_ready_pattern: str | None
     stream_output: typing.BinaryIO
     app_stdin_pipe: str | None = None
+
+
+def normalize_windows_path_options(arguments: str, option_names: set[str]) -> str:
+    """Resolve path-valued options before forwarding them through the Windows harness."""
+    tokens = shlex.split(arguments)
+    for index, token in enumerate(tokens):
+        option, separator, value = token.partition("=")
+        if option not in option_names:
+            continue
+        if separator:
+            tokens[index] = f"{option}={Path(value).resolve().as_posix()}"
+        elif index + 1 < len(tokens):
+            tokens[index + 1] = Path(tokens[index + 1]).resolve().as_posix()
+    return shlex.join(tokens)
+
+
+def path_option_values(arguments: str, option_names: set[str]) -> typing.Iterator[str]:
+    """Yield values for path options expressed as either `--name value` or `--name=value`."""
+    tokens = shlex.split(arguments)
+    for index, token in enumerate(tokens):
+        option, separator, value = token.partition("=")
+        if option not in option_names:
+            continue
+        if separator:
+            yield value
+        elif index + 1 < len(tokens):
+            yield tokens[index + 1]
 
 
 class AppProcessManager:
@@ -350,8 +381,8 @@ class AppRestartMonitor:
             # Restart the app
             log.info("Restarting app '%s'...", self.config.app)
             new_app_manager = AppProcessManager(self.config)
-            self.app_manager_ref[0].stop()
             with self.app_manager_lock:
+                self.app_manager_ref[0].stop()
                 new_app_manager.start()
                 self.app_manager_ref[0] = new_app_manager
 
@@ -371,9 +402,24 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
     app_args = app_args.replace('{SCRIPT_BASE_NAME}', os.path.splitext(os.path.basename(script))[0])
     script_args = script_args.replace('{SCRIPT_BASE_NAME}', os.path.splitext(os.path.basename(script))[0])
 
+    if sys.platform == "win32":
+        if app_stdin_pipe:
+            raise click.ClickException("--app-stdin-pipe is not supported on Windows")
+        if ip_packet_capture:
+            raise click.ClickException("--ip-packet-capture is not supported on Windows")
+        if script_gdb:
+            raise click.ClickException("--script-gdb is not supported on Windows")
+
+        app_tokens = shlex.split(app_args)
+        unsupported_options = {"--app-pipe", "--app-pipe-out"}
+        if any(token.split("=", 1)[0] in unsupported_options for token in app_tokens):
+            raise click.ClickException("POSIX application pipe options are not supported on Windows")
+        app_args = normalize_windows_path_options(app_args, {"--KVS", "--storage-directory"})
+        script_args = normalize_windows_path_options(script_args, {"--storage-path"})
+
     # Generate unique test run ID to avoid conflicts in concurrent test runs
     test_run_id = str(uuid.uuid4())[:8]  # Use first 8 characters for shorter paths
-    restart_flag_file = f"/tmp/chip_test_restart_app_{test_run_id}"
+    restart_flag_file = str(Path(tempfile.gettempdir()) / f"chip_test_restart_app_{test_run_id}")
 
     script_name = pathlib.Path(script).name.removesuffix('.py')
     tcpdump_capture_filename = ip_packet_capture_dir / f"tcpdump_{script_name}-{os.getpid()}-{run_name}.pcap"
@@ -398,8 +444,7 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
     restart_monitor = AppRestartMonitor(restart_flag_file)
     if app:
         if not os.path.exists(app):
-            if app is None:
-                raise FileNotFoundError(f"{app} not found")
+            raise FileNotFoundError(f"{app} not found")
         app_config = TestRunConfig(app, app_args, script_args, app_ready_pattern, stream_output, app_stdin_pipe)
         app_manager = AppProcessManager(app_config)
         app_manager.start()
@@ -479,7 +524,7 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
         script_command = ("gdb -batch -return-child-result -q -ex run -ex "
                           "thread|apply|all|bt --args python3".split() + script_command)
     else:
-        script_command = "/usr/bin/env python3 -X faulthandler".split() + script_command
+        script_command = [sys.executable, "-X", "faulthandler"] + script_command
 
     final_script_command = [i.replace('|', ' ') for i in script_command]
 
@@ -509,10 +554,11 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
                 current_app_manager = app_manager_ref[0]
 
         if current_app_manager:
-            log.info("Stopping app with SIGTERM")
+            log.info("Stopping app")
+            app_process = current_app_manager.get_process()
             current_app_manager.stop()
-            if current_app_manager.get_process():
-                app_exit_code = current_app_manager.get_process().returncode
+            if app_process:
+                app_exit_code = app_process.returncode
 
         # We expect both app and test script should exit with 0
         exit_code = test_script_exit_code or app_exit_code
@@ -536,6 +582,12 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
     finally:
         restart_monitor.stop()
 
+        if app_manager_ref:
+            with app_manager_lock:
+                current_app_manager = app_manager_ref[0]
+                if current_app_manager.get_process():
+                    current_app_manager.stop()
+
         tcpdump.stop()
 
         # Clean up any leftover flag files if they exist - ensure this always executes
@@ -557,23 +609,27 @@ class FactoryResetType(enum.Enum):
         """Yield paths of config/storage files to remove for this reset type."""
 
         # App config files and KVS, exclude restart flag file
-        yield from (f for f in glob.glob('/tmp/chip*') if not os.path.basename(f).startswith('chip_test_restart_app'))
-        yield from glob.glob('/tmp/repl*')
+        temp_dir = tempfile.gettempdir()
+        yield from (f for f in glob.glob(os.path.join(temp_dir, 'chip*'))
+                    if not os.path.basename(f).startswith('chip_test_restart_app'))
+        yield from glob.glob(os.path.join(temp_dir, 'repl*'))
 
-        if match := re.search(r"--KVS (?P<path>[^ ]+)", app_args):
-            yield match.group("path")
+        yield from path_option_values(app_args, {"--KVS"})
 
         if self == FactoryResetType.AppAndController:
             # Controller storage
-            if match := re.search(r"--storage-path (?P<path>[^ ]+)", script_args):
-                yield match.group("path")
+            yield from path_option_values(script_args, {"--storage-path"})
 
 
 def factory_reset_config_removal(app_args: str, script_args: str, reset_type: FactoryResetType = None):
     """Handles app factory reset requests by removing configuration and storage files."""
     for path in reset_type.config_files(app_args, script_args):
         log.info("Removing config/storage file, path: '%s'...", path)
-        pathlib.Path(path).unlink(missing_ok=True)
+        storage_path = pathlib.Path(path)
+        if storage_path.is_dir():
+            shutil.rmtree(storage_path)
+        else:
+            storage_path.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

@@ -443,10 +443,12 @@ int Run(const AppConfig & config)
     {
         error = ConfigurationManagerImpl::GetDefaultInstance().ConfigureStorageRoot(storageRoot.c_str());
     }
+#if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
     if (error == CHIP_NO_ERROR)
     {
         error = DeviceLayer::Internal::BLEMgrImpl().ConfigureBle(0, false);
     }
+#endif
     if (error == CHIP_NO_ERROR)
     {
         error = PlatformMgr().InitChipStack();

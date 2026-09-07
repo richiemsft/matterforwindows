@@ -43,10 +43,16 @@ using namespace chip;
 
 extern "C" {
 
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct __attribute__((packed)) PyCommonStackInitParams
 {
     uint32_t mBluetoothAdapterId;
 };
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 
 /**
  * Function to artifically cause a crash to happen
@@ -64,8 +70,8 @@ PyChipError pychip_CommonStackInit(const PyCommonStackInitParams * aParams)
 {
     PyReturnErrorOnFailure(ToPyChipError(Platform::MemoryInit()));
 
-#if CHIP_DEVICE_LAYER_TARGET_LINUX && CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
-    // By default, Linux device is configured as a BLE peripheral while the controller needs a BLE central.
+#if (CHIP_DEVICE_LAYER_TARGET_LINUX || CHIP_DEVICE_LAYER_TARGET_WINDOWS) && CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
+    // Device builds default to the BLE peripheral role while the controller needs a BLE central.
     PyReturnErrorOnFailure(
         ToPyChipError(DeviceLayer::Internal::BLEMgrImpl().ConfigureBle(aParams->mBluetoothAdapterId, /* BLE central */ true)));
 #endif

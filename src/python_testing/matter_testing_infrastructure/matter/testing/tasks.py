@@ -16,6 +16,7 @@ import logging
 import pathlib
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import threading
@@ -139,11 +140,13 @@ class Subprocess(threading.Thread):
         forwarding_stdout_thread: threading.Thread | None = None
         forwarding_stderr_thread: threading.Thread | None = None
         try:
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
             self.p = subprocess.Popen(command,
                                       stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE,
-                                      bufsize=0)
+                                      bufsize=0,
+                                      creationflags=creationflags)
             self.event_started.set()
 
             # Forward stdout and stderr with a tag attached.
@@ -195,7 +198,7 @@ class Subprocess(threading.Thread):
         if expected_output is not None and not self.event.wait(timeout):
             # Terminate the process, so the Python interpreter will not hang on the join call in our thread entry point in case of
             # Python process termination (not-caught exception).
-            self.p.terminate()
+            self.terminate()
             raise TimeoutError(f"Expected output {expected_output!r} not found within {timeout} seconds")
 
     def send(self, message: str, end: str = "\n", expected_output: str | re.Pattern | None = None,
@@ -219,12 +222,24 @@ class Subprocess(threading.Thread):
         if self.p is None:
             return
 
+        if sys.platform == "win32":
+            try:
+                self.p.send_signal(signal.CTRL_BREAK_EVENT)
+            except (OSError, ValueError):
+                LOGGER.debug("Failed to send Ctrl+Break to subprocess", exc_info=True)
+        else:
+            self.p.terminate()
+        self.join(TestingDefaults.TERMINATION_TIMEOUT_S)
+        if not self.is_alive() and self.returncode is not None:
+            return
+
+        LOGGER.warning("Subprocess did not stop gracefully; terminating it")
         self.p.terminate()
         self.join(TestingDefaults.TERMINATION_TIMEOUT_S)
         if not self.is_alive() and self.returncode is not None:
             return
 
-        LOGGER.warning("Subprocess or controller thread did not terminate within timeout. Killing the process instead")
+        LOGGER.warning("Subprocess or controller thread did not terminate within timeout. Killing it")
         self.p.kill()
         self.join(TestingDefaults.TERMINATION_TIMEOUT_S)
         if self.is_alive() or self.returncode is None:

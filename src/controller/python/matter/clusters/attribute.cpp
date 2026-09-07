@@ -16,8 +16,10 @@
  */
 
 #include <cstdarg>
+#include <chrono>
 #include <cstdio>
 #include <memory>
+#include <thread>
 #include <type_traits>
 
 #include <app/BufferedReadCallback.h>
@@ -42,6 +44,9 @@ using PyObject = void;
 namespace chip {
 namespace python {
 
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct __attribute__((packed)) AttributePath
 {
     chip::EndpointId endpointId;
@@ -65,6 +70,9 @@ struct __attribute__((packed)) DataVersionFilter
     chip::ClusterId clusterId;
     chip::DataVersion dataVersion;
 };
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 
 using OnReadAttributeDataCallback       = void (*)(PyObject * appContext, chip::DataVersion version, chip::EndpointId endpointId,
                                              chip::ClusterId clusterId, chip::AttributeId attributeId,
@@ -260,6 +268,9 @@ private:
 
 extern "C" {
 
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct __attribute__((packed)) PyReadAttributeParams
 {
     uint16_t minInterval; // MinInterval in subscription request
@@ -269,6 +280,9 @@ struct __attribute__((packed)) PyReadAttributeParams
     bool keepSubscriptions;
     bool autoResubscribe;
 };
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 
 PyChipError pychip_WriteClient_WriteAttributes(void * appContext, DeviceProxy * device, size_t timedWriteTimeoutMsSizeT,
                                                size_t interactionTimeoutMsSizeT, size_t busyWaitMsSizeT,
@@ -433,7 +447,7 @@ PyChipError pychip_WriteClient_WriteAttributes(void * appContext, DeviceProxy * 
 
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:
@@ -477,7 +491,7 @@ PyChipError pychip_WriteClient_TestOnlyWriteAttributesWithMismatchedTimedRequest
 
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:
@@ -536,7 +550,7 @@ PyChipError pychip_WriteClient_WriteGroupAttributes(size_t groupIdSizeT, chip::C
 
     if (busyWaitMs)
     {
-        usleep(busyWaitMs * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(busyWaitMs));
     }
 
 exit:

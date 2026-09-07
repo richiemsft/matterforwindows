@@ -26,10 +26,12 @@ import construct  # type: ignore
 
 from ..exceptions import ChipStackError
 
+_NATIVE_LIBRARY_SUFFIX = ".dll" if os.name == "nt" else ".so"
+
 
 class Library(enum.Enum):
-    CONTROLLER = "_ChipDeviceCtrl.so"
-    SERVER = "_ChipServer.so"
+    CONTROLLER = f"_ChipDeviceCtrl{_NATIVE_LIBRARY_SUFFIX}"
+    SERVER = f"_ChipServer{_NATIVE_LIBRARY_SUFFIX}"
 
 
 def _AllDirsToRoot(p):
@@ -211,6 +213,21 @@ def FindNativeLibraryPath(library: Library) -> str:
         for dmDLLPath in glob.glob(dmDLLPathGlob):
             if os.path.exists(dmDLLPath):
                 return dmDLLPath
+
+        if os.name == "nt":
+            dmDLLPathGlob = os.path.join(
+                p,
+                "out",
+                "*",
+                "obj",
+                "src",
+                "controller",
+                "python",
+                library.value,
+            )
+            for dmDLLPath in glob.glob(dmDLLPathGlob):
+                if os.path.isfile(dmDLLPath):
+                    return dmDLLPath
 
     raise Exception(
         f"Unable to locate CHIP DLL ({library.value}); expected location: {scriptDir}")
