@@ -7,7 +7,7 @@ GN, and Ninja.
 
 Development takes place in
 [`richiemsft/matterforwindows`](https://github.com/richiemsft/matterforwindows)
-on the `windows-port` branch. The canonical
+on the `windows-port` branch. The
 `project-chip/connectedhomeip` repository is retained as the `upstream` remote.
 
 ## Current status
@@ -49,7 +49,7 @@ The initial build foundation provides:
     and emit connectivity/address events. The focused smoke passes 21 checks on
     x64 and cross-builds as ARM64.
 -   A public `ConfigurationManager` composed on the typed Windows storage
-    backend. The canonical `PlatformMgr()` lifecycle initializes and shuts down
+    backend. The `PlatformMgr()` lifecycle initializes and shuts down
     configuration, UDP/TCP endpoint managers, and connectivity; reboot count,
     operational hours, boot reason, regulatory state, configuration version,
     unique ID, persisted counters, and primary MAC selection survive restart.
@@ -79,7 +79,7 @@ The initial build foundation provides:
     hardware-free smoke passes 39 checks on x64 (including graceful
     no-adapter behavior) and cross-builds as ARM64.
 -   A focused native commissionee executable with a generated lighting-device
-    data model. It initializes the canonical server, opens a basic
+    data model. It initializes the server, opens a basic
     commissioning window, publishes commissionable DNS-SD, and exercises the
     WinRT BLE peripheral path. Its complete server dependency graph builds and
     runs on x64 and cross-builds for ARM64.
@@ -153,7 +153,7 @@ The initial build foundation provides:
     headers) and algebraic correctness properties. Twenty-three tests
     pass on x64 and the closure cross-builds and inspects as `AA64` for ARM64.
 -   The real upstream `src/crypto/tests` GoogleTest suites run against the
-    canonical `//src/crypto:crypto` library under native MSVC at the repository
+    `//src/crypto:crypto` library under native MSVC at the repository
     `/std:c++17` default. `msvc-crypto-upstream-tests` runs `TestSessionKeystore`,
     `TestGroupOperationalCredentials`, and `TestPersistentStorageOpKeyStore`
     (7 tests); `msvc-crypto-pal-tests` runs the full `TestChipCryptoPAL`
@@ -170,14 +170,14 @@ The initial build foundation provides:
     `lib/core/StringBuilderAdapters.h` facade (the upstream header otherwise
     pulls the pw_string / Fuchsia stdcompat closure, which uses GCC builtins MSVC
     lacks). Details are in the crypto decision gate.
--   The canonical `//src/system:system`, `//src/inet:inet`, and
-    `//src/crypto:crypto` GN targets, together with the host-neutral canonical
+-   The `//src/system:system`, `//src/inet:inet`, and
+    `//src/crypto:crypto` GN targets, together with the host-neutral
     splits of `//src/transport`, `//src/protocols/secure_channel`, and
     `//src/messaging` (`//src/transport:crypto-context`,
     `//src/transport:group-peer-message-counter`,
     `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`,
     `:session-resumption-storage`, and `//src/messaging:configurations`), compile
-    with MSVC for x64 and ARM64 through an opt-in graph probe. The canonical
+    with MSVC for x64 and ARM64 through an opt-in graph probe. The
     `-Wconversion` flags these targets pass (which `cl.exe` rejects as an invalid
     numeric argument) are guarded under `!is_msvc`, and the upstream bodies that
     are not clean under the strict `/W4 /WX` Windows default reuse the
@@ -185,10 +185,10 @@ The initial build foundation provides:
     transport / secure-channel translation units that reach the Device Layer via
     `//src/platform` stay out of the host-neutral split. The
     bootstrap graph now defines the Pigweed Python venv label needed while loading
-    canonical BUILD files, without building the venv unless a target actually
+    shared BUILD files, without building the venv unless a target actually
     depends on it.
 -   The real upstream `src/system/tests` and `src/inet/tests` GoogleTest suites
-    run against the canonical `//src/system:system` and `//src/inet:inet`
+    run against the `//src/system:system` and `//src/inet:inet`
     libraries under native MSVC. `msvc-system-upstream-tests` runs the packet
     buffer (`TestSystemPacketBuffer`), TLV packet-buffer backing store
     (`TestTLVPacketBufferBackingStore`), timer / event-loop
@@ -209,13 +209,13 @@ The initial build foundation provides:
     the tests surfaced.
 -   The host-neutral upstream `src/transport/tests` and
     `src/protocols/secure_channel/tests` GoogleTest suites run against
-    host-neutral canonical splits of `//src/transport` and
+    host-neutral splits of `//src/transport` and
     `//src/protocols/secure_channel` -- `//src/transport:crypto-context`,
     `//src/transport:group-peer-message-counter`,
     `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`, and
-    `:session-resumption-storage` -- linked to the canonical `//src/crypto`,
+    `:session-resumption-storage` -- linked to `//src/crypto`,
     `//src/inet`, `//src/system`, and `//src/lib` libraries. These `source_set`s
-    live in the canonical `BUILD.gn` files (not a Windows-only directory) and are
+    live in the shared `BUILD.gn` files (not a Windows-only directory) and are
     public dependencies of the monolithic `//src/transport:transport` /
     `//src/protocols/secure_channel:secure_channel` targets, so every platform
     builds the same translation units into `libTransportLayer` / `libSecureChannel`;
@@ -239,7 +239,7 @@ The initial build foundation provides:
     transport / secure-channel test section below.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
-The canonical library and application probes remain opt-in while Windows
+The library and application probes remain opt-in while Windows
 packaging and hardware coverage are incomplete. The Windows Device Layer
 composes the messaging, credentials, secure-session, and Interaction Model
 closures used by both the focused controller and the native `chip-tool`. It
@@ -306,11 +306,11 @@ ninja -C out\win-msvc-smoke
 ## Run the upstream crypto test suites
 
 The `msvc-crypto-upstream-tests` and `msvc-crypto-pal-tests` executables run the
-real `src/crypto/tests` GoogleTest suites against the canonical
+real `src/crypto/tests` GoogleTest suites against the
 `//src/crypto:crypto` library at the repository `/std:c++17` default (the
 upstream sources are adapted to C++17 by a build-time transform; see the crypto
-decision gate). Because they link the canonical crypto library (and a focused
-CHIPCert subset), they are built with the canonical probe graph below rather
+decision gate). Because they link the shared crypto library (and a focused
+CHIPCert subset), they are built with the probe graph below rather
 than the restricted plain bootstrap:
 
 ```powershell
@@ -336,9 +336,9 @@ portability fixes applied to the shared test vectors and the CHIPCert closure.
 
 The `msvc-system-upstream-tests`, `msvc-inet-upstream-tests`, and
 `msvc-inet-endpoint-tests` executables run the real `src/system/tests` and
-`src/inet/tests` GoogleTest suites against the canonical `//src/system:system`
+`src/inet/tests` GoogleTest suites against the `//src/system:system`
 and `//src/inet:inet` libraries under native MSVC. They are built with the
-canonical probe graph:
+probe graph:
 
 ```powershell
 gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
@@ -449,13 +449,13 @@ harness or a POSIX-only harness and are not enabled:
 The `msvc-transport-*` and `msvc-secure-channel-*` executables run the
 host-neutral upstream `src/transport/tests` and
 `src/protocols/secure_channel/tests` GoogleTest suites under native MSVC. They
-link host-neutral canonical splits of `//src/transport` and
+link host-neutral splits of `//src/transport` and
 `//src/protocols/secure_channel` (`//src/transport:crypto-context`,
 `//src/transport:group-peer-message-counter`,
 `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`, and
-`:session-resumption-storage`) against the canonical `//src/crypto`,
+`:session-resumption-storage`) against `//src/crypto`,
 `//src/inet`, `//src/system`, and `//src/lib` libraries -- no Device Layer.
-They are built with the canonical probe graph:
+They are built with the probe graph:
 
 ```powershell
 gn gen out\win-canonical-x64 --args='target_os="win" target_cpu="x64" chip_device_platform="none" chip_windows_canonical_compile_probes=true chip_build_tests=false chip_build_tools=false chip_caller_handles_critical_failure=true'
@@ -496,17 +496,17 @@ memory-initializing `msvc_crypto_test_main.cpp`.
 
 ### Canonical library splits
 
-The canonical `//src/transport:transport`,
+The `//src/transport:transport`,
 `//src/protocols/secure_channel:secure_channel`, and `//src/messaging:messaging`
 targets pass the GCC/Clang `-Wconversion` flag (which cl.exe rejects as an
 invalid numeric argument) and build at the strict `/W4 /WX` default. The
-portability fix lives in the canonical `BUILD.gn` files rather than in
+portability fix lives in the shared `BUILD.gn` files rather than in
 Windows-only test copies:
 
 -   Every `-Wconversion` is guarded under `!is_msvc`, so non-Windows builds are
     unchanged and cl.exe never sees the flag.
 -   The host-neutral translation units are factored into narrowly named
-    canonical `source_set`s -- `//src/transport/raw:message-header`,
+    shared `source_set`s -- `//src/transport/raw:message-header`,
     `//src/transport:crypto-context`,
     `//src/transport:group-peer-message-counter`, and
     `//src/protocols/secure_channel:session-resumption-storage` -- and the
@@ -572,10 +572,10 @@ broader Windows Device Layer test harness and are not enabled:
     same-directory C++17 source transform used for the crypto suites cannot
     shadow; it is not enabled until that header can be adapted.
 
-## Compile the canonical core libraries
+## Compile the shared core libraries
 
-The canonical System, Inet, and BoringSSL CryptoPAL libraries, plus the
-host-neutral canonical splits of Transport, SecureChannel, and Messaging
+The shared System, Inet, and BoringSSL CryptoPAL libraries, plus the
+host-neutral splits of Transport, SecureChannel, and Messaging
 (`//src/transport:crypto-context`,
 `//src/transport:group-peer-message-counter`,
 `//src/protocols/secure_channel:type_definitions`, `:check-in-counter`,
@@ -638,7 +638,7 @@ New files:
 
 The foundation is built as an opt-in probe
 (`chip_windows_device_layer_probe`, default `false`) that is independent of the
-canonical library probe, so the normal bootstrap graph is not broadened. A
+library probe, so the normal bootstrap graph is not broadened. A
 runtime smoke (`msvc-platform-manager-smoke`) exercises the full lifecycle and
 cross-thread work/event posting on x64:
 
@@ -682,64 +682,64 @@ is not yet run on native hardware.
     formatter (`RegisterDeviceLayerErrorFormatter()` from `GeneralUtils.cpp`)
     because that translation unit reaches the full manager closure.
 -   The target links the focused `windows-system-layer` and
-    `windows-core-portable` libraries rather than the canonical
+    `windows-core-portable` libraries rather than the shared
     `//src/system:system`, keeping it free of the `PlatformEventing` symbols the
-    canonical library references. A canonical-config twin,
+    shared library references. A shared-graph twin,
     `windows-platform-manager-canonical`, now exists specifically to *not* have
     this limitation; see
-    "Wiring the generic Device Layer dispatch to canonical libraries" below.
+    "Wiring the generic Device Layer dispatch to shared libraries" below.
 
-## Wiring the generic Device Layer dispatch to canonical libraries
+## Wiring the generic Device Layer dispatch to shared libraries
 
 The focused foundation target above deliberately links the ad hoc,
 command-line-configured `windows-core-portable`/`windows-system-layer` rather
-than canonical `//src/lib/core`/`//src/system`, specifically to avoid a
+than the shared `//src/lib/core`/`//src/system`, specifically to avoid a
 macro conflict: `windows-core-portable`'s `:public` config sets
 `CHIP_ERROR_LOGGING`, `CHIP_SYSTEM_CONFIG_USE_SOCKETS`, and similar
 CHIPBuildConfig-controlled macros directly as literal command-line `/D`
-defines, while every canonical library instead gets them from the generated
+defines, while every shared library instead gets them from the generated
 `CHIPBuildConfig.h`/`SystemBuildConfig.h` (via `CHIP_HAVE_CONFIG_H=1`).
 Combining both in one binary redefines the same macros with conflicting
 values (a hard error under `/WX`) and links two independently configured
 copies of `CHIPError`/TLV/the System Layer. This is why the generic
 `//src/platform` umbrella Device Layer dispatch target could not yet be used:
-canonical `//src/platform:platform`'s own `platform_base` sub-target already
-depends on canonical `//src/lib/core`, `//src/system`, `//src/inet`, etc., so
+`//src/platform:platform`'s own `platform_base` sub-target already
+depends on `//src/lib/core`, `//src/system`, `//src/inet`, etc., so
 its Windows `_platform_target` needed to agree with that, not with
 `windows-core-portable`.
 
-The canonical Windows target reconciles that conflict and wires
+The shared Windows target reconciles that conflict and wires
 `chip_device_platform=="windows"`
-through to the generic `//src/platform:platform` target as a true canonical
+through to the generic `//src/platform:platform` target as a normal
 platform selection, without introducing ODR duplication:
 
--   `src/platform/Windows/BUILD.gn` gains canonical-config *twins* of the
-    targets canonical `//src/platform:platform`'s dependency graph needs:
+-   `src/platform/Windows/BUILD.gn` gains shared-graph *twins* of the
+    targets that `//src/platform:platform`'s dependency graph needs:
     `windows-platform-manager-canonical` (linked from `src/platform/BUILD.gn`'s
     `_platform_target` for `chip_device_platform=="windows"`),
     `windows-system-primitives-canonical`, and `windows-system-errors-canonical`
     (in `src/system/windows/BUILD.gn`). Each compiles the *same* upstream
-    sources as its existing ad hoc counterpart, but against canonical
+    sources as its existing ad hoc counterpart, but against shared
     `//src/lib/core:core`/`//src/lib/core:error`/`//src/system:system` instead
     of `windows-core-portable`. The plain, ad hoc targets are unchanged and
     still used by their existing standalone smokes and by the other Windows
     Device Layer targets that pair with them (`windows-dnssd`,
     `windows-configuration-manager`, ...), so nothing already working
     regresses.
--   The canonical Windows platform target compiles the Windows
+-   The Windows platform target compiles the Windows
     `ConfigurationManager`, `ConnectivityManager`, `KeyValueStoreManager`, and
-    diagnostic-provider implementations against canonical Core/System/Inet/
+    diagnostic-provider implementations against shared Core/System/Inet/
     Crypto dependencies. It defines
     `CHIP_WINDOWS_DEVICE_LAYER_COMPOSITION=1`, so `InitChipStack()` initializes
     configuration storage, UDP/TCP endpoint managers, and connectivity in
-    order, with matching failure unwinding and shutdown. The canonical smoke
+    order, with matching failure unwinding and shutdown. The smoke
     performs a KVS write/read/delete after initialization to ensure these are
     real lifecycle-managed managers, not merely link-time singleton
     definitions.
 -   `//src/system:system`'s own Windows-only addition
     (`windows-system-primitives` -> now `windows-system-primitives-canonical`)
     no longer transitively drags in a *second* compile of `SystemError.cpp`:
-    canonical `//src/system:system` already compiles it directly, and the
+    shared `//src/system:system` already compiles it directly, and the
     duplicate was a real, pre-existing (if latent) `LNK2005` risk once
     anything forced both archive members to be extracted into the same link
     (which is exactly what building the generic dispatch surfaced).
@@ -748,9 +748,9 @@ platform selection, without introducing ODR duplication:
     `CHIP_PLATFORM_CONFIG_INCLUDE` (`platform/Windows/CHIPPlatformConfig.h`,
     which sets `CHIP_CONFIG_ERROR_SOURCE=1`, matching Linux/Darwin) is applied
     -- which it only is once a *real* device platform (not `"none"`) is
-    selected. The canonical-config twins consistently pick the 3-argument
+    selected. The shared-graph twins consistently pick the 3-argument
     overload; the plain ad hoc targets consistently pick the 1-argument one.
-    Mixing a canonical-config target with a plain one in the same link (as the
+    Mixing a shared-graph target with a plain one in the same link (as the
     standalone `msvc-system-wake-event-smoke`/`msvc-system-layer-smoke` did
     transiently while this was being reconciled) produces an
     unresolved-symbol error, not a silent bug; each smoke now pairs
@@ -789,7 +789,7 @@ platform selection, without introducing ODR duplication:
     the scalar payloads are activated by C++17 assignment and the non-scalar
     `LambdaEvent` payload is explicitly placement-constructed, preserving the
     selected union member's lifetime without requiring C++20.
-    `//src/credentials` and `//src/lib/dnssd`'s canonical `:dnssd`/`:naming`
+    `//src/credentials` and `//src/lib/dnssd`'s `:dnssd`/`:naming`
     targets needed the same `-Wconversion` guard plus
     `//build/config/win:upstream_sdk_warnings` for a handful of upstream
     warnings (`C4267` narrowing, `C4702` unreachable code, `C4701`
@@ -797,17 +797,17 @@ platform selection, without introducing ODR duplication:
     the same treatment already applied to `//src/transport`/
     `//src/protocols/secure_channel`.
 -   `src/platform/device.gni` adds `windows` to the `chip_mdns == "platform"`
-    platform list, matching Darwin/Tizen/etc., so canonical
+    platform list, matching Darwin/Tizen/etc., so shared
     `//src/lib/dnssd:dnssd` selects `Discovery_ImplPlatform.cpp` (the real
     `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` contract) against the
     generic `//src/platform` dispatch instead of the no-op `Resolver_ImplNone`.
     `windows-platform-manager-canonical` now compiles `DnssdImpl.cpp` directly
     (matching how `src/platform/Darwin/BUILD.gn`'s own `"Darwin"` target
     includes `dnssd/DnssdImpl.cpp`), so the concrete Windows backend lives
-    inside the same canonical Device Layer target Discovery_ImplPlatform.cpp
+    inside the same Device Layer target Discovery_ImplPlatform.cpp
     reaches through `//src/platform`.
 
-### What now builds canonically for Windows
+### What now builds in the shared Windows graph
 
 With `chip_device_platform="windows"` (a real device platform, not `"none"`)
 and the existing `chip_windows_canonical_compile_probes`/
@@ -824,7 +824,7 @@ graph for the first time:
     `windows-platform-manager`), passes: `InitChipStack()`, event-loop
     start/stop (both caller- and library-managed), cross-thread
     `ScheduleWork()`, and public event dispatch all work through the
-    canonical dispatch graph. The smoke also verifies that canonical
+    shared dispatch graph. The smoke also verifies that
     `InitChipStack()` initialized persistent storage by completing a KVS
     write/read/delete cycle.
 -   **`//src/credentials:credentials`** -- `FabricTable`, `CHIPCert`,
@@ -832,7 +832,7 @@ graph for the first time:
     `PersistentStorageOpCertStore`, `DeviceAttestationVerifier`, and the
     example DAC/PAI credentials -- compiles and transitively confirms
     `//src/platform:platform` too.
--   **`//src/lib/dnssd:dnssd`** (the canonical, `chip_mdns_platform` variant)
+-   **`//src/lib/dnssd:dnssd`** (the `chip_mdns_platform` variant)
     compiles, including the real upstream `Discovery_ImplPlatform.cpp`.
 
 All of the above compile for x64 and cross-compile for ARM64 (`dumpbin
@@ -841,7 +841,7 @@ All of the above compile for x64 and cross-compile for ARM64 (`dumpbin
 `msvc-windows-connectivity-smoke`, `msvc-windows-dnssd-smoke`,
 `msvc-system-wake-event-smoke`, `msvc-system-layer-smoke`,
 `msvc-inet-tcp-endpoint-smoke`, `msvc-inet-udp-endpoint-smoke`, ...) and every
-existing canonical-probe test (crypto/system/inet/transport/secure-channel)
+existing compile-probe test (crypto/system/inet/transport/secure-channel)
 continues to pass unchanged on x64; the pre-existing, environment-specific
 `msvc-inet-interface-smoke` exit-1 (reproduced identically on the unmodified
 tree) is unrelated. The default `chip_device_platform="none"` bootstrap build
@@ -921,7 +921,7 @@ MSVC environment to cross-build. `dumpbin /headers` confirms the resulting
 `chip-tool.exe` is an `AA64` image. Native ARM64 execution remains to be
 validated.
 
-Canonical `//src/lib/dnssd:dnssd` now links end to end with canonical
+`//src/lib/dnssd:dnssd` now links end to end with
 `//src/platform` in `msvc-windows-controller-discovery.exe`; its real
 `DiscoveryImplPlatform` browse/start/stop path runs successfully. The
 temporary `//src/lib/dnssd:dnssd_windows` re-derived dependency graph has
@@ -1159,7 +1159,7 @@ Matter event-loop thread.
 `src/platform/Windows/ConfigurationManagerImpl.{h,cpp}` composes
 `GenericConfigurationManagerImpl<WindowsConfig>` into the public
 `ConfigurationMgr()` singleton. The full
-`//src/platform/Windows:windows-device-layer` target makes the canonical
+`//src/platform/Windows:windows-device-layer` target makes the
 `PlatformMgr().InitChipStack()` path initialize configuration storage, UDP and
 TCP endpoint managers, and connectivity in order, with failure unwinding; its
 shutdown path releases those resources and the KVS ownership lock. The earlier
@@ -1191,7 +1191,7 @@ ninja -C out\win-devlayer-x64 msvc-windows-configuration-manager-smoke.exe
 ```
 
 The smoke passes 45 checks on x64 and cross-builds as `AA64`. It covers the
-canonical lifecycle, restart counter and unique-ID persistence, public
+lifecycle, restart counter and unique-ID persistence, public
 persisted counters, primary MAC contract, event-loop-marshaled network-change
 delivery, diagnostics, and asynchronous factory reset.
 
@@ -1383,12 +1383,12 @@ commissioning acceptance test.
 
 Canonical `//src/lib/dnssd:dnssd` compiles the real upstream
 `chip::Dnssd::Resolver` and `DiscoveryImplPlatform` implementation against the
-canonical native Windows Device Layer and `windns.h` backend. This is the same
+native Windows Device Layer and `windns.h` backend. This is the same
 controller-facing discovery path used by other `chip_mdns_platform` targets;
 it is not a second hand-written discovery implementation.
 
 The earlier `dnssd_windows` intermediate target was removed after generic
-`//src/platform` dispatch and canonical configuration were wired for Windows.
+`//src/platform` dispatch and shared configuration were wired for Windows.
 The upstream DNS-SD sources remain unchanged except for the private C++17
 build transform needed for a designated initializer that MSVC rejects under
 `/std:c++17`.
@@ -1420,9 +1420,9 @@ development LAN, the executable reaches the expected exit code `2`.
 -   Subscription and fabric-removal coverage remains in the focused controller
     acceptance flow rather than this discovery executable.
 
-## The canonical controller stack closure
+## The controller stack closure
 
-The Windows compile gate builds the complete canonical
+The Windows compile gate builds the complete
 `//src/transport`, `//src/messaging`, `//src/protocols/secure_channel`,
 `//src/app:interaction-model`, and `//src/app:app` libraries with MSVC in the
 same Windows Device Layer graph. This includes `SessionManager`,
@@ -1437,7 +1437,7 @@ Generated enum-check headers are handled by the existing forced-include
 compatibility shim rather than editing generated files.
 
 `msvc-canonical-controller-stack-smoke.exe` links the complete closure,
-initializes and shuts down the canonical Windows `PlatformManager`, constructs
+initializes and shuts down the Windows `PlatformManager`, constructs
 the session, exchange, PASE, and CASE objects, and resolves the Interaction
 Model singleton. It passes on x64 and cross-builds for ARM64. This is a
 link/lifecycle acceptance test, not a commissioning test: it does not initialize
@@ -1451,7 +1451,7 @@ attestation-verifier closures into the Windows graph. The WinRT transport
 enables `chip_config_network_layer_ble`; on-network
 commissioning does not require that transport.
 
-One canonical layering defect was fixed as part of this gate:
+One layering defect was fixed as part of this gate:
 `//src/protocols:type_definitions` now carries `Protocols.cpp`, as its existing
 comment required. `SessionManager` and `ExchangeManager` call
 `GetProtocolName()` and `GetMessageTypeName()`, so a target containing only
@@ -1460,7 +1460,7 @@ comment required. `SessionManager` and `ExchangeManager` call
 ## Focused native Windows commissioner
 
 `msvc-windows-controller.exe` is the first non-interactive controller
-executable. It composes the canonical controller library with the Windows
+executable. It composes the controller library with the Windows
 Device Layer and:
 
 -   adapts the Windows KVS through `KvsPersistentStorageDelegate`;
@@ -1618,13 +1618,13 @@ its five-second timer and uses the supplied address when discovery is silent.
 
 ### Cross-build
 
-The resolver, canonical controller library, focused commissioner executable,
+The resolver, controller library, focused commissioner executable,
 and C++/WinRT BLE backend cross-build and link as ARM64. They have not run on
 native Windows ARM64 hardware.
 
 ## The Windows CHIPoBLE backend
 
-The canonical Windows Device Layer includes a C++/WinRT backend in
+The Windows Device Layer includes a C++/WinRT backend in
 `src/platform/Windows`:
 
 -   `BleCentral` scans Matter service data, matches the requested setup
@@ -1678,7 +1678,7 @@ a BLE discovery failure. The existing `pair` command remains network-only.
 ### Focused Windows commissionee
 
 `msvc-windows-commissionee.exe` exercises the other CHIPoBLE role. It runs the
-canonical Matter server with the generated lighting-app data model, opens a
+Matter server with the generated lighting-app data model, opens a
 basic commissioning window, and advertises fixed development credentials:
 
 -   Manual setup code: `34970112332`
@@ -1712,7 +1712,7 @@ and PASE exchanges, installs operational credentials, and establishes CASE.
 
 ### Windows all-clusters app
 
-`msvc-windows-all-clusters.exe` runs the canonical generated
+`msvc-windows-all-clusters.exe` runs the generated
 `examples/all-clusters-app/all-clusters-common/all-clusters-app.zap` model on
 the native Windows Device Layer. It uses the same deterministic development
 credentials as the focused commissionee and adds the all-clusters mode and TLS
@@ -1822,7 +1822,7 @@ does not hide missing runtime behavior behind stubs.
 | Core and support | TLV, data model types, encoders, containers, and most protocol logic | GNU-only flags and attributes, POSIX headers in transitive targets, and untested dependency closures | Compiler and build syntax |
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
-| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The canonical credentials closure builds on Windows and is exercised through persistent controller fabric creation and restoration | Dependency |
+| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against `//src/crypto:crypto` and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The credentials closure builds on Windows and is exercised through persistent controller fabric creation and restoration | Dependency |
 | Device Layer | Generic static-polymorphism mixins | Native `PlatformManager`, storage/configuration, OS-managed connectivity, diagnostics, DNS-SD, and C++/WinRT BLE are implemented; process restart after reset remains | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
@@ -1865,7 +1865,7 @@ and applied consistently to all dependencies.
 
 ### Build and runtime library
 
--   GN and Ninja remain the canonical source graph and build runner.
+-   GN and Ninja remain the source graph and build runner.
 -   MSVC is used in C++17 conforming mode with `/permissive-`,
     `/Zc:preprocessor`, exceptions and RTTI disabled, and UTF-8 source handling.
 -   The dynamic CRT is the initial ABI contract: `/MDd` for debug and `/MD` for
@@ -1959,7 +1959,7 @@ the clean-machine and reproducibility requirements.
 The Windows crypto gate runs the complete upstream `src/crypto/tests`
 GoogleTest suites (80 tests: `TestSessionKeystore`,
 `TestGroupOperationalCredentials`, `TestPersistentStorageOpKeyStore`, and the
-full `TestChipCryptoPAL` CryptoPAL suite) against the canonical
+full `TestChipCryptoPAL` CryptoPAL suite) against the
 `//src/crypto:crypto` library on x64 at the repository `/std:c++17` default,
 with both executables cross-building and inspecting as `AA64` for ARM64.
 Enabling them required surgical, portable Windows fixes, each preserving
@@ -2004,7 +2004,7 @@ non-Windows behavior and the C++17 contract:
     constant is rewritten to a portable named array (valid on every compiler).
 
 The focused `msvc-crypto-boringssl-tests` driver and its locally reproduced
-vectors are retained as an independent correctness check. The canonical
+vectors are retained as an independent correctness check. The
 credentials/Device-Layer closure also builds on Windows and is exercised
 through persistent controller fabric creation and restoration. Binary-size
 measurement and the explicit enterprise/FIPS deployment statement are
@@ -2158,9 +2158,9 @@ are deliberate submodule bumps.
 
 | ID | Decision | Status |
 |---|---|---|
-| WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains canonical | Accepted and built |
+| WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains the supported build path | Accepted and built |
 | WIN-002 | Use the dynamic CRT: `/MDd` for debug and `/MD` for release | Accepted |
-| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset, and cross-build as `AA64`; the canonical credentials/Device-Layer closure builds on Windows and supports persistent controller fabrics |
+| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against `//src/crypto:crypto` and a focused CHIPCert subset, and cross-build as `AA64`; the credentials/Device-Layer closure builds on Windows and supports persistent controller fabrics |
 | WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
 | WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted; realized by the native DNS-SD backend (`src/platform/Windows/DnssdImpl.cpp`) over `windns.h` `DnsServiceRegister`/`Browse`/`Resolve`; 65-check smoke covers the lifecycle plus live publish, serialized remove/republish, and browse/cancel cycles on x64 and cross-builds as ARM64 |
@@ -2194,11 +2194,11 @@ are deliberate submodule bumps.
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
 | Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Not yet run on native hardware |
-| Controller-facing canonical `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
-| Canonical `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Not yet run on native hardware |
+| Controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
+| `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/credentials:credentials` | Supported | Compile only | Supported | Compile only |
 | Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
-| Canonical transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
+| Transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Canonical controller/server SDK closure | Supported | Controller and server lifecycle coverage passes | Supported | Cross-build only |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
@@ -2262,9 +2262,9 @@ for validation.
 
 -   Canonical System, Inet, CryptoPAL, credentials, DNS-SD, and host-neutral
     transport/Secure Channel components compile on Windows. The
-    canonical Device Layer composes PlatformManager, configuration, KVS,
+    Device Layer composes PlatformManager, configuration, KVS,
     diagnostics, OS-managed connectivity, endpoint lifecycle, and DNS-SD for
-    x64/ARM64, with its lifecycle/storage smoke passing on x64. The canonical
+    x64/ARM64, with its lifecycle/storage smoke passing on x64. The
     controller library, a focused persistent commissioner, and the existing
     generated `chip-tool`, including its local interactive mode, now compiles on
     x64/ARM64. The
@@ -2275,7 +2275,7 @@ for validation.
     remote shutdown. The YAML runner's transport is enabled, but a complete
     suite against a DUT and native ARM64 execution remain unvalidated. The full
     upstream `src/crypto/tests` CryptoPAL suites (80 tests) build and pass on
-    x64 against the canonical crypto library and a focused CHIPCert subset; 93
+    x64 against the crypto library and a focused CHIPCert subset; 93
     selected upstream System/Inet tests and 40 host-neutral transport/Secure
     Channel tests also pass. The monolithic `//src/credentials:credentials`
     library
