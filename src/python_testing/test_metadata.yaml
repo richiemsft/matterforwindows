@@ -73,14 +73,6 @@ not_automated:
       reason:
           Currently isn't enabled because we don't have any examples with
           conformant PICS
-    - name: TC_OCC_3_1.py
-      reason:
-          There are CI issues for the test cases that implements manually
-          controlling sensor device for the occupancy state ON/OFF change
-    - name: TC_OCC_3_2.py
-      reason:
-          There are CI issues for the test cases that implements manually
-          controlling sensor device for the occupancy state ON/OFF change
     - name: TestCommissioningTimeSync.py
       reason: Code/Test not being used or not shared code for any other tests
     - name: TestConformanceSupport.py

@@ -19,24 +19,10 @@
 #pragma once
 
 #include <atomic>
+#include "../NamedPipeCommandDelegate.h"
 #include <lib/core/CHIPError.h>
 #include <pthread.h>
 #include <string>
-
-class NamedPipeCommandDelegate
-{
-public:
-    virtual ~NamedPipeCommandDelegate() = default;
-    /**
-     * @brief Handle a single NamedPipeCommands payload.
-     *
-     * This method must handle dispatching to the Matter stack via `PlatformMgr().ScheduleWork(...)`
-     * and must make copies internally of the input string if it needs to be passed beyond initial parsing.
-     *
-     * @param[in] json A null-terminated-string containing the JSON command payload to process.
-     */
-    virtual void OnEventCommandReceived(const char * json) = 0;
-};
 
 /**
  * This class implements a listener for named pipes (FIFOs) to implement debug

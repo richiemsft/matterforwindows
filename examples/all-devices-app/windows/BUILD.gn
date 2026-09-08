@@ -20,9 +20,16 @@ executable("all-devices-app") {
 
   deps = [
     "${chip_root}/examples/all-devices-app/all-devices-common/device-factory",
+    "${chip_root}/examples/all-devices-app/all-devices-common/device/types/ambient-context-sensor",
+    "${chip_root}/examples/all-devices-app/all-devices-common/device/types/boolean-state-sensor",
+    "${chip_root}/examples/all-devices-app/all-devices-common/device/types/electrical-sensor",
+    "${chip_root}/examples/all-devices-app/all-devices-common/device/types/occupancy-sensor",
+    "${chip_root}/examples/all-devices-app/all-devices-common/device/types/on-off-light",
     "${chip_root}/examples/all-devices-app/all-devices-common/device/types/root-node",
+    "${chip_root}/examples/all-devices-app/all-devices-common/oob-command",
     "${chip_root}/examples/all-devices-app/all-devices-common/providers:all-devices-example-device-info-provider",
     "${chip_root}/examples/all-devices-app/posix/app_options:device-type-parser",
+    "${chip_root}/examples/platform/windows:named-pipes",
     "${chip_root}/src/app/persistence:default",
     "${chip_root}/src/app/server",
     "${chip_root}/src/credentials",

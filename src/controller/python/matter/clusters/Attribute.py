@@ -1014,7 +1014,7 @@ def _OnReadDoneCallback(closure):
 
 
 _OnWriteResponseCallbackFunct = CFUNCTYPE(
-    None, py_object, c_uint16, c_uint32, c_uint32, c_uint16)
+    None, py_object, c_uint16, c_uint32, c_uint32, c_uint8)
 _OnWriteErrorCallbackFunct = CFUNCTYPE(
     None, py_object, PyChipError)
 _OnWriteDoneCallbackFunct = CFUNCTYPE(

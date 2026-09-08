@@ -41,7 +41,8 @@ Run a dynamic two-endpoint topology:
 ```
 
 The Windows entrypoint supports repeated `--device`, `--storage-directory`
-(`--KVS` is an alias), `--discriminator`, and `--run-seconds` arguments.
+(`--KVS` is an alias), `--discriminator`, `--run-seconds`, and `--app-pipe`
+arguments.
 `--interface-id -1` is accepted for compatibility with the application test
 harness; selecting one interface is not supported by the native DNS-SD
 backend. A run duration of `0`, which is the default, runs until Ctrl+C,
@@ -49,7 +50,9 @@ Ctrl+Break, or console close. The application emits the standard setup QR code
 and `APP STATUS: Starting event loop` readiness marker.
 
 The entrypoint uses the native Windows persistence, WinSock, DNS-SD, and BLE
-backends. POSIX `--app-pipe`, tracing, and audio overrides are not exposed.
+backends. `--app-pipe` maps the portable test identifier to a local Windows
+named pipe and accepts the same newline-delimited JSON commands as the POSIX
+simulator. Tracing and audio overrides are not exposed.
 
 ---
 

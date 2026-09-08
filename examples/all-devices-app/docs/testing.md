@@ -102,9 +102,10 @@ On Windows, build the x64 controller wheels and install them into
 The native Windows controller supports commissioning and operational traffic
 over IP and includes the C++/WinRT BLE central backend. Live BLE commissioning
 requires Bluetooth-equipped Windows 11 hardware and is not exercised by the
-hardware-free CI job. Perfetto tracing, packet capture, and the POSIX
-`--app-stdin-pipe`/`--app-pipe` test transports are explicitly unsupported;
-JSON tracing remains available.
+hardware-free CI job. The all-devices simulator supports the metadata
+`--app-pipe` contract through a local Windows named pipe, allowing certification
+tests to inject JSON state changes. Perfetto tracing, packet capture,
+`--app-stdin-pipe`, and output pipes remain unsupported.
 
 ### Execution Method A: Recommended CI Harness (`local.py`)
 
@@ -118,13 +119,16 @@ the binary override path:
 ```
 
 The same runner works in PowerShell when the native application path is
-overridden:
+overridden. Use direct-IP commissioning for a simulator on the same host to
+avoid depending on multicast loopback:
 
 ```powershell
 .\out\venv\Scripts\python.exe .\scripts\tests\local.py python-tests `
-    --test-filter TC_TMP_2_1 `
+    --test-filter TC_BOOL_2_2 `
+    --app-filter ALL_DEVICES_APP `
     --override-binary-path ALL_DEVICES_APP `
-        .\out\win-all-devices-x64\all-devices-app.exe
+        .\out\win-all-devices-x64\all-devices-app.exe `
+    --commissionee-ip 127.0.0.1
 ```
 
 ### Execution Method B: Explicit Combined Harness (`run_python_test.py`)

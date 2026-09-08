@@ -100,6 +100,24 @@ jobs:
                       --script-args '--storage-path out/windows-python-x64/admin-storage.json --commissioning-method on-network-ip --ip-addr 127.0.0.1 --discriminator 1234 --passcode 20202021 --endpoint 1'
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+                  & $python .\scripts\tests\local.py python-tests `
+                      --test-filter TC_BOOL_2_2,TC_DeviceBasicComposition,TC_DeviceConformance,TC_G_2_2,TC_IDM_2_3,TC_OCC_3_1,TC_OCC_3_2,TC_SC_5_1 `
+                      --app-filter ALL_DEVICES_APP `
+                      --override-binary-path ALL_DEVICES_APP out\windows-python-x64\all-devices-app.exe `
+                      --commissionee-ip 127.0.0.1 `
+                      --keep-going `
+                      --fail-log-dir out\windows-suite-failures
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            - name: Upload simulator suite failures
+              if: failure() && matrix.architecture == 'x64'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: windows-simulator-suite-failures
+                  path: out/windows-suite-failures
+                  if-no-files-found: ignore
+                  retention-days: 7
+
             - name: Upload Python wheels
               if: success()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -143,6 +161,7 @@ jobs:
                       'chip_windows_device_layer_probe=true'
                       'chip_windows_build_chip_tool=true'
                       'chip_windows_build_all_devices_app=true'
+                      'chip_config_enable_groupcast=true'
                       'chip_windows_enable_cxx20=true'
                       'chip_with_nlfaultinjection=false'
                       'chip_build_tests=false'

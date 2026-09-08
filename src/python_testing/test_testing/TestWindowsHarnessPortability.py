@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 CHIP_ROOT = next(path for path in Path(__file__).parents if (path / "SPECIFICATION_VERSION").is_file())
 sys.path.insert(0, str(CHIP_ROOT / "scripts" / "tests"))
@@ -30,8 +31,13 @@ from matter.tracing import StartTracingTo, TraceType  # noqa: E402
 from run_python_test import (  # noqa: E402
     FactoryResetType,
     factory_reset_config_removal,
+    filter_runs_by_app,
     normalize_windows_path_options,
     path_option_values,
+    remove_options,
+    replace_option_value,
+    use_direct_ip_commissioning,
+    windows_named_pipe_path,
 )
 
 
@@ -102,6 +108,65 @@ class TestWindowsHarnessPortability(unittest.TestCase):
 
         self.assertEqual(config.in_test_commissioning_method, "on-network-ip")
         self.assertEqual(config.commissionee_ip_address_just_for_testing, "127.0.0.1")
+
+    def test_direct_ip_rewrites_both_commissioning_options(self):
+        rewritten = use_direct_ip_commissioning(
+            "--commissioning-method on-network --in-test-commissioning-method=on-network --discriminator 1234",
+            "127.0.0.1",
+        )
+
+        self.assertIn("--commissioning-method on-network-ip", rewritten)
+        self.assertIn("--in-test-commissioning-method=on-network-ip", rewritten)
+        self.assertIn("--ip-addr 127.0.0.1", rewritten)
+
+    def test_direct_ip_does_not_override_existing_ip(self):
+        rewritten = use_direct_ip_commissioning(
+            "--commissioning-method on-network --ip-addr 192.0.2.1",
+            "127.0.0.1",
+        )
+
+        self.assertEqual(rewritten.count("--ip-addr"), 1)
+        self.assertIn("192.0.2.1", rewritten)
+
+    def test_direct_ip_adds_method_for_setup_code(self):
+        rewritten = use_direct_ip_commissioning(
+            "--manual-code 10054912339 --storage-path admin_storage.json",
+            "127.0.0.1",
+        )
+
+        self.assertIn("--manual-code 10054912339", rewritten)
+        self.assertIn("--commissioning-method on-network-ip", rewritten)
+        self.assertIn("--ip-addr 127.0.0.1", rewritten)
+
+    def test_windows_pipe_name_matches_native_transport(self):
+        self.assertEqual(windows_named_pipe_path("/tmp/test pipe"), r"\\.\pipe\matter-_tmp_test_pipe")
+        self.assertEqual(
+            replace_option_value("--app-pipe /tmp/test --endpoint 1", "--app-pipe", r"\\.\pipe\matter-_tmp_test"),
+            r"--app-pipe '\\.\pipe\matter-_tmp_test' --endpoint 1",
+        )
+
+    def test_windows_removes_unsupported_trace_options(self):
+        self.assertEqual(
+            remove_options("--trace-to json:app.json --endpoint 1 --trace-to=perfetto:test.perfetto", {"--trace-to"}),
+            "--endpoint 1",
+        )
+
+    def test_app_filter_uses_expanded_metadata_paths(self):
+        runs = [
+            SimpleNamespace(app="out/all-devices.exe"),
+            SimpleNamespace(app="out/all-clusters.exe"),
+        ]
+
+        filtered = filter_runs_by_app(
+            runs,
+            "ALL_DEVICES_APP",
+            {
+                "ALL_DEVICES_APP": "out/all-devices.exe",
+                "ALL_CLUSTERS_APP": "out/all-clusters.exe",
+            },
+        )
+
+        self.assertEqual(filtered, [runs[0]])
 
 
 if __name__ == "__main__":

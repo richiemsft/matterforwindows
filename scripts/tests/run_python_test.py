@@ -39,6 +39,7 @@ from pathlib import Path
 
 import click
 import coloredlogs
+import yaml
 from colorama import Fore, Style
 
 from matter.testing.defaults import TestingDefaults
@@ -130,6 +131,77 @@ def normalize_windows_path_options(arguments: str, option_names: set[str]) -> st
         elif index + 1 < len(tokens):
             tokens[index + 1] = Path(tokens[index + 1]).resolve().as_posix()
     return shlex.join(tokens)
+
+
+def replace_option_value(arguments: str, option_name: str, replacement: str) -> str:
+    """Replace an option value while preserving unrelated arguments."""
+    tokens = shlex.split(arguments)
+    for index, token in enumerate(tokens):
+        option, separator, _ = token.partition("=")
+        if option != option_name:
+            continue
+        if separator:
+            tokens[index] = f"{option_name}={replacement}"
+        elif index + 1 < len(tokens):
+            tokens[index + 1] = replacement
+    return shlex.join(tokens)
+
+
+def remove_options(arguments: str, option_names: set[str]) -> str:
+    """Remove options and their values from an argument string."""
+    tokens = shlex.split(arguments)
+    filtered = []
+    index = 0
+    while index < len(tokens):
+        option, separator, _ = tokens[index].partition("=")
+        if option not in option_names:
+            filtered.append(tokens[index])
+            index += 1
+            continue
+        index += 1 if separator else 2
+    return shlex.join(filtered)
+
+
+def windows_named_pipe_path(name: str) -> str:
+    """Map the portable app-pipe identifier to its native Windows pipe path."""
+    safe_name = "".join(character if character.isascii() and (character.isalnum() or character in ".-_") else "_"
+                        for character in name)
+    return rf"\\.\pipe\matter-{safe_name}"
+
+
+def use_direct_ip_commissioning(arguments: str, ip_address: str) -> str:
+    """Use direct IP for local simulator runs that otherwise require discovery."""
+    tokens = shlex.split(arguments)
+    changed = False
+    has_commissioning_method = False
+    for index, token in enumerate(tokens):
+        option, separator, value = token.partition("=")
+        if option not in {"--commissioning-method", "--in-test-commissioning-method"}:
+            continue
+        has_commissioning_method = True
+        value_index = index if separator else index + 1
+        current = value if separator else (tokens[value_index] if value_index < len(tokens) else "")
+        if current != "on-network":
+            continue
+        if separator:
+            tokens[index] = f"{option}=on-network-ip"
+        else:
+            tokens[value_index] = "on-network-ip"
+        changed = True
+    has_setup_code = any(token.partition("=")[0] in {"--manual-code", "--qr-code"} for token in tokens)
+    if not has_commissioning_method and has_setup_code:
+        tokens.extend(["--commissioning-method", "on-network-ip"])
+        changed = True
+    if changed and not any(token.partition("=")[0] == "--ip-addr" for token in tokens):
+        tokens.extend(["--ip-addr", ip_address])
+    return shlex.join(tokens)
+
+
+def filter_runs_by_app(runs: list[Metadata], app_filter: str, environment: dict[str, str]) -> list[Metadata]:
+    """Filter parsed metadata runs using their expanded application paths."""
+    requested_apps = [name.strip() for name in app_filter.split(",")]
+    allowed_paths = {environment.get(name, f"${{{name}}}") for name in requested_apps}
+    return [run for run in runs if run.app in allowed_paths]
 
 
 def path_option_values(arguments: str, option_names: set[str]) -> typing.Iterator[str]:
@@ -271,10 +343,12 @@ def run_timeout(run: Metadata) -> float:
 @click.option("--app-filter", type=str, default=None, help="Run only for the specified app(s). Comma separated.")
 @click.option("--pre-existing-fabric", is_flag=True, default=False,
               help="Commission app to a chip-tool fabric and open a commissioning window before running test script.")
+@click.option("--commissionee-ip", type=str, default=None,
+              help="Use direct-IP commissioning for local runs whose metadata requests on-network discovery.")
 def main(app: str, factory_reset: bool, factory_reset_app_only: bool, app_args: str,
          app_ready_pattern: str, app_stdin_pipe: str, script: str, script_args: str,
          script_gdb: bool, quiet: bool, load_from_env, run, ip_packet_capture: bool, ip_packet_capture_dir: pathlib.Path,
-         app_filter, pre_existing_fabric: bool):
+         app_filter, pre_existing_fabric: bool, commissionee_ip: str | None):
     if load_from_env:
         reader = MetadataReader(load_from_env)
         runs = reader.parse_script(script)
@@ -303,10 +377,11 @@ def main(app: str, factory_reset: bool, factory_reset_app_only: bool, app_args: 
         runs = [r for r in runs if r.run in run]
 
     if app_filter:
-        allowed_apps = [s.strip() for s in app_filter.split(',')]
-        # app name in metadata is like "${APP_NAME}"
-        allowed_apps_with_format = [f"${{{app}}}" for app in allowed_apps]
-        runs = [r for r in runs if r.app in allowed_apps_with_format]
+        environment = {}
+        if load_from_env:
+            with open(load_from_env, encoding="utf-8") as environment_file:
+                environment = yaml.safe_load(environment_file) or {}
+        runs = filter_runs_by_app(runs, app_filter, environment)
 
     # Override runs Metadata with the command line options
     for run in runs:
@@ -325,7 +400,7 @@ def main(app: str, factory_reset: bool, factory_reset_app_only: bool, app_args: 
         log.info("Executing '%s' '%s'", run.py_script_path.split('/')[-1], run.run)
         main_impl(run.app, run.factory_reset, run.factory_reset_app_only, run.app_args or "", run.app_ready_pattern,
                   run.app_stdin_pipe, run.py_script_path, run.script_args or "", run.script_gdb, ip_packet_capture,
-                  ip_packet_capture_dir, run_timeout(run), run.quiet, run.run, run.pre_existing_fabric)
+                  ip_packet_capture_dir, run_timeout(run), run.quiet, run.run, run.pre_existing_fabric, commissionee_ip)
 
 
 class AppRestartMonitor:
@@ -397,7 +472,8 @@ class AppRestartMonitor:
 def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_args: str,
               app_ready_pattern: str, app_stdin_pipe: str, script: str, script_args: str,
               script_gdb: bool, ip_packet_capture: bool, ip_packet_capture_dir: pathlib.Path,
-              run_timeout: float, quiet: bool, run_name: str, pre_existing_fabric: bool = False):
+              run_timeout: float, quiet: bool, run_name: str, pre_existing_fabric: bool = False,
+              commissionee_ip: str | None = None):
 
     app_args = app_args.replace('{SCRIPT_BASE_NAME}', os.path.splitext(os.path.basename(script))[0])
     script_args = script_args.replace('{SCRIPT_BASE_NAME}', os.path.splitext(os.path.basename(script))[0])
@@ -411,11 +487,18 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
             raise click.ClickException("--script-gdb is not supported on Windows")
 
         app_tokens = shlex.split(app_args)
-        unsupported_options = {"--app-pipe", "--app-pipe-out"}
+        unsupported_options = {"--app-pipe-out"}
         if any(token.split("=", 1)[0] in unsupported_options for token in app_tokens):
-            raise click.ClickException("POSIX application pipe options are not supported on Windows")
+            raise click.ClickException("Application output pipes are not supported on Windows")
+        app_pipe_values = list(path_option_values(app_args, {"--app-pipe"}))
+        if app_pipe_values:
+            script_args = replace_option_value(script_args, "--app-pipe", windows_named_pipe_path(app_pipe_values[-1]))
+        app_args = remove_options(app_args, {"--trace-to"})
+        script_args = remove_options(script_args, {"--trace-to"})
         app_args = normalize_windows_path_options(app_args, {"--KVS", "--storage-directory"})
         script_args = normalize_windows_path_options(script_args, {"--storage-path"})
+        if commissionee_ip:
+            script_args = use_direct_ip_commissioning(script_args, commissionee_ip)
 
     # Generate unique test run ID to avoid conflicts in concurrent test runs
     test_run_id = str(uuid.uuid4())[:8]  # Use first 8 characters for shorter paths

@@ -33,6 +33,7 @@
 #endif
 #include <windows.h>
 
+#include <access/examples/GroupAuxiliaryAccessControlDelegateImpl.h>
 #include <app/DefaultSafeAttributePersistenceProvider.h>
 #include <app/DeviceLoadStatusProvider.h>
 #include <app/InteractionModelEngine.h>
@@ -42,13 +43,20 @@
 #include <app/persistence/DefaultAttributePersistenceProvider.h>
 #include <app/server/Dnssd.h>
 #include <app/server/Server.h>
+#include <AppCommandDelegate.h>
 #include <app_options/DeviceTypeParser.h>
 #include <credentials/GroupDataProviderImpl.h>
 #include <credentials/examples/DeviceAttestationCredsExample.h>
 #include <data-model-providers/codedriven/CodeDrivenDataModelProvider.h>
 #include <device-factory/DeviceFactory.h>
 #include <device/api/allocator/DynamicEndpointIdAllocator.h>
+#include <device/types/ambient-context-sensor/AmbientContextSensor.h>
+#include <device/types/boolean-state-sensor/BooleanStateSensor.h>
+#include <device/types/electrical-sensor/ElectricalSensor.h>
+#include <device/types/occupancy-sensor/OccupancySensor.h>
+#include <device/types/on-off-light/impl/LoggingOnOffLight.h>
 #include <device/types/root-node/RootNode.h>
+#include <NamedPipeCommands.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
 #include <lib/support/logging/CHIPLogging.h>
@@ -80,6 +88,8 @@ struct AppConfig
 {
     std::vector<DeviceTypeParser::Entry> devices;
     std::string storageRoot = kDefaultStorageRoot;
+    std::string appPipe;
+    bool enableGroupcast    = false;
     uint32_t runSeconds     = 0;
     uint16_t discriminator  = kDefaultDiscriminator;
 };
@@ -212,6 +222,14 @@ bool ParseArguments(int argc, char * argv[], AppConfig & config)
                 return false;
             }
         }
+        else if (argument == "--app-pipe" && index + 1 < argc)
+        {
+            config.appPipe = argv[++index];
+        }
+        else if (argument == "--groupcast")
+        {
+            config.enableGroupcast = true;
+        }
         else
         {
             return false;
@@ -220,7 +238,8 @@ bool ParseArguments(int argc, char * argv[], AppConfig & config)
 
     if (parser.GetDeviceTypeEntries().empty())
     {
-        if (parser.ParseSingleDeviceString("on-off-light:1") != CHIP_NO_ERROR)
+        const std::string & defaultDevice = DeviceFactory::GetInstance().GetDefaultDevice();
+        if (defaultDevice.empty() || parser.ParseSingleDeviceString((defaultDevice + ":1").c_str()) != CHIP_NO_ERROR)
         {
             return false;
         }
@@ -359,6 +378,8 @@ public:
     }
 
     CodeDrivenDataModelProvider & DataModelProvider() { return mDataModelProvider; }
+    RootNode & RootDevice() { return mRootNode; }
+    const std::vector<std::unique_ptr<DeviceInterface>> & Devices() const { return mDevices; }
 
 private:
     const std::vector<DeviceTypeParser::Entry> & mConfigurations;
@@ -367,6 +388,58 @@ private:
     RootNode mRootNode;
     std::vector<std::unique_ptr<DeviceInterface>> mDevices;
 };
+
+CHIP_ERROR StartNamedPipe(const AppConfig & config, DynamicDevices & devices, AllDevicesAppCommandDelegate & delegate,
+                          NamedPipeCommands & namedPipe)
+{
+    if (config.appPipe.empty())
+    {
+        return CHIP_NO_ERROR;
+    }
+
+    for (size_t index = 0; index < config.devices.size(); ++index)
+    {
+        const auto & entry = config.devices[index];
+        auto * device      = devices.Devices()[index].get();
+        if (entry.type == "occupancy-sensor")
+        {
+            auto * occupancyDevice = static_cast<OccupancySensor *>(device);
+            delegate.GetClusterImplementationRegistry()
+                .RegisterClusterInstance<Clusters::OccupancySensingCluster>(&occupancyDevice->OccupancySensingCluster());
+        }
+        else if (entry.type == "contact-sensor" || entry.type == "water-leak-detector")
+        {
+            auto * booleanStateDevice = static_cast<BooleanStateSensor *>(device);
+            delegate.GetClusterImplementationRegistry()
+                .RegisterClusterInstance<Clusters::BooleanStateCluster>(&booleanStateDevice->BooleanState());
+        }
+        else if (entry.type == "on-off-light")
+        {
+            auto * lightDevice = static_cast<LoggingOnOffLight *>(device);
+            delegate.GetClusterImplementationRegistry().RegisterClusterInstance<Clusters::OnOffCluster>(
+                &lightDevice->OnOffCluster());
+        }
+        else if (entry.type == "ambient-context-sensor")
+        {
+            auto * ambientContextSensorDevice = static_cast<AmbientContextSensor *>(device);
+            delegate.GetClusterImplementationRegistry()
+                .RegisterClusterInstance<Clusters::AmbientContextSensingCluster>(
+                    &ambientContextSensorDevice->AmbientContextSensingCluster());
+        }
+        else if (entry.type == "electrical-sensor")
+        {
+            auto * electricalSensorDevice = static_cast<ElectricalSensor *>(device);
+            delegate.GetClusterImplementationRegistry()
+                .RegisterClusterInstance<Clusters::ElectricalEnergyMeasurement::ElectricalEnergyMeasurementCluster>(
+                    &electricalSensorDevice->ElectricalEnergyMeasurementCluster());
+        }
+    }
+
+    delegate.GetClusterImplementationRegistry().RegisterClusterInstance<Clusters::BasicInformationCluster>(
+        &devices.RootDevice().BasicInformation());
+    delegate.RegisterCommandHandlers();
+    return namedPipe.Start(config.appPipe, &delegate);
+}
 
 BOOL WINAPI ConsoleControlHandler(DWORD controlType)
 {
@@ -428,6 +501,8 @@ int Run(const AppConfig & config)
     static DefaultTimerDelegate timerDelegate;
     static SimpleTestEventTriggerDelegate testEventTriggerDelegate;
     static constexpr uint8_t kTestEventTriggerEnableKey[16] = {};
+    AllDevicesAppCommandDelegate commandDelegate;
+    NamedPipeCommands namedPipe;
     HANDLE stopEvent                    = nullptr;
     HANDLE shutdownCompleteEvent        = nullptr;
     HANDLE closeHandlerCompleteEvent    = nullptr;
@@ -489,6 +564,21 @@ int Run(const AppConfig & config)
     }
     Credentials::SetGroupDataProvider(&groupDataProvider);
 
+#if CHIP_CONFIG_ENABLE_GROUPCAST
+    static Access::Examples::GroupAuxiliaryAccessControlDelegateImpl groupAuxDelegate;
+    if (config.enableGroupcast)
+    {
+        error = groupAuxDelegate.Initialize(&groupDataProvider, &Server::GetInstance().GetFabricTable());
+        if (error == CHIP_NO_ERROR)
+        {
+            initParams.groupAuxiliaryAccessControlDelegate = &groupAuxDelegate;
+            groupDataProvider.SetGroupcastEnabled(true);
+        }
+    }
+#else
+    VerifyOrReturnValue(!config.enableGroupcast, 1, std::fprintf(stderr, "Groupcast is disabled in this build\n"));
+#endif
+
     DynamicDevices devices(initParams, testEventTriggerDelegate, groupDataProvider, timerDelegate, config.devices);
     error = devices.Startup(initParams, testEventTriggerDelegate, groupDataProvider, timerDelegate);
     if (error == CHIP_NO_ERROR)
@@ -500,6 +590,10 @@ int Run(const AppConfig & config)
     if (error == CHIP_NO_ERROR)
     {
         error = PlatformMgr().StartEventLoopTask();
+    }
+    if (error == CHIP_NO_ERROR)
+    {
+        error = StartNamedPipe(config, devices, commandDelegate, namedPipe);
     }
     if (error == CHIP_NO_ERROR)
     {
@@ -564,6 +658,7 @@ int Run(const AppConfig & config)
         std::fprintf(stderr, "Application startup failed: %" CHIP_ERROR_FORMAT "\n", error.Format());
     }
 
+    LogErrorOnFailure(namedPipe.Stop());
     (void) PlatformMgr().StopEventLoopTask();
     devices.Shutdown();
     Server::GetInstance().Shutdown();
@@ -621,7 +716,7 @@ int wmain(int argc, wchar_t * wideArgv[])
     {
         std::fprintf(stderr,
                      "Usage: %s [--device type[:endpoint][,parent=id]]... [--storage-directory path|--KVS path] "
-                     "[--discriminator 0-4095] [--interface-id -1] [--run-seconds 0-3600]\n",
+                     "[--discriminator 0-4095] [--interface-id -1] [--run-seconds 0-3600] [--app-pipe name] [--groupcast]\n",
                      argv[0]);
         return 1;
     }

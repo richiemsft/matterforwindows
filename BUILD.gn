@@ -96,13 +96,13 @@ if (chip_build_windows_bootstrap_only) {
     source_packages = [ "//integrations/mobly:chip_mobly" ]
   }
 
-  group("python_wheels") {
-    assert(chip_windows_build_python_controller,
-           "Windows Python wheels require chip_windows_build_python_controller=true")
-    deps = [
-      "//src/controller/python:matter-clusters.wheel",
-      "//src/controller/python:matter-core.wheel",
-    ]
+  if (chip_windows_build_python_controller) {
+    group("python_wheels") {
+      deps = [
+        "//src/controller/python:matter-clusters.wheel",
+        "//src/controller/python:matter-core.wheel",
+      ]
+    }
   }
 
   group("default") {

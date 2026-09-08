@@ -36,7 +36,7 @@
 #     quiet: true
 #   run2:
 #     app: ${ALL_DEVICES_APP}
-#     app-args: --device occupancy-sensor --discriminator 1234 --KVS kvs1
+#     app-args: --device occupancy-sensor --discriminator 1234 --KVS kvs1 --app-pipe /tmp/all_devices_occ_3_2_fifo
 #     script-args: >
 #       --storage-path admin_storage.json
 #       --commissioning-method on-network
@@ -46,6 +46,8 @@
 #       --trace-to json:${TRACE_TEST_JSON}.json
 #       --trace-to perfetto:${TRACE_TEST_PERFETTO}.perfetto
 #       --endpoint 1
+#       --app-pipe /tmp/all_devices_occ_3_2_fifo
+#       --bool-arg simulate_occupancy:true
 #     factory-reset: true
 #     quiet: true
 # === END CI TEST ARGUMENTS ===

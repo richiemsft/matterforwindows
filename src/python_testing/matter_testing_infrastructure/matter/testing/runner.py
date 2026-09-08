@@ -811,7 +811,9 @@ def convert_args_to_matter_config(args: argparse.Namespace):
 
     # Map CLI arg to the current config field name used by tests
     config.pipe_name = args.app_pipe
-    if config.pipe_name is not None and not os.path.exists(config.pipe_name):
+    if config.pipe_name is not None and not (
+            sys.platform == "win32" and config.pipe_name.startswith("\\\\.\\pipe\\")
+    ) and not os.path.exists(config.pipe_name):
         # Named pipes are unique, so we MUST have consistent paths
         # Verify from start the named pipe exists.
         LOGGER.error("Named pipe %r does NOT exist", config.pipe_name)

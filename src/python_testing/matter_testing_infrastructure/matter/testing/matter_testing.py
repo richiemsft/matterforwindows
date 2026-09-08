@@ -28,6 +28,7 @@ import select
 import shlex
 import socket
 import subprocess
+import sys
 import textwrap
 import threading
 import time
@@ -3048,7 +3049,7 @@ class MatterBaseTest(base_test.BaseTestClass):
         if not isinstance(app_pipe, str):
             raise TypeError("The named pipe must be provided as a string value")
 
-        if not os.path.exists(app_pipe):
+        if not (sys.platform == "win32" and app_pipe.startswith("\\\\.\\pipe\\")) and not os.path.exists(app_pipe):
             LOGGER.error("Named pipe %r does NOT exist", app_pipe)
             raise FileNotFoundError(f"CANNOT FIND {app_pipe!r}")
 

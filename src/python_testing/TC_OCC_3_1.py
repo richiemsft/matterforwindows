@@ -33,7 +33,7 @@
 #     quiet: true
 #   run2:
 #     app: ${ALL_DEVICES_APP}
-#     app-args: --device occupancy-sensor --discriminator 1234 --KVS kvs1
+#     app-args: --device occupancy-sensor --discriminator 1234 --KVS kvs1 --app-pipe /tmp/all_devices_occ_3_1_fifo
 #     script-args: >
 #       --storage-path admin_storage.json
 #       --commissioning-method on-network
@@ -43,12 +43,13 @@
 #       --trace-to json:${TRACE_TEST_JSON}.json
 #       --trace-to perfetto:${TRACE_TEST_PERFETTO}.perfetto
 #       --endpoint 1
+#       --app-pipe /tmp/all_devices_occ_3_1_fifo
+#       --bool-arg simulate_occupancy:true
 #     factory-reset: true
 #     quiet: true
 # === END CI TEST ARGUMENTS ===
 #
-#  There are CI issues to be followed up for the test cases below that implements manually controlling sensor device for
-#  the occupancy state ON/OFF change.
+#  The simulator runs automate the occupancy state changes required by:
 #  [TC-OCC-3.1] test procedure step 5, 9, 14
 #  [TC-OCC-3.2] test procedure step 3a, 3c
 

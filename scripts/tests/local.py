@@ -969,6 +969,12 @@ def gen_coverage(flat):
     show_default=True,
     help="Include nightly tests (normally excluded as they are slow and reserved for nightly CI runs).",
 )
+@click.option(
+    "--commissionee-ip",
+    default=None,
+    type=str,
+    help="Use direct-IP commissioning for local runs whose metadata requests on-network discovery.",
+)
 def python_tests(
     test_filter,
     skip,
@@ -983,6 +989,7 @@ def python_tests(
     override_binary_path,
     app_filter,
     include_nightly,
+    commissionee_ip,
 ):
     """
     Run python tests via `run_python_test.py`
@@ -1119,7 +1126,7 @@ def python_tests(
 
             to_run.append(script)
 
-        with alive_progress.alive_bar(len(to_run), title="Running tests") as bar:
+        with alive_progress.alive_bar(len(to_run), title="Running tests", disable=not sys.stdout.isatty()) as bar:
             for script in to_run:
                 bar.text(script)
                 if sys.platform == "win32":
@@ -1146,6 +1153,8 @@ def python_tests(
 
                 if app_filter_list:
                     cmd.extend(('--app-filter', app_filter))
+                if commissionee_ip:
+                    cmd.extend(("--commissionee-ip", commissionee_ip))
 
                 if dry_run:
                     print(shlex.join(cmd))

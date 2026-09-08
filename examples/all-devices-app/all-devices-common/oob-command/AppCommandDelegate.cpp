@@ -15,7 +15,7 @@
  *    limitations under the License.
  */
 
-#include "include/AppCommandDelegate.h"
+#include "AppCommandDelegate.h"
 
 #include <app-common/zap-generated/cluster-objects.h>
 #include <app/clusters/ambient-context-sensing-server/CodegenIntegration.h>

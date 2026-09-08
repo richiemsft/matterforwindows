@@ -18,7 +18,7 @@
 #pragma once
 
 #include "AllDevicesAppClusterImplementationRegistry.h"
-#include <NamedPipeCommands.h>
+#include "../../../platform/NamedPipeCommandDelegate.h"
 #include <app/util/basic-types.h>
 #include <json/json.h>
 #include <map>

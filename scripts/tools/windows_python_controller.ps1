@@ -54,6 +54,7 @@ $gnArguments = @(
 )
 if ($BuildTestApp) {
     $gnArguments += 'chip_windows_build_all_devices_app=true'
+    $gnArguments += 'chip_config_enable_groupcast=true'
 }
 $gnArguments = $gnArguments -join " "
 
