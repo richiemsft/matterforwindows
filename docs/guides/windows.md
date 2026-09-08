@@ -183,7 +183,7 @@ The initial build foundation provides:
     are not clean under the strict `/W4 /WX` Windows default reuse the
     `//build/config/win:upstream_sdk_warnings` isolation only under `is_msvc`; the
     transport / secure-channel translation units that reach the Device Layer via
-    `//src/platform` stay out of the split and are deferred to Phase 3. The
+    `//src/platform` stay out of the host-neutral split. The
     bootstrap graph now defines the Pigweed Python venv label needed while loading
     canonical BUILD files, without building the venv unless a target actually
     depends on it.
@@ -233,33 +233,21 @@ The initial build foundation provides:
     verbatim. Suites whose `SecureSession` / `ExchangeManager` /
     `ReliableMessageMgr` closures reach the Device Layer
     (`platform/ConnectivityManager.h`) -- including every `src/messaging/tests`
-    suite -- are deferred. Two shared-header portability fixes
+    suite -- are not enabled in the focused test target. Two shared-header portability fixes
     (`src/transport/raw/PeerAddress.h` union initializers,
     `src/lib/support/AutoRelease.h` `always_inline`) are documented in the
     transport / secure-channel test section below.
 
 The default Windows GN graph is intentionally restricted to bootstrap targets.
 The canonical library and application probes remain opt-in while Windows
-packaging and hardware coverage are incomplete. The Windows Device Layer now
+packaging and hardware coverage are incomplete. The Windows Device Layer
 composes the messaging, credentials, secure-session, and Interaction Model
-closures used by both the focused controller and the native `chip-tool`.
-
-Work advances only when the preceding implementation phase is complete. Phases
-0 through 2 are complete; Phase 3 (Windows Device Layer and IP discovery) is
-active. The first Phase 3 milestone -- a native Windows Device Layer
-`PlatformManager` foundation -- has landed as an opt-in probe (see
-[The Windows Device Layer foundation](#the-windows-device-layer-foundation)
-below). The second Phase 3 milestone -- a native Windows
-`KeyValueStoreManager` for controller fabric persistence -- has landed on the
-same opt-in probe (see
-[The Windows key-value store](#the-windows-key-value-store) below). The typed
-configuration-storage backend and the OS-managed Windows
-`ConnectivityManager` have also landed on that probe. The public Windows
-`ConfigurationManager` now composes those pieces into the canonical
-`PlatformMgr()` lifecycle. Native
-ARM64 execution remains a release-support requirement and is
-tracked for the hardware-backed CI phase; cross-compilation alone is not
-presented as ARM64 runtime support.
+closures used by both the focused controller and the native `chip-tool`. It
+includes the native `PlatformManager`, controller fabric persistence,
+typed configuration storage, OS-managed connectivity, and public
+`ConfigurationManager` integration. Native ARM64 execution remains a
+release-support requirement; cross-compilation alone is not presented as
+ARM64 runtime support.
 
 ## Prerequisites
 
@@ -395,7 +383,7 @@ does not yet provide:
     supplies a do-nothing `DeviceLayer::PlatformMgr()` stub plus a `random()` /
     `srandom()` shim for `TestSystemPacketBuffer`, whose fixture makes an
     incidental `PlatformMgr().InitChipStack()` call and fills buffers with POSIX
-    `random()`. The Device Layer itself is out of scope for Phase 2.
+    `random()`. The facade deliberately avoids depending on the Device Layer.
 -   `sys/time.h`, `sys/socket.h`, and `netinet/in.h` forward to `<time.h>` and
     WinSock so `TestInetCommon.h` and `TestInetAddress` resolve their POSIX
     socket includes; WinSock provides the same `s_addr` / `s6_addr` member
@@ -444,8 +432,8 @@ CHIP allocator: the upstream fixtures that allocate own their per-suite
 
 ### Not yet enabled
 
-The following upstream suites require the unported Windows Device Layer or a
-POSIX-only harness and are tracked for a later phase:
+The following upstream suites require a broader Windows Device Layer test
+harness or a POSIX-only harness and are not enabled:
 
 -   `TestSystemScheduleWork`, `TestSystemScheduleLambda`, `TestEventLoopHandler`
     drive `DeviceLayer::PlatformMgr().RunEventLoop()`.
@@ -517,7 +505,7 @@ Windows-only test copies:
 
 -   Every `-Wconversion` is guarded under `!is_msvc`, so non-Windows builds are
     unchanged and cl.exe never sees the flag.
--   The host-neutral, Phase-2 translation units are factored into narrowly named
+-   The host-neutral translation units are factored into narrowly named
     canonical `source_set`s -- `//src/transport/raw:message-header`,
     `//src/transport:crypto-context`,
     `//src/transport:group-peer-message-counter`, and
@@ -536,8 +524,8 @@ Windows-only test copies:
 
 The session-establishment / exchange / MRP translation units (`PASESession`,
 `CASESession`, `ExchangeMgr`, `ReliableMessageMgr`, ...) that include
-`platform/ConnectivityManager.h` stay in the monolithic libraries and are
-deferred to Phase 3. `//src/messaging` has no host-neutral compilable unit
+`platform/ConnectivityManager.h` stay in the monolithic libraries.
+`//src/messaging` has no host-neutral compilable unit
 beyond the header-only `//src/messaging:configurations` (its
 `ReliableMessageProtocolConfig.cpp` includes `platform/CHIPDeviceLayer.h`), so
 only its `-Wconversion` is guarded and `:configurations` is added to the probe.
@@ -558,8 +546,8 @@ only its `-Wconversion` is guarded and `:configurations` is added to the probe.
 
 ### Not yet enabled
 
-The following upstream transport / messaging / secure-channel suites reach the
-unported Windows Device Layer and are tracked for a later phase:
+The following upstream transport / messaging / secure-channel suites require a
+broader Windows Device Layer test harness and are not enabled:
 
 -   `TestPeerConnections` and `TestSecureSessionTable` construct
     `Transport::SecureSession`, whose MRP timeout virtuals
@@ -582,7 +570,7 @@ unported Windows Device Layer and are tracked for a later phase:
     an angle-bracket full-path include
     (`<protocols/secure_channel/tests/CheckIn_Message_test_vectors.h>`) that the
     same-directory C++17 source transform used for the crypto suites cannot
-    shadow; it is deferred until that header can be adapted.
+    shadow; it is not enabled until that header can be adapted.
 
 ## Compile the canonical core libraries
 
@@ -606,9 +594,8 @@ MSVC environment. The normal bootstrap build leaves
 
 ## The Windows Device Layer foundation
 
-The first Phase 3 milestone adds a native Windows Device Layer `PlatformManager`
-foundation. It is the first `src/platform` code compiled for the Windows port
-and composes the native `System::LayerImplWindows` event loop
+The native Windows Device Layer `PlatformManager` foundation composes the
+native `System::LayerImplWindows` event loop
 (`WSAPoll` + WinSock wake socket) with the standard `DeviceLayer::PlatformMgr()`
 contract:
 
@@ -623,10 +610,10 @@ contract:
     that receive posted public events.
 -   `Shutdown()` tears the System Layer down after the loop has stopped.
 
-The foundation is deliberately scoped. It does **not** pull the full Device
+The focused foundation target deliberately does **not** pull the full Device
 Layer manager closure (`ConfigurationManager`, `ConnectivityManager`,
-`KeyValueStoreManager`, DNS-SD, BLE, Thread): those are later phases and are not
-stubbed. The disabled features are expressed with concrete
+`KeyValueStoreManager`, DNS-SD, BLE, Thread). The disabled features are
+expressed with concrete
 feature-off configuration macros in
 `src/platform/Windows/CHIPDevicePlatformConfig.h`
 (`CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE 0`, `CHIP_DEVICE_CONFIG_ENABLE_THREAD 0`,
@@ -649,7 +636,7 @@ New files:
     `chip_device_platform="windows"` (`_chip_device_layer = "Windows"`) in
     `src/platform/device.gni`.
 
-The milestone is built as an opt-in probe
+The foundation is built as an opt-in probe
 (`chip_windows_device_layer_probe`, default `false`) that is independent of the
 canonical library probe, so the normal bootstrap graph is not broadened. A
 runtime smoke (`msvc-platform-manager-smoke`) exercises the full lifecycle and
@@ -681,8 +668,8 @@ is not yet run on native hardware.
 -   No `ConfigurationManager`, `ConnectivityManager`, DNS-SD, BLE, or Thread.
     `PlatformManager::HandleServerStarted()` reports the compile-time
     `CHIP_DEVICE_CONFIG_DEVICE_SOFTWARE_VERSION` because no configuration manager
-    exists yet. (The `KeyValueStoreManager` has landed as a separate sibling
-    milestone on the same probe; see
+    exists yet. (The `KeyValueStoreManager` is available as a separate target
+    on the same probe; see
     [The Windows key-value store](#the-windows-key-value-store).)
 -   `src/platform/PlatformEventSupport.cpp` (which routes System Layer
     `ScheduleLambda` / timer bridging through `PlatformMgr()`) is **not** part
@@ -691,9 +678,9 @@ is not yet run on native hardware.
     header set. It is added once those managers exist. The foundation therefore
     provides `PlatformMgr().ScheduleWork()` / `PostEvent()` directly rather than
     `System::Layer::ScheduleLambda()`.
--   The device-layer error formatter (`RegisterDeviceLayerErrorFormatter()`,
-    part of `GeneralUtils.cpp`) is registered with the rest of that translation
-    unit in a later phase, since it also reaches the full manager closure.
+-   The focused foundation target does not register the device-layer error
+    formatter (`RegisterDeviceLayerErrorFormatter()` from `GeneralUtils.cpp`)
+    because that translation unit reaches the full manager closure.
 -   The target links the focused `windows-system-layer` and
     `windows-core-portable` libraries rather than the canonical
     `//src/system:system`, keeping it free of the `PlatformEventing` symbols the
@@ -704,7 +691,7 @@ is not yet run on native hardware.
 
 ## Wiring the generic Device Layer dispatch to canonical libraries
 
-The Phase 3 milestone above deliberately linked the ad hoc,
+The focused foundation target above deliberately links the ad hoc,
 command-line-configured `windows-core-portable`/`windows-system-layer` rather
 than canonical `//src/lib/core`/`//src/system`, specifically to avoid a
 macro conflict: `windows-core-portable`'s `:public` config sets
@@ -721,7 +708,8 @@ depends on canonical `//src/lib/core`, `//src/system`, `//src/inet`, etc., so
 its Windows `_platform_target` needed to agree with that, not with
 `windows-core-portable`.
 
-This milestone reconciles that conflict and wires `chip_device_platform=="windows"`
+The canonical Windows target reconciles that conflict and wires
+`chip_device_platform=="windows"`
 through to the generic `//src/platform:platform` target as a true canonical
 platform selection, without introducing ODR duplication:
 
@@ -842,9 +830,8 @@ graph for the first time:
 -   **`//src/credentials:credentials`** -- `FabricTable`, `CHIPCert`,
     `CertificationDeclaration`, `GroupDataProviderImpl`,
     `PersistentStorageOpCertStore`, `DeviceAttestationVerifier`, and the
-    example DAC/PAI credentials -- compiles (this is the "next controller
-    dependency closure" milestone; it transitively pulls in and confirms
-    `//src/platform:platform` too).
+    example DAC/PAI credentials -- compiles and transitively confirms
+    `//src/platform:platform` too.
 -   **`//src/lib/dnssd:dnssd`** (the canonical, `chip_mdns_platform` variant)
     compiles, including the real upstream `Discovery_ImplPlatform.cpp`.
 
@@ -942,7 +929,7 @@ therefore been removed.
 
 ## The Windows key-value store
 
-The second Phase 3 milestone adds a native Windows `KeyValueStoreManager`
+The native Windows `KeyValueStoreManager`
 (`src/platform/Windows/KeyValueStoreManagerImpl.{h,cpp}`), the persistence
 foundation a Windows Matter controller needs to keep its fabric state across
 restarts. It implements the standard `PersistedStorage::KeyValueStoreMgr()`
@@ -1086,7 +1073,7 @@ yet run on native hardware.
 
 ## The Windows configuration storage backend
 
-The next Phase 3 persistence layer is
+The Windows configuration storage backend is
 `src/platform/Windows/WindowsConfig.{h,cpp}`. It maps the standard Matter
 factory, runtime-configuration, and counter keys into the native Windows KVS
 without introducing a second storage format:
@@ -1122,7 +1109,7 @@ This storage target is also consumed by the public Windows
 
 ## The Windows connectivity manager
 
-The next Phase 3 milestone adds
+The Windows connectivity manager is implemented by
 `src/platform/Windows/ConnectivityManagerImpl.{h,cpp}`. Windows remains the
 owner of adapter configuration and Wi-Fi credentials: the Matter SDK observes
 the already-connected network rather than exposing station/AP provisioning.
@@ -1354,7 +1341,7 @@ rather than encoded as a flaky test assertion.
 ### On-network discovery acceptance tool
 
 `msvc-windows-dnssd-discovery.exe` is a focused native Windows acceptance tool
-for the Phase 3 real-device gate. It browses `_matterc._udp.local`, resolves
+for real-device discovery. It browses `_matterc._udp.local`, resolves
 each instance through the Windows backend, and prints the host, port, interface,
 IPv4/IPv6 addresses, and TXT entries. It exits with code `0` after resolving at
 least one commissionable device, `2` when the timeout expires without a
@@ -1379,7 +1366,7 @@ commissioning acceptance test.
 ### Firewall and responder notes
 
 -   The backend depends on the Windows `Dnscache` service (displayed as
-    "DNS Client"); on the development host used for this milestone it was
+    "DNS Client"); on the development host used for validation it was
     already running and required no configuration. The separate Function
     Discovery services (`FDResPub`/`fdPHost`) were stopped throughout and were
     not required for `DnsServiceRegister`/`Browse`/`Resolve` to function.
@@ -1435,7 +1422,7 @@ development LAN, the executable reaches the expected exit code `2`.
 
 ## The canonical controller stack closure
 
-The next Phase 3 compile gate now builds the complete canonical
+The Windows compile gate builds the complete canonical
 `//src/transport`, `//src/messaging`, `//src/protocols/secure_channel`,
 `//src/app:interaction-model`, and `//src/app:app` libraries with MSVC in the
 same Windows Device Layer graph. This includes `SessionManager`,
@@ -1460,8 +1447,8 @@ Interaction Model request.
 Canonical `//src/controller:controller` also builds under MSVC for x64 and
 ARM64. This brought the controller factory, persistent `FabricTable`,
 commissioner, auto-commissioning, BDX, User Directed Commissioning, and
-attestation-verifier closures into the Windows graph. The Phase 4 WinRT
-transport now enables `chip_config_network_layer_ble`; on-network
+attestation-verifier closures into the Windows graph. The WinRT transport
+enables `chip_config_network_layer_ble`; on-network
 commissioning does not require that transport.
 
 One canonical layering defect was fixed as part of this gate:
@@ -1618,8 +1605,8 @@ failure. Remote fabric removal also succeeded against the bulb. Restoring the
 local controller after removal also succeeded with its original fabric index
 and node identity. A subsequent operational lookup for node 1 exhausted both
 DNS-SD attempts without finding the removed fabric, so CASE was not established
-and the OnOff read failed as expected. This completes the Windows x64 Phase 3
-IP-controller hardware acceptance flow. Native ARM64 execution remains open.
+and the OnOff read failed as expected. This completes the Windows x64 IP-controller
+hardware acceptance flow. Native ARM64 execution remains open.
 
 That final negative test also exposed a configuration defect in the first
 deployed fallback-enabled controller: it accepted and printed a supplied
@@ -1742,10 +1729,12 @@ seconds and defaults to 300. Persistent state is isolated under
 `windows-all-clusters-kvs` in the process working directory.
 
 The executable is intended for native server and broad generated-cluster
-validation. It currently uses a bounded console runtime and does not yet
-provide the Linux example's POSIX named-pipe test-event transport. Application
-delegates that depend on that transport remain outside the Windows target; the
-generated attributes and command dispatch are present.
+validation. It currently uses a bounded console runtime and does not provide
+the Linux example's POSIX named-pipe test-event transport. Application
+delegates that depend on that transport remain outside this target; the
+generated attributes and command dispatch are present. The separate native
+`all-devices-app.exe` supports equivalent test-event injection through a
+Windows named pipe.
 
 ### Native Python controller
 
@@ -1772,8 +1761,10 @@ and `chip_config_network_layer_ble`, so `ConnectBLE` and BLE PASE commissioning
 use the same discriminator scan, GATT, and CHIPoBLE implementation as native
 Windows controllers. Live over-the-air commissioning still requires a
 Bluetooth-equipped Windows 11 host and remains outside hardware-free CI. JSON
-tracing is supported. Perfetto tracing, packet capture, and POSIX named-pipe
-test options are rejected explicitly rather than silently emulated.
+tracing is supported. The test runner maps `--app-pipe` to a native Windows
+named pipe for application event injection. Perfetto tracing, packet capture,
+application output pipes, and stdin-pipe mode are rejected explicitly rather
+than silently emulated.
 
 ## Cross-build the ARM64 smoke target
 
@@ -1790,7 +1781,7 @@ dumpbin /headers out\win-arm64-msvc-smoke\msvc-toolchain-smoke.exe |
 The DNS-SD backend and its smoke target cross-build the same way
 (`chip_device_platform="windows" chip_windows_device_layer_probe=true`,
 target `msvc-windows-dnssd-smoke.exe`) and were confirmed to compile and link
-as `ARM64` for this milestone; like every other Windows Device Layer
+as `ARM64`; like every other Windows Device Layer
 component so far, **ARM64 runtime support has not been exercised on native
 ARM64 hardware** and must not be claimed as supported until it is.
 
@@ -1831,13 +1822,13 @@ does not hide missing runtime behavior behind stubs.
 | Core and support | TLV, data model types, encoders, containers, and most protocol logic | GNU-only flags and attributes, POSIX headers in transitive targets, and untested dependency closures | Compiler and build syntax |
 | System | Generic timers, packet buffers, and layer contracts | `pthread_mutex_t`, POSIX clocks, pipe/eventfd wakeups, `select` assumptions, and Unix errors | Platform contract and POSIX API |
 | Inet | Address types and endpoint contracts | Integer descriptors, BSD socket calls, `errno`, `fcntl`, `ifaddrs`, and interface-name conversion | Platform contract and POSIX API |
-| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The full monolithic credentials/Device-Layer closure is deferred | Dependency |
+| Crypto | CryptoPAL API and credential logic | BoringSSL selected, compiled with MSVC (asm disabled). The real upstream `src/crypto/tests` GoogleTest suites (80 tests including the full `TestChipCryptoPAL` CryptoPAL suite) pass on x64 at `/std:c++17` against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset (upstream sources adapted to C++17 by a build-time transform), and cross-build as `AA64`. The focused 23-test BoringSSL driver is retained. The canonical credentials closure builds on Windows and is exercised through persistent controller fabric creation and restoration | Dependency |
 | Device Layer | Generic static-polymorphism mixins | Native `PlatformManager`, storage/configuration, OS-managed connectivity, diagnostics, DNS-SD, and C++/WinRT BLE are implemented; process restart after reset remains | Platform contract |
 | DNS-SD | Resolver and advertiser interfaces | Implemented (`src/platform/Windows/DnssdImpl.cpp`) over the Win32 `windns.h` service-discovery APIs and the native OS mDNS responder; no firewall rule automation is provided (documented, not automated) | Platform contract |
 | BLE | Transport and commissioning state machines | C++/WinRT central and peripheral backends are implemented and hardware-free tested; live over-the-air commissioning and native ARM64 runtime remain unverified | Platform contract |
 | Controller | Portable command and controller logic | Existing generated `chip-tool` builds and runs natively with pairing, discovery, cluster, subscription, storage, session-management, and local and websocket interactive commands; real x64 on-network commissioning and restart-safe OnOff read pass; YAML transport is enabled but a complete suite against a DUT remains unvalidated | Platform and application |
-| Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles plus the dynamic code-driven all-devices simulator are implemented; POSIX named-pipe test-event transport remains | Platform and application |
-| Tests | Portable C++ test bodies and Python suites | Native C++ coverage, native Python controller wheels, and `TC_TMP_2_1` against all-devices-app are implemented; BLE hardware and ARM64 runtime runners remain | Build and test harness |
+| Server | Portable cluster and Interaction Model code | Native generated lighting and all-clusters lifecycles plus the dynamic code-driven all-devices simulator are implemented; all-devices provides native Windows named-pipe test-event injection | Platform and application |
+| Tests | Portable C++ test bodies and Python suites | Native C++ coverage, native Python controller wheels, `TC_TMP_2_1`, and an eight-suite certification-style matrix against all-devices-app are implemented; BLE hardware and ARM64 runtime runners remain | Build and test harness |
 
 The port must not cast a WinSock `SOCKET` to `int`. `SOCKET` is pointer-sized
 on 64-bit Windows, while the existing POSIX endpoint implementation frequently
@@ -1845,15 +1836,15 @@ stores descriptors as signed integers.
 
 ### Target-closure inventory
 
-The Phase 0 inventory uses the eventual product roots rather than treating the
-bootstrap graph as the finished SDK:
+The inventory uses the product roots rather than treating the bootstrap graph
+as the finished SDK:
 
-| Closure | Root target | Reusable dependencies | First Windows blockers | Owning phase |
-|---|---|---|---|---|
-| Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | Complete System event loop, Windows errors, typed handles in shared Inet, platform entropy, and remaining MSVC attributes | Phase 1 build gate, then Phase 2 runtime |
-| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL, WinHTTP, libwebsockets | Native application, local and websocket interactive modes, HTTPS/DCL requests, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; YAML command transport is enabled, while a complete suite against a DUT remains unvalidated | Phases 3–5 |
-| Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` | Interaction Model, clusters, app server, generated data model | Native lifecycle, storage, DNS-SD, network, and BLE are wired; POSIX named-pipe test-event transport remains | Phases 3, 5, and 6 |
-| Unit tests | `//src/lib/core/tests:tests`, then System/Inet/Crypto/transport/secure-channel suites | Existing test bodies and GoogleTest | The focused Windows target runs existing core tests; the upstream `src/crypto/tests` (80 tests), `src/system/tests` + `src/inet/tests` (93 tests), and host-neutral `src/transport/tests` + `src/protocols/secure_channel/tests` (40 tests) suites run on x64 via GoogleTest facades and cross-build as `AA64`; suites reaching the Device Layer (messaging / session establishment / SessionManager) are deferred | Phase 2 |
+| Closure | Root target | Reusable dependencies | Windows status |
+|---|---|---|---|
+| Core SDK | `//src/lib`, `//src/system:system`, `//src/inet:inet`, `//src/crypto:crypto` | Core/support protocols, BoringSSL, System and Inet contracts | System event loop, Windows errors, typed Inet handles, platform entropy, and MSVC portability are implemented for the supported closure |
+| Controller | `//examples/chip-tool` | Command model, controller, JsonCpp, INI parser, BoringSSL, WinHTTP, libwebsockets | Native application, local and websocket interactive modes, HTTPS/DCL requests, and storage wiring run on x64, including real on-network commissioning and restart-safe operational read, and cross-build as `AA64`; YAML command transport is enabled, while a complete suite against a DUT remains unvalidated |
+| Server | `//examples/all-clusters-app/all-clusters-common` plus `msvc-windows-all-clusters` and `//examples/all-devices-app/windows` | Interaction Model, clusters, app server, generated and dynamic data models | Native lifecycle, storage, DNS-SD, network, and BLE are wired; all-devices provides native Windows named-pipe event injection |
+| Unit and integration tests | `//src/lib/core/tests:tests`, System/Inet/Crypto/transport/secure-channel suites, and `src/python_testing` | Existing test bodies, GoogleTest, and the native Python controller | Core tests, upstream Crypto (80), System/Inet (93), and host-neutral transport/Secure Channel (40) tests run on x64 and cross-build as `AA64`; `TC_TMP_2_1` and eight certification-style simulator suites run natively on x64 |
 
 Failures are tracked in six categories:
 
@@ -1965,7 +1956,7 @@ integration imports Linux `pkg-config` and provides no repository-pinned
 Windows acquisition path. A machine-global OpenSSL installation would violate
 the clean-machine and reproducibility requirements.
 
-The Phase 2 crypto gate now runs the complete upstream `src/crypto/tests`
+The Windows crypto gate runs the complete upstream `src/crypto/tests`
 GoogleTest suites (80 tests: `TestSessionKeystore`,
 `TestGroupOperationalCredentials`, `TestPersistentStorageOpKeyStore`, and the
 full `TestChipCryptoPAL` CryptoPAL suite) against the canonical
@@ -2013,17 +2004,16 @@ non-Windows behavior and the C++17 contract:
     constant is rewritten to a portable named array (valid on every compiler).
 
 The focused `msvc-crypto-boringssl-tests` driver and its locally reproduced
-vectors are retained as an independent correctness check. The remaining crypto
-gate item is the full monolithic credentials/Device-Layer closure (deferred
-to the Device Layer phase); binary-size measurement and the explicit
-enterprise/FIPS deployment statement are now recorded in the crypto
-release-engineering section below.
-Selecting the build dependency in Phase 0 does not pre-approve runtime
-correctness.
+vectors are retained as an independent correctness check. The canonical
+credentials/Device-Layer closure also builds on Windows and is exercised
+through persistent controller fabric creation and restoration. Binary-size
+measurement and the explicit enterprise/FIPS deployment statement are
+recorded in the crypto release-engineering section below. Selecting a build
+dependency does not by itself establish runtime correctness.
 
 ### Crypto release engineering (footprint, FIPS, servicing)
 
-This is the Phase 2 release-engineering record for the BoringSSL CryptoPAL
+This is the release-engineering record for the BoringSSL CryptoPAL
 closure. It does not by itself make Windows crypto a released support claim
 (see the crypto decision gate and the feature-status table).
 
@@ -2170,7 +2160,7 @@ are deliberate submodule bumps.
 |---|---|---|
 | WIN-001 | GN/Ninja with MSVC x64 and ARM64 toolchains remains canonical | Accepted and built |
 | WIN-002 | Use the dynamic CRT: `/MDd` for debug and `/MD` for release | Accepted |
-| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset, and cross-build as `AA64`; the monolithic credentials/Device-Layer closure is deferred |
+| WIN-003 | Use repository-pinned BoringSSL for the initial CryptoPAL closure | Accepted; CryptoPAL compiles on x64/ARM64. The real upstream `src/crypto/tests` GoogleTest suites (80 tests, incl. full `TestChipCryptoPAL`) pass on x64 against the canonical `//src/crypto:crypto` library and a focused CHIPCert subset, and cross-build as `AA64`; the canonical credentials/Device-Layer closure builds on Windows and supports persistent controller fabrics |
 | WIN-004 | Preserve WinSock `SOCKET` in a typed, pointer-width native handle | Accepted and prototyped |
 | WIN-005 | Start with `WSAPoll` and WinSock wake sockets behind the System callback contract | Accepted |
 | WIN-006 | Use Windows DNS Service Discovery without an unconditional competing UDP 5353 responder | Accepted; realized by the native DNS-SD backend (`src/platform/Windows/DnssdImpl.cpp`) over `windns.h` `DnsServiceRegister`/`Browse`/`Resolve`; 65-check smoke covers the lifecycle plus live publish, serialized remove/republish, and browse/cancel cycles on x64 and cross-builds as ARM64 |
@@ -2178,26 +2168,6 @@ are deliberate submodule bumps.
 | WIN-008 | Use versioned `%LOCALAPPDATA%` state by default with an injectable service path and explicit ACL ownership | Accepted; realized by the native `KeyValueStoreManager` (default `%LOCALAPPDATA%\Matter\KVS\v1`, injectable root, atomic durable writes, integrity checks, single-owner lock, scoped factory reset) |
 | WIN-009 | Support unpackaged and packaged desktop applications; surface capability differences explicitly | Accepted |
 | WIN-010 | Ship BoringSSL statically with `OPENSSL_NO_ASM=1` and the dynamic CRT; treat assembly, FIPS, signing, and dynamic linkage as later gated work | Accepted; non-FIPS footprint measured on x64/ARM64 (see crypto release engineering); enterprise/FIPS requires a separately validated backend |
-
-## Delivery phases and exit criteria
-
-1. Audit compiler, dependency, POSIX API, and platform-contract gaps.
-2. Port System clocks, locking, errors, wake handling, and event dispatch.
-3. Port Inet sockets, interface enumeration, multicast, and scoped IPv6.
-4. Add the Windows Device Layer, persistence, diagnostics, and DNS-SD.
-5. Add C++/WinRT BLE commissioner and commissionee support.
-6. Bring up the controller CLI and Windows `all-clusters-app`.
-7. Add x64 and ARM64 unit, integration, BLE, and external-Thread-border-router
-   CI.
-
-| Phase | Required exit |
-|---|---|
-| Build bootstrap | A clean PowerShell command builds a real SDK library and runtime check for x64 and ARM64. |
-| System and Inet | Core tests pass on x64; ARM64 builds and runs on native hardware. UDP/TCP, multicast, scoped IPv6, timer wakeup, and shutdown have regression coverage. |
-| Device Layer and IP | A controller discovers and commissions on-network, persists a fabric across restart, subscribes, and removes the fabric. |
-| BLE | Windows commissions Wi-Fi and Thread devices over BLE and can expose a commissionable Windows server over BLE. |
-| Applications | Native controller and `all-clusters-app` binaries run on a clean Windows 11 host and survive repeated commission/uncommission cycles. |
-| CI and support | Native x64 and ARM64 build jobs, x64 smoke coverage, deterministic application packages, and an explicit preview support matrix are present; hardware interoperability, native ARM64 runtime, and signed publication remain. |
 
 ## Feature status
 
@@ -2235,8 +2205,8 @@ are deliberate submodule bumps.
 | Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
-| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, and clean console shutdown | Supported | Cross-build only |
-| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load and `TC_TMP_2_1` direct-IP integration coverage; BLE hardware validation remains | Supported (`AA64`) | Cross-build only |
+| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, groupcast, native named-pipe event injection, and clean console shutdown | Supported | Cross-build only |
+| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load, `TC_TMP_2_1` direct-IP integration, and eight certification-style simulator suites; BLE hardware validation remains | Supported (`AA64`) | Cross-build only |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
@@ -2253,7 +2223,7 @@ supported.
 | MSVC/GN/Ninja source build | Built and run locally and in CI | Cross-built in CI | Development preview |
 | `chip-tool.exe` over operational IP | Build, lifecycle, interactive modes, and real-device commissioning validated | PE architecture and link validation only | Development preview |
 | `all-clusters-app.exe` | Generated model lifecycle validated | PE architecture and link validation only | Development preview |
-| `all-devices-app.exe` | Dynamic model and external test-host subprocess contract validated | PE architecture and link validation only | Development preview |
+| `all-devices-app.exe` | Dynamic model, groupcast, native named-pipe event injection, and certification-style test-host execution validated | PE architecture and link validation only | Development preview |
 | Native Python controller | IP commissioning and test-harness execution supported; WinRT BLE included but live hardware validation remains; Perfetto excluded | PE architecture, BLE linkage, ABI exports, and wheel validation only | Development preview |
 | BLE central/peripheral | Hardware-free state-machine coverage | Cross-build only | Experimental until live hardware validation |
 | External Thread Border Router | Uses the operational IPv6 controller path | Cross-build only | Experimental until end-to-end validation |
@@ -2291,7 +2261,7 @@ for validation.
 ## Known limitations
 
 -   Canonical System, Inet, CryptoPAL, credentials, DNS-SD, and host-neutral
-    transport/Secure Channel components compile on Windows. The Phase 3
+    transport/Secure Channel components compile on Windows. The
     canonical Device Layer composes PlatformManager, configuration, KVS,
     diagnostics, OS-managed connectivity, endpoint lifecycle, and DNS-SD for
     x64/ARM64, with its lifecycle/storage smoke passing on x64. The canonical
@@ -2331,7 +2301,7 @@ for validation.
     original local controller identity restored successfully. A subsequent
     lookup found no operational advertisement for the removed fabric and the
     OnOff read failed as expected. Windows x64 has therefore completed the
-    Phase 3 IP-controller hardware flow; native ARM64 execution remains open.
+    Windows x64 IP-controller hardware flow; native ARM64 execution remains open.
 -   The native DNS-SD backend does not publish Matter subtype PTR records
     (e.g. `_S15._sub._matterc._udp`): the Win32 `DNS_SERVICE_INSTANCE`/
     `DnsServiceConstructInstance()` surface it registers through has no
@@ -2345,7 +2315,7 @@ for validation.
     (after validating its hostname argument): `windns.h` has no equivalent to
     the mDNSResponder "reconfirm record" hook this API models.
 -   Same-host resolve reliability was not established on the development host
-    used for this milestone: publishing and browsing a uniquely named (GUID)
+    used for validation: publishing and browsing a uniquely named (GUID)
     service both completed live and quickly, but resolving that same service
     from the same host did not complete within a generous 10-second wait, even
     after cancellation. This is consistent with the common mDNS behavior of
@@ -2355,7 +2325,7 @@ for validation.
     assert on resolve completion; see "Firewall and responder notes" above.
 -   No Windows Firewall rule automation is provided for the DNS-SD responder;
     see "Firewall and responder notes" above for what was and was not required
-    on the development host used for this milestone.
+    on the development host used for validation.
 -   ARM64 output has been inspected but not executed on native Windows ARM64
     hardware. This applies to the DNS-SD backend as much as every other
     Windows Device Layer component so far: it cross-builds and links as
