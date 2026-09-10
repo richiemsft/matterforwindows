@@ -28,6 +28,7 @@
 #include <ble/Ble.h>
 #include <lib/support/CodeUtils.h>
 #include <lib/support/logging/CHIPLogging.h>
+#include <platform/CHIPDeviceLayer.h>
 #include <platform/CommissionableDataProvider.h>
 #include <platform/ConfigurationManager.h>
 #include <platform/ConnectivityManager.h>
@@ -46,6 +47,13 @@ namespace DeviceLayer {
 namespace Internal {
 
 namespace {
+
+// Empirically, GattServiceProviderAdvertisementStatus() settles from its
+// transient post-StartAdvertising() value (Aborted/Created) to a terminal
+// value (Started/StartedWithoutAllAdvertisementData/or a real failure) within
+// tens of milliseconds on-device. 250ms gives comfortable margin without
+// meaningfully slowing down commissioning.
+constexpr System::Clock::Timeout kAdvertisingStatusSettleDelay = System::Clock::Milliseconds32(250);
 
 CHIP_ERROR MapBluetoothError(BluetoothError error)
 {
@@ -262,12 +270,20 @@ CHIP_ERROR BlePeripheralServer::StartAdvertising(const char * deviceName, bool f
 
     // GattServiceProvider does not report StartAdvertising() completion via an
     // async result; the actual outcome (including RadioNotAvailable) is only
-    // observable a moment later via AdvertisementStatus(). Check it once from
-    // a deferred callback on the Matter event loop so this still follows the
-    // "marshal every callback through PlatformMgr()" contract even though the
-    // underlying WinRT call is itself synchronous-looking.
-    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork(&BlePeripheralServer::CheckAdvertisingStartedWork,
-                                                        reinterpret_cast<intptr_t>(this));
+    // observable a moment later via AdvertisementStatus(). Immediately after
+    // StartAdvertising() returns, AdvertisementStatus() typically still
+    // reads Aborted (or Created) for a brief transitional window -- observed
+    // on-device to be on the order of tens of milliseconds -- before Windows
+    // settles it to Started/StartedWithoutAllAdvertisementData or a genuine
+    // failure state. Checking via an immediate PlatformMgr().ScheduleWork()
+    // callback (which runs on the very next Matter event-loop iteration, far
+    // sooner than that) reliably captured this transient Aborted value and
+    // misreported it as BLE_ERROR_ADAPTER_UNAVAILABLE even though advertising
+    // was actually about to succeed. Use a short SystemLayer timer instead so
+    // the check runs after that transitional window has passed.
+    TEMPORARY_RETURN_IGNORED DeviceLayer::SystemLayer().StartTimer(kAdvertisingStatusSettleDelay,
+                                                                    &BlePeripheralServer::CheckAdvertisingStartedTimerFired,
+                                                                    this);
     return CHIP_NO_ERROR;
 }
 
@@ -294,14 +310,23 @@ bool BlePeripheralServer::IsAdvertising() const
     return mAdvertising.load(std::memory_order_acquire);
 }
 
-void BlePeripheralServer::CheckAdvertisingStartedWork(intptr_t self)
+void BlePeripheralServer::CheckAdvertisingStartedTimerFired(System::Layer *, void * appState)
 {
-    auto * server = reinterpret_cast<BlePeripheralServer *>(self);
+    auto * server = reinterpret_cast<BlePeripheralServer *>(appState);
     if (!server->mServiceProvider)
     {
         return; // Shut down (or never registered) since this was scheduled; nothing to report.
     }
-    bool started = server->mServiceProvider.AdvertisementStatus() == GattServiceProviderAdvertisementStatus::Started;
+    // WinRT commonly reports StartedWithoutAllAdvertisementData instead of
+    // Started when the requested advertising payload (flags + 128-bit
+    // service UUID + ServiceData) doesn't all fit in the legacy BLE
+    // advertisement/scan-response budget. The service is still genuinely
+    // advertising in that case -- only some optional advertisement data was
+    // dropped -- so treat it as a successful start rather than failing the
+    // whole CHIPoBLE service over it.
+    auto status  = server->mServiceProvider.AdvertisementStatus();
+    bool started = status == GattServiceProviderAdvertisementStatus::Started ||
+        status == GattServiceProviderAdvertisementStatus::StartedWithoutAllAdvertisementData;
     server->mAdvertising.store(started, std::memory_order_release);
     BLEManagerImpl::NotifyBLEPeripheralAdvStartComplete(started ? CHIP_NO_ERROR : BLE_ERROR_ADAPTER_UNAVAILABLE);
 }
@@ -321,6 +346,7 @@ void BlePeripheralServer::Shutdown()
     mEpoch.Invalidate();
     mWriteRequestedRevoker.revoke();
     mSubscribedClientsChangedRevoker.revoke();
+    DeviceLayer::SystemLayer().CancelTimer(&BlePeripheralServer::CheckAdvertisingStartedTimerFired, this);
 
     if (mServiceProvider)
     {

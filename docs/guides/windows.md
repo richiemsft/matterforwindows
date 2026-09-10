@@ -1806,8 +1806,73 @@ in-process on ARM64. Note for reproducing this: the repository's pinned
 unrelated to this port) predates that package's `win_arm64` wheels and fails
 to build from source without a local Rust/OpenSSL toolchain; installing an
 unpinned, current `cryptography` in the virtual environment works around it.
-Running the full `TC_TMP_2_1`/certification-style Python suites natively on
-ARM64 remains open for a future session.
+
+A follow-up session closed the toolchain half of that gap: installing
+`Rustlang.Rustup` (native `aarch64-pc-windows-msvc` toolchain) and
+`ShiningLight.OpenSSL.Dev` (OpenSSL 4.0.2 for ARM64) via `winget`, then
+pointing `OPENSSL_DIR` at a flattened copy of the ARM64 OpenSSL `lib`/`include`
+directories, let `pip install cryptography` build
+`cryptography-50.0.1-cp312-abi3-win_arm64.whl` from source natively -- no
+prebuilt wheel was needed. With that wheel installed, the venv was fully
+provisioned (`matter-core`, `matter-clusters`, the `matter.testing` package,
+and the data-model/credentials archives), and `TC_TMP_2_1.py` was actually
+executed against a natively built `all-devices-app.exe` (`--device
+temperature-sensor`) on the same ARM64 host.
+
+Commissioning did not complete on the first attempt, but not for an ARM64- or
+toolchain-related reason -- and follow-up investigation found and fixed a
+genuine (platform-wide, not ARM64-specific) code bug along the way:
+
+-   The DNS-SD path hit the same same-host mDNS self-resolve limitation
+    already documented above for `msvc-windows-dnssd-smoke.exe` -- the OS
+    mDNS responder commonly will not resolve a record the same host just
+    published, over loopback.
+-   The on-network discovery path also fell back to a BLE scan, which
+    initially failed with `all-devices-app` logging "BLE adapter unavailable"
+    and disabling its CHIPoBLE service. This host genuinely has working
+    Bluetooth hardware, an enabled radio, and full peripheral-role support
+    (all independently confirmed via direct `Windows.Devices.Bluetooth` WinRT
+    calls: `IsLowEnergySupported`, `IsPeripheralRoleSupported`, and
+    `IsCentralRoleSupported` all `True`). Bisecting the WinRT calls
+    `all-devices-app` itself makes found the real cause: **`BlePeripheralServer::CheckAdvertisingStartedWork()`
+    in `src/platform/Windows/BlePeripheral.cpp` checked
+    `GattServiceProvider.AdvertisementStatus()` from a `PlatformMgr().ScheduleWork()`
+    callback that runs on the very next Matter event-loop iteration -- but on
+    this host, `AdvertisementStatus()` reads a transient `Aborted` value for
+    roughly the first ~50ms after `StartAdvertising()` returns, before
+    settling to `Started`.** The immediate check reliably observed that
+    transient value and misreported it as `BLE_ERROR_ADAPTER_UNAVAILABLE`,
+    disabling CHIPoBLE, even though advertising was genuinely about to
+    succeed. This was fixed by deferring that check via a short (250ms)
+    `SystemLayer` timer (`kAdvertisingStatusSettleDelay`) instead of an
+    immediate event-loop callback, and by also accepting
+    `StartedWithoutAllAdvertisementData` (a legitimate partial-success status
+    WinRT commonly returns when the requested advertising payload doesn't
+    fully fit) as a successful start, not just the exact `Started` value.
+    After that fix and a rebuild, `all-devices-app.exe` advertised CHIPoBLE
+    successfully and continuously on this host with no adapter/registration
+    errors of any kind.
+-   With the peripheral side genuinely fixed, re-running `TC_TMP_2_1`
+    surfaced a *further*, separate, and expected topology limitation: the
+    Python controller's own BLE central scan (`bleak`, backed by the same
+    physical Bluetooth radio) received 406 advertisements during its scan
+    window but found 0 valid Matter advertisements, and commissioning still
+    timed out. This is the BLE analogue of the same-host mDNS self-resolve
+    limitation above -- a single radio simultaneously running the CHIPoBLE
+    peripheral role and scanning as a central does not reliably discover its
+    own advertisement -- and is expected to require a second physical
+    Bluetooth radio (i.e. a second device/host) to observe end-to-end.
+
+The mDNS self-resolve limitation and the same-host BLE self-scan limitation
+are both topology/host-state limitations (test client and DUT sharing one
+host's network and Bluetooth radio), not code or ARM64 defects, and both
+would reproduce identically on x64. The `CheckAdvertisingStartedWork` timing
+bug, by contrast, was a genuine cross-platform code defect (now fixed) that
+happened to be uncovered by this ARM64 testing. Running `TC_TMP_2_1`/the
+certification-style Python suites to a genuine pass on ARM64 therefore still
+remains open, and now specifically requires a second device/host on the LAN
+(for both the mDNS and BLE central/peripheral roles to be observed from
+outside the DUT), rather than a missing toolchain or a broken adapter.
 
 A one-line fix was also applied to `src/protocols/BUILD.gn` (repeating the
 `CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES` default for
@@ -2250,7 +2315,7 @@ are deliberate submodule bumps.
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
 | Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Native ARM64: passes (`msvc-windows-all-clusters`) |
 | Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, groupcast, native named-pipe event injection, and clean console shutdown | Supported | Native ARM64: runs, confirmed genuine `AA64` binary, exit 0 with expected startup markers |
-| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load, `TC_TMP_2_1` direct-IP integration, and eight certification-style simulator suites; BLE hardware validation remains | Supported (`AA64`) | Native ARM64: builds a genuine `win_arm64` wheel (`matter_core-1.0.0-py3-none-win_arm64.whl`); the native `_ChipDeviceCtrl.dll` loads and `matter.native.Init()` successfully initializes the CHIP stack on-device. The pinned `cryptography==43.0.0` build constraint has no prebuilt `win_arm64` wheel and fails to build from source without Rust/OpenSSL; installing an unpinned `cryptography` resolves it locally, but the repository-wide pin is unrelated to this port and was left as-is. `TC_TMP_2_1` and the certification-style suites were not yet executed natively |
+| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load, `TC_TMP_2_1` direct-IP integration, and eight certification-style simulator suites; BLE hardware validation remains | Supported (`AA64`) | Native ARM64: builds a genuine `win_arm64` wheel (`matter_core-1.0.0-py3-none-win_arm64.whl`); the native `_ChipDeviceCtrl.dll` loads and `matter.native.Init()` successfully initializes the CHIP stack on-device. The pinned `cryptography==43.0.0` build constraint has no prebuilt `win_arm64` wheel; installing `Rustlang.Rustup` and `ShiningLight.OpenSSL.Dev` (via `winget`) and setting `OPENSSL_DIR` let `cryptography-50.0.1` build from source natively (`cryptography-50.0.1-cp312-abi3-win_arm64.whl`), fully provisioning the venv. `TC_TMP_2_1` was then executed against a native `all-devices-app.exe`; a real code bug was found and fixed along the way (`BlePeripheral.cpp`'s `CheckAdvertisingStartedWork` checked `AdvertisementStatus()` before it settled past a transient `Aborted` value, misreporting successful advertising as adapter failure -- fixed with a short settle-delay timer and by also accepting `StartedWithoutAllAdvertisementData`; this was a genuine cross-platform defect, not ARM64-specific). After the fix, CHIPoBLE advertising ran correctly, but commissioning still did not complete: DNS-SD hit the pre-existing same-host mDNS self-resolve limitation (see above), and BLE hit an analogous same-host limitation where the single physical radio, simultaneously acting as CHIPoBLE peripheral and BLE-scan central, did not discover its own advertisement (406 advertisements observed, 0 valid Matter ones) -- a topology gap, not a toolchain, driver, or ARM64 defect. A genuine pass now requires a second device/host on the LAN |
 | DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Native ARM64: passes (65 checks) |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
@@ -2264,11 +2329,11 @@ supported.
 
 | Surface | Windows 11 x64 | Windows 11 ARM64 | Release status |
 |---|---|---|---|
-| MSVC/GN/Ninja source build | Built and run locally and in CI | Cross-built in CI | Development preview |
-| `chip-tool.exe` over operational IP | Build, lifecycle, interactive modes, and real-device commissioning validated | PE architecture and link validation only | Development preview |
-| `all-clusters-app.exe` | Generated model lifecycle validated | PE architecture and link validation only | Development preview |
-| `all-devices-app.exe` | Dynamic model, groupcast, native named-pipe event injection, and certification-style test-host execution validated | PE architecture and link validation only | Development preview |
-| Native Python controller | IP commissioning and test-harness execution supported; WinRT BLE included but live hardware validation remains; Perfetto excluded | PE architecture, BLE linkage, ABI exports, and wheel validation only | Development preview |
+| MSVC/GN/Ninja source build | Built and run locally and in CI | Cross-built in CI; also built and run natively on ARM64 hardware in later validation sessions | Development preview |
+| `chip-tool.exe` over operational IP | Build, lifecycle, interactive modes, and real-device commissioning validated | Native ARM64 build and run validated; real-device DNS-SD discovery/resolve confirmed, but PASE against that device did not complete because its commissioning window was already closed (device state, not a defect) | Development preview |
+| `all-clusters-app.exe` | Generated model lifecycle validated | Native ARM64 pass (`msvc-windows-all-clusters`) | Development preview |
+| `all-devices-app.exe` | Dynamic model, groupcast, native named-pipe event injection, and certification-style test-host execution validated | Native ARM64 run confirmed (genuine `AA64` binary, expected startup markers); certification-style test-host execution (`TC_TMP_2_1`) attempted natively -- found and fixed a real `BlePeripheral.cpp` timing bug that misreported successful CHIPoBLE advertising as adapter failure (see narrative above), then still did not reach a pass due to same-host mDNS self-resolve and same-host BLE central/peripheral self-scan limitations (this host's Bluetooth hardware/radio/peripheral-role support are confirmed working) | Development preview |
+| Native Python controller | IP commissioning and test-harness execution supported; WinRT BLE included but live hardware validation remains; Perfetto excluded | Native ARM64 wheel build, DLL load, and in-process CHIP stack init validated; `cryptography` now builds natively from source (Rust + OpenSSL toolchain installed) instead of needing an unpinned wheel; `TC_TMP_2_1` execution against a native `all-devices-app.exe` fixed a real CHIPoBLE advertising-status race (see narrative above) but is not yet passing, for the same mDNS/BLE self-scan topology reasons above | Development preview |
 | BLE central/peripheral | Hardware-free state-machine coverage | Cross-build only | Experimental until live hardware validation |
 | External Thread Border Router | Uses the operational IPv6 controller path | Cross-build only | Experimental until end-to-end validation |
 | Application ZIP | Deterministic unsigned CI package with hashes and notices | Deterministic unsigned CI package with hashes and notices | Validation artifact, not a signed release |

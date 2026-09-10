@@ -49,6 +49,8 @@
 #include <lib/core/CHIPError.h>
 #include <platform/Windows/BleCallbackGuard.h>
 #include <platform/Windows/BleConnection.h>
+#include <system/SystemClock.h>
+#include <system/SystemLayer.h>
 #include <system/SystemPacketBuffer.h>
 
 namespace chip {
@@ -100,13 +102,14 @@ private:
     // GattServiceProvider does not report StartAdvertising()/StopAdvertising()
     // completion via an async result or callback with a result argument; the
     // actual outcome (including e.g. RadioNotAvailable) is only observable a
-    // moment later via AdvertisementStatus(). These are scheduled via
-    // PlatformMgr().ScheduleWork() (a plain function pointer + intptr_t, not
-    // a capturing lambda -- ScheduleWork's LambdaBridge requires trivially
-    // copyable captures, which a BleCallbackGuard's shared_ptr is not) so the
-    // check still happens on the Matter event-loop thread. Safe to run after
-    // Shutdown(): mServiceProvider is null by then and the functions no-op.
-    static void CheckAdvertisingStartedWork(intptr_t self);
+    // moment later via AdvertisementStatus() -- and observed to briefly read
+    // a transient/incorrect value immediately after StartAdvertising()
+    // returns, so the started check is delayed via a short SystemLayer timer
+    // (see kAdvertisingStatusSettleDelay) rather than checked on the very
+    // next event-loop iteration. Both checks run on the Matter event-loop
+    // thread. Safe to run after Shutdown(): mServiceProvider is null by then
+    // and the functions no-op.
+    static void CheckAdvertisingStartedTimerFired(System::Layer * layer, void * appState);
     static void CheckAdvertisingStoppedWork(intptr_t self);
 
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattServiceProvider mServiceProvider{ nullptr };
