@@ -48,8 +48,13 @@ int main()
         std::array<uint8_t, 32> hardwareAddress;
         uint8_t hardwareAddressSize = 0;
         chip::Inet::InterfaceType type;
-        if (iterator.GetHardwareAddress(hardwareAddress.data(), hardwareAddressSize,
-                                        static_cast<uint8_t>(hardwareAddress.size())) != CHIP_NO_ERROR ||
+        // Not every adapter (loopback, tunnel, many virtual adapters) exposes an
+        // EUI-48/EUI-64 hardware address; CHIP_ERROR_NOT_IMPLEMENTED is a valid
+        // outcome here, matching the shared chip::Inet contract exercised by
+        // src/inet/tests/TestInetEndPoint.cpp.
+        const CHIP_ERROR hardwareAddressResult = iterator.GetHardwareAddress(
+            hardwareAddress.data(), hardwareAddressSize, static_cast<uint8_t>(hardwareAddress.size()));
+        if ((hardwareAddressResult != CHIP_NO_ERROR && hardwareAddressResult != CHIP_ERROR_NOT_IMPLEMENTED) ||
             iterator.GetInterfaceType(type) != CHIP_NO_ERROR)
         {
             return 1;

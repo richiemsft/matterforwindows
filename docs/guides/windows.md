@@ -1781,12 +1781,18 @@ dumpbin /headers out\win-arm64-msvc-smoke\msvc-toolchain-smoke.exe |
 The DNS-SD backend and its smoke target cross-build the same way
 (`chip_device_platform="windows" chip_windows_device_layer_probe=true`,
 target `msvc-windows-dnssd-smoke.exe`) and were confirmed to compile and link
-as `ARM64`; like every other Windows Device Layer
-component so far, **ARM64 runtime support has not been exercised on native
-ARM64 hardware** and must not be claimed as supported until it is.
+as `ARM64`.
 
-ARM64 runtime support must be tested on native Windows ARM64 hardware before
-the architecture is listed as fully supported.
+**ARM64 runtime support has now been validated on native ARM64 hardware**: the
+13 bootstrap smoke executables, the five upstream crypto/System/Inet GoogleTest
+binaries, and the CI-gated Windows Device Layer targets
+(`msvc-key-value-store-smoke`, `msvc-canonical-platform-smoke`,
+`msvc-canonical-controller-stack-smoke`,
+`msvc-windows-configuration-manager-smoke`, `msvc-windows-ble-smoke`,
+`msvc-windows-all-clusters`, `all-devices-app`, and `chip-tool`) all ran
+directly on an ARM64-based Windows PC and passed. `msvc-windows-dnssd-smoke.exe`
+and live Bluetooth/Thread hardware interoperability remain cross-build-only on
+ARM64.
 
 GN rejects a target architecture that does not match the active MSVC
 environment. Re-run the setup script with the matching `-Architecture` value
