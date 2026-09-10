@@ -1785,14 +1785,39 @@ as `ARM64`.
 
 **ARM64 runtime support has now been validated on native ARM64 hardware**: the
 13 bootstrap smoke executables, the five upstream crypto/System/Inet GoogleTest
-binaries, and the CI-gated Windows Device Layer targets
+binaries, the four upstream transport and Secure Channel GoogleTest binaries
+(40 tests), and the CI-gated Windows Device Layer targets
 (`msvc-key-value-store-smoke`, `msvc-canonical-platform-smoke`,
 `msvc-canonical-controller-stack-smoke`,
 `msvc-windows-configuration-manager-smoke`, `msvc-windows-ble-smoke`,
 `msvc-windows-all-clusters`, `all-devices-app`, and `chip-tool`) all ran
 directly on an ARM64-based Windows PC and passed. `msvc-windows-dnssd-smoke.exe`
-and live Bluetooth/Thread hardware interoperability remain cross-build-only on
-ARM64.
+also now runs natively on ARM64 and passes (65 checks). Live Bluetooth/Thread
+hardware interoperability remains cross-build-only on ARM64.
+
+The native Python controller was also built natively for ARM64
+(`.\scripts\tools\windows_python_controller.ps1 -Architecture arm64
+-InstallVirtualEnv <path>` run directly on the ARM64 host, rather than
+cross-built from x64): it produces a genuine `win_arm64` wheel
+(`matter_core-1.0.0-py3-none-win_arm64.whl`), and `matter.native.Init()`
+successfully loads `_ChipDeviceCtrl.dll` and initializes the CHIP stack
+in-process on ARM64. Note for reproducing this: the repository's pinned
+`cryptography==43.0.0` build constraint (`scripts/setup/constraints.txt`,
+unrelated to this port) predates that package's `win_arm64` wheels and fails
+to build from source without a local Rust/OpenSSL toolchain; installing an
+unpinned, current `cryptography` in the virtual environment works around it.
+Running the full `TC_TMP_2_1`/certification-style Python suites natively on
+ARM64 remains open for a future session.
+
+A one-line fix was also applied to `src/protocols/BUILD.gn` (repeating the
+`CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES` default for
+`chip_device_platform="none"`, matching the precedent in
+`src/platform/Windows/BUILD.gn`), which was blocking part of the
+compile-probe graph. Building the full ungated `default` target group still
+fails afterward for a different, deeper reason: `platform/NONE/ConfigurationManagerImpl.h`
+does not exist, because no stub `ConfigurationManager` implementation is
+provided for `chip_device_platform="none"`. That remains a pre-existing,
+unrelated gap, out of scope for this port.
 
 `chip-tool.exe` built for ARM64 was also exercised against a real Matter
 lighting accessory on the local network via `chip-tool pairing code`. DNS-SD
@@ -2192,41 +2217,41 @@ are deliberate submodule bumps.
 
 | Surface | x64 build | x64 runtime | ARM64 build | ARM64 runtime |
 |---|---|---|---|---|
-| MSVC toolchain smoke | Supported | Supported | Supported | Not yet run on native hardware |
-| Base64 SDK library smoke | Supported | Supported | Supported | Not yet run on native hardware |
-| BoringSSL/Mbed TLS/JsonCpp dependency smoke | Supported | Supported | Supported | Not yet run on native hardware |
-| Shared core error/key-ID library and tests | Supported subset | 23 tests pass | Supported subset | Not yet run on native hardware |
-| QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Not yet run on native hardware |
-| Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Not yet run on native hardware |
-| Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Not yet run on native hardware |
-| Inet interface/address enumeration (`GetAdaptersAddresses`) | Supported | Supported | Supported | Not yet run on native hardware |
-| Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
-| Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Not yet run on native hardware |
-| BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Not yet run on native hardware |
-| Upstream `src/crypto/tests` GoogleTest suites | Supported | 80 tests pass | Supported | Not yet run on native hardware |
-| Upstream System and Inet suites | Supported | 93 tests pass | Supported | Not yet run on native hardware |
-| Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Not yet run on native hardware |
-| Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only |
-| Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Not yet run on native hardware |
-| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (76 checks) | Supported | Not yet run on native hardware |
+| MSVC toolchain smoke | Supported | Supported | Supported | Native ARM64: passes |
+| Base64 SDK library smoke | Supported | Supported | Supported | Native ARM64: passes |
+| BoringSSL/Mbed TLS/JsonCpp dependency smoke | Supported | Supported | Supported | Native ARM64: passes |
+| Shared core error/key-ID library and tests | Supported subset | 23 tests pass | Supported subset | Native ARM64: 23 tests pass |
+| QPC/FILETIME/SRW System primitives | Supported | Supported | Supported | Native ARM64: passes |
+| Shared System clock/mutex APIs | Supported subset | Supported subset | Supported subset | Native ARM64: passes |
+| Typed WinSock/IPv6 UDP/`WSAPoll` primitives | Supported | Supported | Supported | Native ARM64: passes |
+| Inet interface/address enumeration (`GetAdaptersAddresses`) | Supported | Supported | Supported | Native ARM64: passes |
+| Shared Inet UDP socket endpoint (WinSock) | Supported | Supported | Supported | Native ARM64: passes |
+| Shared Inet TCP socket endpoint (WinSock) | Supported | Supported | Supported | Native ARM64: passes |
+| BoringSSL CryptoPAL closure and expanded correctness suite | Supported | 23 tests pass | Supported | Native ARM64: 23 tests pass |
+| Upstream `src/crypto/tests` GoogleTest suites | Supported | 80 tests pass | Supported | Native ARM64: 80 tests pass |
+| Upstream System and Inet suites | Supported | 93 tests pass | Supported | Native ARM64: 93 tests pass |
+| Upstream transport and Secure Channel suites | Supported | 40 tests pass | Supported | Native ARM64: 40 tests pass |
+| Canonical System/Inet/CryptoPAL and host-neutral transport compile probe | Supported | Compile only | Supported | Compile only; the full ungated `default` group additionally requires a `platform/NONE/ConfigurationManagerImpl.h` stub that does not exist yet, so it remains out of scope beyond the `CHIP_DEVICE_CONFIG_MAX_DISCOVERED_IP_ADDRESSES` fix already applied |
+| Windows Device Layer `PlatformManager` foundation | Supported | Smoke passes | Supported | Native ARM64: passes (`msvc-canonical-platform-smoke`) |
+| Windows Device Layer `KeyValueStoreManager` | Supported | Smoke passes (76 checks) | Supported | Native ARM64: passes (`msvc-key-value-store-smoke`) |
 | Windows typed configuration storage | Supported | Smoke passes (49 checks) | Supported | Not yet run on native hardware |
 | Windows Device Layer `ConnectivityManager` | Supported for OS-managed adapters with native change events | Smoke passes (21 checks plus event-loop delivery coverage) | Supported | Not yet run on native hardware |
-| Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Not yet run on native hardware |
-| Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Not yet run on native hardware |
+| Windows Device Layer configuration and diagnostics | Supported | Smoke passes (45 checks) | Supported | Native ARM64: passes (`msvc-windows-configuration-manager-smoke`) |
+| Windows Device Layer DNS-SD backend (`windns.h`) | Supported (native OS mDNS responder) | Smoke passes (65 checks), incl. live publish, serialized remove/republish, and browse/cancel | Supported | Native ARM64: passes (65 checks, `msvc-windows-dnssd-smoke.exe`) |
 | Controller-facing `chip::Dnssd::Resolver`/`DiscoveryImplPlatform` | Supported | Acceptance tool passes: init/shutdown, discovery start/stop | Supported | Not yet run on native hardware |
-| `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Not yet run on native hardware |
+| `//src/platform:platform` Device Layer dispatch | Supported | Lifecycle, event-loop, and initialized-KVS smoke passes (`msvc-canonical-platform-smoke`) | Supported | Native ARM64: passes |
 | Canonical `//src/credentials:credentials` | Supported | Compile only | Supported | Compile only |
 | Canonical `//src/lib/dnssd:dnssd` (real `Discovery_ImplPlatform.cpp`) | Supported | Links and runs in `msvc-windows-controller-discovery.exe` | Supported | Cross-build only |
-| Transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Not yet run on native hardware |
+| Transport, messaging, PASE/CASE, and Interaction Model closure | Supported | Link/lifecycle smoke passes (`msvc-canonical-controller-stack-smoke`) | Supported | Native ARM64: passes |
 | Canonical `//src/controller` library | Supported | Persistent controller factory and `FabricTable` initialization pass | Supported | Not yet run on native hardware |
 | Canonical controller/server SDK closure | Supported | Controller and server lifecycle coverage passes | Supported | Cross-build only |
 | Focused non-interactive controller | Supported subset | Complete x64 IP acceptance flow against a real bulb: fabric/key persistence, commissioning, restart-safe CASE and OnOff operations, subscription delivery, remote fabric removal, retained local identity, and rejection of post-removal operational access | Supported subset | Cross-build only |
-| Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Cross-build only |
+| Native generated `chip-tool` | Supported with local and websocket interactive modes | Real-bulb on-network commissioning completes PASE, credentials, CASE, and CommissioningComplete; a subsequent process restores the fabric and reads OnOff over CASE; local interactive command execution, history, `quit`, and EOF shutdown pass; websocket command/JSON response and remote `quit` shutdown pass | Supported (`AA64`) | Native ARM64: builds and runs; DNS-SD discovery against a real device confirmed working (resolved a complete commissionable-node advertisement), but PASE did not complete because the device's commissioning window was already closed (device state, not a defect) |
 | Focused server/commissionee | Supported development harness (`chip_windows_enable_cxx20=true`) | Full generated model initializes, publishes DNS-SD, opens PASE, and cleanly handles unavailable BLE peripheral hardware | Supported | Cross-build only |
-| Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Cross-build only |
-| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, groupcast, native named-pipe event injection, and clean console shutdown | Supported | Cross-build only |
-| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load, `TC_TMP_2_1` direct-IP integration, and eight certification-style simulator suites; BLE hardware validation remains | Supported (`AA64`) | Cross-build only |
-| DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Not yet run on native hardware |
+| Native all-clusters app | Supported development harness (`chip_windows_enable_cxx20=true`) | Complete generated all-clusters model initializes, publishes DNS-SD, opens PASE, initializes mode/TLS integrations, and shuts down cleanly | Supported (`AA64`) | Native ARM64: passes (`msvc-windows-all-clusters`) |
+| Native all-devices app | Supported development harness (`chip_windows_enable_cxx20=true`) | Dynamic endpoints, configurable discriminator/KVS, standard onboarding/readiness output, DNS-SD, PASE, groupcast, native named-pipe event injection, and clean console shutdown | Supported | Native ARM64: runs, confirmed genuine `AA64` binary, exit 0 with expected startup markers |
+| Native Python controller | Supported with IP and WinRT BLE transports | Native DLL load, `TC_TMP_2_1` direct-IP integration, and eight certification-style simulator suites; BLE hardware validation remains | Supported (`AA64`) | Native ARM64: builds a genuine `win_arm64` wheel (`matter_core-1.0.0-py3-none-win_arm64.whl`); the native `_ChipDeviceCtrl.dll` loads and `matter.native.Init()` successfully initializes the CHIP stack on-device. The pinned `cryptography==43.0.0` build constraint has no prebuilt `win_arm64` wheel and fails to build from source without Rust/OpenSSL; installing an unpinned `cryptography` resolves it locally, but the repository-wide pin is unrelated to this port and was left as-is. `TC_TMP_2_1` and the certification-style suites were not yet executed natively |
+| DNS-SD | Supported (native `windns.h` backend) | Smoke passes (65 checks) | Supported | Native ARM64: passes (65 checks) |
 | BLE central/peripheral | Supported | Hardware-free smoke passes (39 checks); live over-the-air commissioning not yet run | Supported | Not yet run on native hardware |
 | Thread through external border router | Supported by the IPv6 controller; no local Thread stack required | End-to-end commissioning not yet validated | Supported by the IPv6 controller; no local Thread stack required | Not yet run on native hardware |
 
