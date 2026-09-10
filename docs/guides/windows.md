@@ -877,14 +877,14 @@ ninja -C out\win-chip-tool-x64 chip-tool
 .\out\win-chip-tool-x64\chip-tool.exe onoff
 .\out\win-chip-tool-x64\chip-tool.exe interactive start --storage-directory .\chip-tool-state
 .\out\win-chip-tool-x64\chip-tool.exe interactive server --port 9102
-.\.environment\windows\python\Scripts\python.exe .\scripts\tests\chipyaml\chiptool.py payload parse-setup-payload 23307702240 --server_path .\out\win-chip-tool-x64\chip-tool.exe
+.\.environment\windows\python\Scripts\python.exe .\scripts\tests\chipyaml\chiptool.py payload parse-setup-payload <setup-code> --server_path .\out\win-chip-tool-x64\chip-tool.exe
 ```
 
 The root command lists the complete generated cluster and command-set surface;
 the pairing, OnOff, and interactive command groups also initialize and display
 their command help. Enter `quit` or `quit()` to leave the interactive shell.
 The websocket server was validated with a Node.js client: sending
-`payload parse-setup-payload 23307702240` to `ws://127.0.0.1:9102` returned
+`payload parse-setup-payload <setup-code>` to `ws://127.0.0.1:9102` returned
 valid JSON containing nine log entries. In a separate run on port 9103,
 sending `quit` stopped chip-tool cleanly. The Python YAML adapter also
 launched the Windows server and executed the same payload command through
@@ -906,10 +906,10 @@ The HTTPS path was validated against the production DCL:
 
 The successful response included product name and label `CS/CU-HU18ZKY`.
 
-An x64 hardware run commissioned a Tapo Matter bulb as node 15 using on-network
-DNS-SD discovery and a manual setup code. The bulb's advertised link-local IPv6
-address did not respond, so the existing operational-session fallback retried
-its IPv4 address (`192.168.1.128`), completed CASE, and received
+An x64 hardware run commissioned a real Matter bulb as node 15 using
+on-network DNS-SD discovery and a manual setup code. The bulb's advertised
+link-local IPv6 address did not respond, so the existing operational-session
+fallback retried its IPv4 address, completed CASE, and received
 `CommissioningComplete` with error code 0. A subsequent `chip-tool` process
 restored fabric index 1 with the same compressed fabric ID, repeated the
 link-local-to-IPv4 fallback, established CASE, and read endpoint 1's OnOff
@@ -1527,8 +1527,8 @@ If Windows operational DNS-SD is temporarily slow or unavailable, append a
 known device address after the timeout:
 
 ```powershell
-.\out\win-devlayer-x64\msvc-windows-controller.exe read-onoff 1 1 100 192.168.1.128
-.\out\win-devlayer-x64\msvc-windows-controller.exe subscribe-onoff 1 1 30 192.168.1.128
+.\out\win-devlayer-x64\msvc-windows-controller.exe read-onoff 1 1 100 <device-ip>
+.\out\win-devlayer-x64\msvc-windows-controller.exe subscribe-onoff 1 1 30 <device-ip>
 ```
 
 The controller still starts normal operational discovery, but uses the supplied
@@ -1558,7 +1558,7 @@ after device-attestation verification fails. Production software must provide
 a protected operational keystore, unique IPKs, and an approved PAA trust and
 revocation policy. The current executable has proven fabric creation,
 persistence across process restart, on-network pairing startup, bounded
-cancellation, and clean teardown on x64. A real Smart Multicolor Bulb has also
+cancellation, and clean teardown on x64. A real Matter bulb has also
 completed PASE over IPv4, certificate signing, trusted-root installation, and
 NOC installation. The development attestation delegate allowed commissioning
 to continue after the configured empty PAA store could not verify the vendor
@@ -1795,18 +1795,11 @@ and live Bluetooth/Thread hardware interoperability remain cross-build-only on
 ARM64.
 
 `chip-tool.exe` built for ARM64 was also exercised against a real Matter
-device on the local network via `chip-tool pairing code`. DNS-SD discovery
-over native MSVC succeeded from this ARM64 host and resolved the device's
-commissionable-node advertisement:
-
-```
-Device Name:        Smart Multicolor Bulb
-Vendor ID:          5010
-Product ID:         769
-Device Type:        269
-Long Discriminator: 2786
-Port:                5540
-```
+lighting accessory on the local network via `chip-tool pairing code`. DNS-SD
+discovery over native MSVC succeeded from this ARM64 host and resolved a
+complete commissionable-node advertisement (device name, vendor/product IDs,
+device type, discriminator, and operational port); those values are omitted
+here as accessory-identifying information.
 
 The device's commissioning window was already closed (`Commissioning Mode: 0`)
 at pairing time, so PASE establishment did not complete; this is device state,
