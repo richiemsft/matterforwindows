@@ -1794,6 +1794,26 @@ directly on an ARM64-based Windows PC and passed. `msvc-windows-dnssd-smoke.exe`
 and live Bluetooth/Thread hardware interoperability remain cross-build-only on
 ARM64.
 
+`chip-tool.exe` built for ARM64 was also exercised against a real Matter
+device on the local network via `chip-tool pairing code`. DNS-SD discovery
+over native MSVC succeeded from this ARM64 host and resolved the device's
+commissionable-node advertisement:
+
+```
+Device Name:        Smart Multicolor Bulb
+Vendor ID:          5010
+Product ID:         769
+Device Type:        269
+Long Discriminator: 2786
+Port:                5540
+```
+
+The device's commissioning window was already closed (`Commissioning Mode: 0`)
+at pairing time, so PASE establishment did not complete; this is device state,
+not a controller or ARM64 defect. Full end-to-end commissioning against a real
+device on native ARM64 hardware remains open for a future session with the
+device's pairing window open.
+
 GN rejects a target architecture that does not match the active MSVC
 environment. Re-run the setup script with the matching `-Architecture` value
 before generating a differently targeted output directory.
