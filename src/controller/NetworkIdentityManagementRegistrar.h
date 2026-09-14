@@ -33,6 +33,7 @@
 
 #include <limits>
 #include <utility>
+#include <functional>
 
 namespace chip {
 namespace Controller {
@@ -121,6 +122,12 @@ public:
                           Callback::Callback<OnClientUnregisteredFunct>::Owned onCompletion) override;
 
 private:
+    // WaitForIdle() callbacks. Declared here (ahead of DeferOperationFinished(), which reads it) so
+    // that it does not need to be forward-referenced: some compilers (e.g. MSVC) do not treat the
+    // body of a member function with a deduced (auto) return type as complete-class context, so a
+    // member declared later in the class would not otherwise be visible there.
+    Callback::CallbackDeque mIdleWaiters;
+
     // Called as an operation finishes, i.e. once it has stopped being pending *and* delivered its
     // completion, to release the WaitForIdle() callers once the last one has.
     void OperationFinished();
@@ -136,13 +143,19 @@ private:
     // completion works as expected regardless: If we're already idle it invokes the callback
     // synchronously, and if we are not they will be enqueued, and the deferred OperationFinished()
     // wouldn't have called them yet anyway.
-    // Defined ahead of Operation, which uses it, because its return type is deduced.
-    [[nodiscard]] auto DeferOperationFinished()
+    // Defined ahead of Operation, which uses it, because its return type must be known before
+    // Operation's use of it. An explicit (rather than deduced/auto) return type is used here: some
+    // compilers (e.g. MSVC) do not correctly apply complete-class context -- so that a member
+    // declared later in the class remains visible -- to the body of a member function whose return
+    // type is deduced.
+    [[nodiscard]] Defer<std::function<void()>> DeferOperationFinished()
     {
-        return MakeDefer([registrar = mIdleWaiters.IsEmpty() ? nullptr : this] {
+        NetworkIdentityManagementRegistrar * registrar = mIdleWaiters.IsEmpty() ? nullptr : this;
+        std::function<void()> onScopeExit              = [registrar] {
             VerifyOrReturn(registrar != nullptr);
             registrar->OperationFinished();
-        });
+        };
+        return MakeDefer(std::move(onScopeExit));
     }
 
     // What our three operations have in common: each connects to the NIM, invokes a single command
@@ -160,7 +173,12 @@ private:
         // Does not DeferOperationFinished(): the registrar is the one calling this method.
         void AbortIfPending();
 
-    protected:
+        // Start() is public (rather than protected, as the base class declares it) so that
+        // Callback::detail::StartProbe can re-publish it via a using-declaration when forming
+        // Callback::TypedOperation<Operation, ...> below. Some compilers (e.g. MSVC) do not allow
+        // that re-exposure for a protected member of a class (Operation) that is itself only
+        // reachable, from Callback::detail, via a template parameter. Operation remains private to
+        // NetworkIdentityManagementRegistrar, so this does not widen what external code can reach.
         void Start(DeviceController & controller, NodeId nodeId, EndpointId endpoint, Callback::Cancelable::Owned onCompletion)
         {
             mEndpoint = endpoint;
@@ -285,8 +303,7 @@ private:
     const NodeId mNodeId;
     const EndpointId mEndpoint;
 
-    bool mStopped = false;                // set by StopAcceptingRequests() and never cleared
-    Callback::CallbackDeque mIdleWaiters; // WaitForIdle() callbacks
+    bool mStopped = false; // set by StopAcceptingRequests() and never cleared
 
     QueryIdentityOperation mQueryIdentity{ *this };
     AddClientOperation mAddClient{ *this };

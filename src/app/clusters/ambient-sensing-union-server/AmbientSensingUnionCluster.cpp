@@ -57,7 +57,7 @@ CHIP_ERROR AmbientSensingUnionCluster::Startup(ServerClusterContext & context)
     AttributePersistence persistence(context.attributeStorage);
     Storage::String<kMaxUnionNameLength> storedName;
 
-    if (persistence.LoadString({ mPath.mEndpointId, AmbientSensingUnion::Id, Attributes::UnionName::Id }, storedName))
+    if (persistence.LoadStringValue({ mPath.mEndpointId, AmbientSensingUnion::Id, Attributes::UnionName::Id }, storedName))
     {
         CharSpan loaded  = storedName.Content();
         mUnionNameLength = std::min(loaded.size(), kMaxUnionNameLength);

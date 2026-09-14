@@ -22,6 +22,10 @@
 #include <clusters/Thermostat/Metadata.h>
 #include <lib/support/CodeUtils.h>
 
+using namespace chip::app::Clusters::Thermostat;
+using namespace chip::app::Clusters::Thermostat::Attributes;
+using namespace chip::Protocols::InteractionModel;
+
 namespace chip {
 namespace app {
 namespace Clusters {
@@ -29,10 +33,6 @@ namespace Thermostat {
 
 constexpr size_t kMaxSensorsListLength  = 32;
 constexpr size_t kMaxSensorHandleLength = 16;
-
-using namespace chip::app::Clusters::Thermostat;
-using namespace chip::app::Clusters::Thermostat::Attributes;
-using Protocols::InteractionModel::Status;
 
 bool ThermostatSensors::IsSensorHandleConfigured(const ByteSpan & sensorHandle) const
 {
