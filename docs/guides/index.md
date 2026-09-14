@@ -14,7 +14,7 @@ and features.
 ## Build Guides
 
 -   [Building](./BUILDING.md)
--   [Native Windows port](./windows.md)
+-   [Building Matter Natively on Windows](./windows.md)
 
 ## Development Guides
 
