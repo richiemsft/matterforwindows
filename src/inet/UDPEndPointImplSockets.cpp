@@ -455,9 +455,17 @@ CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, Sy
         intf = mBoundIntfId;
     }
 
+    // For a scoped IPv6 link-local destination, `sin6_scope_id` above already selects the
+    // outgoing interface. Attaching an IPV6_PKTINFO control message solely to select that same
+    // interface is redundant and was observed to prevent a response on the tested Windows Wi-Fi
+    // path. Skip the control message in that case unless the caller supplied a concrete source
+    // address, since source-address selection still requires it.
+    const bool skipRedundantIPv6InterfaceSelection = (mAddrType == IPAddressType::kIPv6) &&
+        aPktInfo->DestAddress.IsIPv6LinkLocal() && intf.IsPresent() && aPktInfo->SrcAddress.Type() == IPAddressType::kAny;
+
 #if INET_CONFIG_UDP_SOCKET_PKTINFO
     // Attach a packet-info control message to pin the source address and/or outgoing interface.
-    if (intf.IsPresent() || aPktInfo->SrcAddress.Type() != IPAddressType::kAny)
+    if ((intf.IsPresent() || aPktInfo->SrcAddress.Type() != IPAddressType::kAny) && !skipRedundantIPv6InterfaceSelection)
     {
         msgHeader.Control.buf   = reinterpret_cast<CHAR *>(controlData);
         msgHeader.Control.len   = static_cast<ULONG>(sizeof(controlData));

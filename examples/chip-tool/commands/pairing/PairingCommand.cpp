@@ -768,9 +768,28 @@ void PairingCommand::OnDiscoveredDevice(const Dnssd::CommissionNodeData & nodeDa
 
     auto & resolutionData = nodeData;
 
+    VerifyOrReturn(resolutionData.numIPs > 0, ChipLogError(chipTool, "Discovered Device: no addresses found"));
+
+    size_t selectedAddressIndex = 0;
+#ifdef _WIN32
+    // On Windows, a device that advertises both IPv6 and IPv4 addresses may sort its IPv6
+    // link-local address first, but PASE over that address can time out. Prefer the first
+    // advertised IPv4 address, when present, to make dual-stack commissioning reliable.
+    for (size_t i = 0; i < resolutionData.numIPs; i++)
+    {
+        if (resolutionData.ipAddress[i].IsIPv4())
+        {
+            selectedAddressIndex = i;
+            break;
+        }
+    }
+#endif // _WIN32
+
+    const auto & selectedAddress = resolutionData.ipAddress[selectedAddressIndex];
+
     const uint16_t port = resolutionData.port;
     char buf[Inet::IPAddress::kMaxStringLength];
-    resolutionData.ipAddress[0].ToString(buf);
+    selectedAddress.ToString(buf);
     ChipLogProgress(chipTool, "Discovered Device: %s:%u", buf, port);
 
     // Stop Mdns discovery.
@@ -786,8 +805,8 @@ void PairingCommand::OnDiscoveredDevice(const Dnssd::CommissionNodeData & nodeDa
 
     CurrentCommissioner().RegisterDeviceDiscoveryDelegate(nullptr);
 
-    auto interfaceId = resolutionData.ipAddress[0].IsIPv6LinkLocal() ? resolutionData.interfaceId : Inet::InterfaceId::Null();
-    auto peerAddress = PeerAddress::UDP(resolutionData.ipAddress[0], port, interfaceId);
+    auto interfaceId = selectedAddress.IsIPv6LinkLocal() ? resolutionData.interfaceId : Inet::InterfaceId::Null();
+    auto peerAddress = PeerAddress::UDP(selectedAddress, port, interfaceId);
     err              = Pair(mNodeId, peerAddress);
     if (CHIP_NO_ERROR != err)
     {

@@ -179,11 +179,45 @@ exit:
     return isValidCommand;
 }
 
+#ifdef _WIN32
+// RAII helper that ensures WinSock is initialized before calling APIs such as `getaddrinfo` that
+// depend on it. Command-line address arguments are parsed before `PlatformManager` initializes
+// the Windows System Layer, so this initialization is scoped to argument parsing rather than
+// relying on later platform startup.
+class ScopedWinsockInit
+{
+public:
+    ScopedWinsockInit() { mInitialized = (WSAStartup(MAKEWORD(2, 2), &mWsaData) == 0); }
+    ~ScopedWinsockInit()
+    {
+        if (mInitialized)
+        {
+            WSACleanup();
+        }
+    }
+
+    bool IsInitialized() const { return mInitialized; }
+
+private:
+    WSADATA mWsaData;
+    bool mInitialized;
+};
+#endif // _WIN32
+
 static bool ParseAddressWithInterface(const char * addressString, Command::AddressWithInterface * address)
 {
     struct addrinfo hints;
     struct addrinfo * result;
     int ret;
+
+#ifdef _WIN32
+    ScopedWinsockInit winsockInit;
+    if (!winsockInit.IsInitialized())
+    {
+        ChipLogError(chipTool, "Failed to initialize WinSock before parsing address: %s", addressString);
+        return false;
+    }
+#endif // _WIN32
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family   = AF_UNSPEC;
