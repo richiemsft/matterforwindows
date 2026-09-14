@@ -76,8 +76,10 @@ static constexpr size_t kCASEHandshakeMetricsMaxInFlight = 16;
 
 // Room for a PeerAddress rendered as text, e.g. "UDP:[fe80::1%wlan0]:5540". Sized above
 // Transport::PeerAddress::kMaxToStringSize rather than set to it, so the Python mirror stays a
-// plain literal; the assertion below keeps the two in step.
-static constexpr size_t kCASEHandshakeMetricsPeerAddressMaxLength = 80;
+// plain literal; the assertion below keeps the two in step. Windows' Inet::InterfaceId::
+// kMaxIfNameLength (257, to hold a full interface alias) is far larger than other platforms',
+// so this has to be sized for the worst case across all of them rather than just POSIX.
+static constexpr size_t kCASEHandshakeMetricsPeerAddressMaxLength = 320;
 static_assert(Transport::PeerAddress::kMaxToStringSize <= kCASEHandshakeMetricsPeerAddressMaxLength,
               "PychipCASEHandshakeMetricsRecord::peerTransportAddress is too small to hold a rendered PeerAddress.");
 
