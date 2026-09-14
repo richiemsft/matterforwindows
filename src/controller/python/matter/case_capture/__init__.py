@@ -115,7 +115,7 @@ def GetSnapshot() -> PyCaseCaptureSnapshot:
 
 # Must match kCASEHandshakeMetricsPeerAddressMaxLength in CASEHandshakeMetricsRecord.h. Records cross
 # the boundary one at a time, so this is the only size that has to agree between the two sides.
-PEER_TRANSPORT_ADDRESS_MAX_LENGTH = 320
+PEER_TRANSPORT_ADDRESS_MAX_LENGTH = 400
 
 # The native layer records microseconds, because the Sigma phases are around a millisecond and
 # millisecond resolution would round most of the detail away. Durations are reported in
