@@ -71,11 +71,17 @@ class TestWindowsHarnessPortability(unittest.TestCase):
                 )
                 values = list(path_option_values(normalized, {"--KVS", "--storage-directory"}))
 
+                # Resolve the base directory the same way normalize_windows_path_options() resolves
+                # its arguments: on some Windows hosts the profile/temp directory's canonical form
+                # (as reported by GetFinalPathNameByHandle, which Path.resolve() uses) is an 8.3
+                # short name (e.g. "RUNNER~1") even though the unresolved path uses the long name.
+                # Resolving both sides the same way keeps the comparison independent of that.
+                resolved_directory = Path(temporary_directory).resolve()
                 self.assertEqual(
                     values,
                     [
-                        (Path(temporary_directory) / "state directory").as_posix(),
-                        (Path(temporary_directory) / "storage").as_posix(),
+                        (resolved_directory / "state directory").as_posix(),
+                        (resolved_directory / "storage").as_posix(),
                     ],
                 )
             finally:
