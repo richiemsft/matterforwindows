@@ -43,28 +43,25 @@
 #include <app/persistence/DefaultAttributePersistenceProvider.h>
 #include <app/server/Dnssd.h>
 #include <app/server/Server.h>
-#include <AppCommandDelegate.h>
 #include <app_options/DeviceTypeParser.h>
 #include <credentials/GroupDataProviderImpl.h>
 #include <credentials/examples/DeviceAttestationCredsExample.h>
 #include <data-model-providers/codedriven/CodeDrivenDataModelProvider.h>
 #include <device-factory/DeviceFactory.h>
 #include <device/api/allocator/DynamicEndpointIdAllocator.h>
-#include <device/types/ambient-context-sensor/AmbientContextSensor.h>
-#include <device/types/boolean-state-sensor/BooleanStateSensor.h>
-#include <device/types/electrical-sensor/ElectricalSensor.h>
-#include <device/types/occupancy-sensor/OccupancySensor.h>
-#include <device/types/on-off-light/impl/LoggingOnOffLight.h>
+#include <device/capabilities/identify/LoggingIdentifyDelegate.h>
 #include <device/types/root-node/RootNode.h>
-#include <NamedPipeCommands.h>
 #include <lib/support/CHIPMem.h>
 #include <lib/support/CodeUtils.h>
 #include <lib/support/logging/CHIPLogging.h>
+#include <oob-accessors/OOBAccessorHook.h>
 #include <platform/DefaultTimerDelegate.h>
 #include <platform/DeviceInstanceInfoProvider.h>
 #include <platform/TestOnlyCommissionableDataProvider.h>
 #include <platform/Windows/BLEManagerImpl.h>
 #include <platform/Windows/ConfigurationManagerImpl.h>
+#include <posix/named_pipe/Dispatcher.h>
+#include <posix/named_pipe/Hook.h>
 #include <providers/AllDevicesExampleDeviceInfoProviderImpl.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 #include <setup_payload/SetupPayload.h>
@@ -74,6 +71,8 @@ namespace {
 using namespace chip;
 using namespace chip::app;
 using namespace chip::DeviceLayer;
+
+using WindowsDeviceFactory = DeviceFactory<OOBAccessorHook, NamedPipe::Hook>;
 
 constexpr uint32_t kMaximumRunSeconds    = 3600;
 constexpr char kDefaultStorageRoot[]     = "windows-all-devices-kvs";
@@ -238,7 +237,7 @@ bool ParseArguments(int argc, char * argv[], AppConfig & config)
 
     if (parser.GetDeviceTypeEntries().empty())
     {
-        const std::string & defaultDevice = DeviceFactory::GetInstance().GetDefaultDevice();
+        const std::string & defaultDevice = WindowsDeviceFactory::GetInstance().GetDefaultDevice();
         if (defaultDevice.empty() || parser.ParseSingleDeviceString((defaultDevice + ":1").c_str()) != CHIP_NO_ERROR)
         {
             return false;
@@ -246,7 +245,7 @@ bool ParseArguments(int argc, char * argv[], AppConfig & config)
     }
 
     std::vector<std::string> wildcardDeviceTypes;
-    for (const auto & deviceType : DeviceFactory::GetInstance().SupportedDeviceTypes())
+    for (const auto & deviceType : WindowsDeviceFactory::GetInstance().SupportedDeviceTypes())
     {
         if (deviceType != "aggregator" && deviceType != "bridged-node")
         {
@@ -321,11 +320,12 @@ public:
     {}
 
     CHIP_ERROR Startup(CommonCaseDeviceServerInitParams & initParams, TestEventTriggerDelegate & testEventTriggerDelegate,
-                       Credentials::GroupDataProviderImpl & groupDataProvider, TimerDelegate & timerDelegate)
+                       Credentials::GroupDataProviderImpl & groupDataProvider, TimerDelegate & timerDelegate,
+                       Clusters::IdentifyDelegate & identifyDelegate)
     {
         ReturnErrorOnFailure(mAttributePersistence.Init(initParams.persistentStorageDelegate));
 
-        DeviceFactory::GetInstance().Init({
+        WindowsDeviceFactory::GetInstance().Init({
             .groupDataProvider        = groupDataProvider,
             .fabricTable              = Server::GetInstance().GetFabricTable(),
             .timerDelegate            = timerDelegate,
@@ -336,6 +336,7 @@ public:
             .bindingTable             = Clusters::Binding::Table::GetInstance(),
             .bindingManager           = Clusters::Binding::Manager::GetInstance(),
             .testEventTriggerDelegate = testEventTriggerDelegate,
+            .identifyDelegate         = identifyDelegate,
         });
 
         std::set<EndpointId> reservedIds = { kRootEndpointId };
@@ -350,25 +351,31 @@ public:
         DynamicEndpointIdAllocator endpointIdAllocator(reservedIds);
         endpointIdAllocator.ForceNext(kRootEndpointId);
         ReturnErrorOnFailure(static_cast<DeviceInterface &>(mRootNode).Register(endpointIdAllocator, mDataModelProvider));
+        WindowsDeviceFactory::ExecuteHooks(mRootNode);
 
         for (const auto & entry : mConfigurations)
         {
-            std::unique_ptr<DeviceInterface> device = DeviceFactory::GetInstance().Create(entry.type, entry.label);
-            VerifyOrReturnError(device != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
+            auto created = WindowsDeviceFactory::GetInstance().Create(entry.type, entry.label);
+            VerifyOrReturnError(created.device != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
             if (entry.endpoint != kInvalidEndpointId)
             {
                 endpointIdAllocator.ForceNext(entry.endpoint);
             }
             ReturnErrorOnFailure(
-                device->Register(endpointIdAllocator, mDataModelProvider, EndpointComposition::WithParent(entry.parentId)));
+                created.device->Register(endpointIdAllocator, mDataModelProvider, EndpointComposition::WithParent(entry.parentId)));
+            if (created.onDeviceRegistered)
+            {
+                created.onDeviceRegistered();
+            }
             std::printf("Registered %s\n", entry.type.c_str());
-            mDevices.push_back(std::move(device));
+            mDevices.push_back(std::move(created.device));
         }
         return CHIP_NO_ERROR;
     }
 
     void Shutdown()
     {
+        OOBAccessorRegistry::Instance().Clear();
         for (auto & device : mDevices)
         {
             device->Unregister(mDataModelProvider);
@@ -389,56 +396,14 @@ private:
     std::vector<std::unique_ptr<DeviceInterface>> mDevices;
 };
 
-CHIP_ERROR StartNamedPipe(const AppConfig & config, DynamicDevices & devices, AllDevicesAppCommandDelegate & delegate,
-                          NamedPipeCommands & namedPipe)
+CHIP_ERROR SetupNamedPipe(const AppConfig & config)
 {
     if (config.appPipe.empty())
     {
         return CHIP_NO_ERROR;
     }
 
-    for (size_t index = 0; index < config.devices.size(); ++index)
-    {
-        const auto & entry = config.devices[index];
-        auto * device      = devices.Devices()[index].get();
-        if (entry.type == "occupancy-sensor")
-        {
-            auto * occupancyDevice = static_cast<OccupancySensor *>(device);
-            delegate.GetClusterImplementationRegistry()
-                .RegisterClusterInstance<Clusters::OccupancySensingCluster>(&occupancyDevice->OccupancySensingCluster());
-        }
-        else if (entry.type == "contact-sensor" || entry.type == "water-leak-detector")
-        {
-            auto * booleanStateDevice = static_cast<BooleanStateSensor *>(device);
-            delegate.GetClusterImplementationRegistry()
-                .RegisterClusterInstance<Clusters::BooleanStateCluster>(&booleanStateDevice->BooleanState());
-        }
-        else if (entry.type == "on-off-light")
-        {
-            auto * lightDevice = static_cast<LoggingOnOffLight *>(device);
-            delegate.GetClusterImplementationRegistry().RegisterClusterInstance<Clusters::OnOffCluster>(
-                &lightDevice->OnOffCluster());
-        }
-        else if (entry.type == "ambient-context-sensor")
-        {
-            auto * ambientContextSensorDevice = static_cast<AmbientContextSensor *>(device);
-            delegate.GetClusterImplementationRegistry()
-                .RegisterClusterInstance<Clusters::AmbientContextSensingCluster>(
-                    &ambientContextSensorDevice->AmbientContextSensingCluster());
-        }
-        else if (entry.type == "electrical-sensor")
-        {
-            auto * electricalSensorDevice = static_cast<ElectricalSensor *>(device);
-            delegate.GetClusterImplementationRegistry()
-                .RegisterClusterInstance<Clusters::ElectricalEnergyMeasurement::ElectricalEnergyMeasurementCluster>(
-                    &electricalSensorDevice->ElectricalEnergyMeasurementCluster());
-        }
-    }
-
-    delegate.GetClusterImplementationRegistry().RegisterClusterInstance<Clusters::BasicInformationCluster>(
-        &devices.RootDevice().BasicInformation());
-    delegate.RegisterCommandHandlers();
-    return namedPipe.Start(config.appPipe, &delegate);
+    return NamedPipe::Dispatcher::Instance().Start(config.appPipe.c_str());
 }
 
 BOOL WINAPI ConsoleControlHandler(DWORD controlType)
@@ -501,8 +466,7 @@ int Run(const AppConfig & config)
     static DefaultTimerDelegate timerDelegate;
     static SimpleTestEventTriggerDelegate testEventTriggerDelegate;
     static constexpr uint8_t kTestEventTriggerEnableKey[16] = {};
-    AllDevicesAppCommandDelegate commandDelegate;
-    NamedPipeCommands namedPipe;
+    static LoggingIdentifyDelegate identifyDelegate;
     HANDLE stopEvent                    = nullptr;
     HANDLE shutdownCompleteEvent        = nullptr;
     HANDLE closeHandlerCompleteEvent    = nullptr;
@@ -580,7 +544,7 @@ int Run(const AppConfig & config)
 #endif
 
     DynamicDevices devices(initParams, testEventTriggerDelegate, groupDataProvider, timerDelegate, config.devices);
-    error = devices.Startup(initParams, testEventTriggerDelegate, groupDataProvider, timerDelegate);
+    error = devices.Startup(initParams, testEventTriggerDelegate, groupDataProvider, timerDelegate, identifyDelegate);
     if (error == CHIP_NO_ERROR)
     {
         initParams.dataModelProvider = &devices.DataModelProvider();
@@ -593,7 +557,7 @@ int Run(const AppConfig & config)
     }
     if (error == CHIP_NO_ERROR)
     {
-        error = StartNamedPipe(config, devices, commandDelegate, namedPipe);
+        error = SetupNamedPipe(config);
     }
     if (error == CHIP_NO_ERROR)
     {
@@ -658,7 +622,7 @@ int Run(const AppConfig & config)
         std::fprintf(stderr, "Application startup failed: %" CHIP_ERROR_FORMAT "\n", error.Format());
     }
 
-    LogErrorOnFailure(namedPipe.Stop());
+    LogErrorOnFailure(NamedPipe::Dispatcher::Instance().Stop());
     (void) PlatformMgr().StopEventLoopTask();
     devices.Shutdown();
     Server::GetInstance().Shutdown();

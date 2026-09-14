@@ -59,6 +59,17 @@ namespace {
 // Endpoint used for the CommissioningProxy cluster when --proxy-endpoint is not given.
 constexpr chip::EndpointId kDefaultProxyEndpointId = 1;
 
+// Endpoint used for the Network Identity Management cluster when --pdc-netim-endpoint-id is not given.
+constexpr chip::EndpointId kDefaultNETIMEndpointId = 1;
+
+bool IsNoPasswordMarker(chip::ByteSpan password)
+{
+    // Use a one-character marker value (which is invalid in every supported Wi-Fi password encoding)
+    // to signal that no password is to be used. An empty string, which would otherwise be the more
+    // obvious choice, is used by the Network Commissioning Cluster to represent an open network.
+    return password.data_equal(ByteSpan::fromCharSpan("-"_span));
+}
+
 // Upper bound on back-to-back null-Message polls that yield a message but no reply.
 // A conformant proxy drains in a handful; the bound only stops a misbehaving one from
 // spinning the commissioner.
@@ -104,6 +115,17 @@ CHIP_ERROR PairingCommand::RunCommand()
     mCredIssuerCmds->SetCredentialIssuerCATValues(kUndefinedCATs);
 
     mDeviceIsICD = false;
+
+    if (mPDCRegistrarNodeId.HasValue())
+    {
+        mPDCRegistrar.emplace(CurrentCommissioner(), mPDCRegistrarNodeId.Value(),
+                              mPDCRegistrarEndpointId.ValueOr(kDefaultNETIMEndpointId));
+    }
+    else if (IsNoPasswordMarker(mPassword))
+    {
+        ChipLogError(chipTool, "Either a password (or '') or --pdc-netim-node-id is required");
+        return CHIP_ERROR_INVALID_ARGUMENT;
+    }
 
     if (mCASEAuthTags.HasValue() && mCASEAuthTags.Value().size() <= kMaxSubjectCATAttributeCount)
     {
@@ -194,6 +216,69 @@ CHIP_ERROR PairingCommand::RunInternal(NodeId remoteId)
     return err;
 }
 
+void PairingCommand::Shutdown()
+{
+    if (mPDCRegistrar.has_value())
+    {
+        // Release the registrar before ResetArguments() invalidates the arguments it was built from.
+        // Stop the pairing first, as the NetworkIdentityRegistrar contract requires: this run may have
+        // ended on a timeout, with commissioning still under way and the commissioner still pointing at
+        // the registrar. An error just means there was nothing left to stop.
+        RETURN_SAFELY_IGNORED CurrentCommissioner().StopPairing(mNodeId);
+
+        // Drop the idle notification before releasing the registrar: destroying it aborts whatever
+        // is in flight, which would otherwise release the waiter and set an exit status from here,
+        // re-entering StopWaiting() while the rest of the shutdown is still running.
+        mPDCRegistrarIdleCallback.Cancel();
+
+        // Anything still in flight is a revocation the run did not last long enough to see through;
+        // the destructor aborts it and the commissioner reports the identity left behind.
+        mPDCRegistrar.reset();
+    }
+    CHIPCommand::Shutdown();
+}
+
+void PairingCommand::FinishCommand(CHIP_ERROR aExitErr)
+{
+    // A rollback of the Network Client Identity may still be under way; the commissioner does not
+    // generally wait (letting it complete in the background), but we should before quitting.
+    VerifyOrReturn(!DeferExitForPDCRegistrar(aExitErr));
+
+    SetCommandExitStatus(aExitErr);
+}
+
+bool PairingCommand::DeferExitForPDCRegistrar(CHIP_ERROR aExitErr)
+{
+    VerifyOrReturnValue(mPDCRegistrar.has_value() && !mPDCRegistrar->IsIdle(), false);
+
+    ChipLogProgress(chipTool, "Waiting for the Network Client Identity revocation to complete");
+    mPDCRegistrarExitErr = aExitErr;
+
+    // Stop the registrar taking on anything new, so that the revocation in flight is all we wait for.
+    mPDCRegistrar->StopAcceptingRequests();
+    mPDCRegistrar->WaitForIdle(&mPDCRegistrarIdleCallback);
+    return true;
+}
+
+void PairingCommand::OnPDCRegistrarIdle(void * context)
+{
+    auto * self = static_cast<PairingCommand *>(context);
+    self->SetCommandExitStatus(self->mPDCRegistrarExitErr);
+}
+
+WiFiCredentials PairingCommand::GetWiFiCredentials()
+{
+    if (!mPDCRegistrar.has_value())
+    {
+        return WiFiCredentials(mSSID, mPassword);
+    }
+    if (IsNoPasswordMarker(mPassword))
+    {
+        return WiFiCredentials(mSSID, &mPDCRegistrar.value()); // PDC only
+    }
+    return WiFiCredentials(mSSID, &mPDCRegistrar.value(), mPassword); // PDC if supported
+}
+
 CommissioningParameters PairingCommand::GetCommissioningParameters()
 {
     auto params = CommissioningParameters();
@@ -206,13 +291,13 @@ CommissioningParameters PairingCommand::GetCommissioningParameters()
     switch (mNetworkType)
     {
     case PairingNetworkType::WiFi:
-        params.SetWiFiCredentials(Controller::WiFiCredentials(mSSID, mPassword));
+        params.SetWiFiCredentials(GetWiFiCredentials());
         break;
     case PairingNetworkType::Thread:
         params.SetThreadOperationalDataset(mOperationalDataset);
         break;
     case PairingNetworkType::WiFiOrThread:
-        params.SetWiFiCredentials(Controller::WiFiCredentials(mSSID, mPassword));
+        params.SetWiFiCredentials(GetWiFiCredentials());
         params.SetThreadOperationalDataset(mOperationalDataset);
         break;
     case PairingNetworkType::None:
@@ -573,11 +658,12 @@ void PairingCommand::OnCommissioningComplete(NodeId nodeId, CHIP_ERROR err)
     if (mPairingMode == PairingMode::Proxy)
     {
         // Clean up the proxy session before exiting, regardless of success or failure.
+        // The disconnect completing is what eventually reaches FinishCommand().
         SendProxyDisconnect(err);
         return;
     }
 
-    SetCommandExitStatus(err);
+    FinishCommand(err);
 }
 
 void PairingCommand::OnReadCommissioningInfo(const Controller::ReadCommissioningInfo & info)
@@ -703,8 +789,7 @@ CHIP_ERROR PairingCommand::WiFiCredentialsNeeded(EndpointId endpoint)
 
                 auto & commissioner            = CurrentCommissioner();
                 CommissioningParameters params = commissioner.GetCommissioningParameters();
-                auto credentials               = Controller::WiFiCredentials(mSSID, mPassword);
-                params.SetWiFiCredentials(credentials);
+                params.SetWiFiCredentials(GetWiFiCredentials());
                 TEMPORARY_RETURN_IGNORED commissioner.UpdateCommissioningParameters(params);
 
                 TEMPORARY_RETURN_IGNORED commissioner.NetworkCredentialsReady();
@@ -1154,7 +1239,7 @@ void PairingCommand::OnError(const chip::app::CommandSender * client, CHIP_ERROR
     {
         // The disconnect is best-effort; log but use the original exit status.
         ChipLogDetail(chipTool, "PairViaProxy: ProxyDisconnectRequest error (ignored): %" CHIP_ERROR_FORMAT, error.Format());
-        SetCommandExitStatus(mProxyDisconnectExitErr);
+        FinishCommand(mProxyDisconnectExitErr);
         return;
     }
     ChipLogError(chipTool, "PairViaProxy CommandSender error: %" CHIP_ERROR_FORMAT, error.Format());
@@ -1206,12 +1291,12 @@ void PairingCommand::OnDone(chip::app::CommandSender * client)
     {
         mProxyDisconnectCmdSender.reset();
         mProxySession.Release();
-        SetCommandExitStatus(mProxyDisconnectExitErr);
+        FinishCommand(mProxyDisconnectExitErr);
     }
 }
 
 // Send ProxyDisconnectRequest to clean up the proxy session, then exit.
-// SetCommandExitStatus is deferred until the response (or a timeout) is received so
+// Finishing the command is deferred until the response (or a timeout) is received so
 // that chip-tool keeps the TCP session alive long enough for the proxy to reply.
 void PairingCommand::SendProxyDisconnect(CHIP_ERROR exitErr, bool aCancelPendingConnect)
 {
@@ -1220,7 +1305,7 @@ void PairingCommand::SendProxyDisconnect(CHIP_ERROR exitErr, bool aCancelPending
     const bool haveSomethingToSend = aCancelPendingConnect || mProxySessionActive;
     if (!haveSomethingToSend || mProxyExchangeMgr == nullptr || !static_cast<bool>(mProxySession))
     {
-        SetCommandExitStatus(exitErr);
+        FinishCommand(exitErr);
         return;
     }
 
@@ -1268,7 +1353,7 @@ void PairingCommand::SendProxyDisconnect(CHIP_ERROR exitErr, bool aCancelPending
     {
         ChipLogError(chipTool, "PairViaProxy: failed to allocate CommandSender for ProxyDisconnectRequest");
         mProxySession.Release();
-        SetCommandExitStatus(exitErr);
+        FinishCommand(exitErr);
         return;
     }
 
@@ -1277,13 +1362,13 @@ void PairingCommand::SendProxyDisconnect(CHIP_ERROR exitErr, bool aCancelPending
     {
         ChipLogError(chipTool, "PairViaProxy: failed to send ProxyDisconnectRequest");
         mProxySession.Release();
-        SetCommandExitStatus(exitErr);
+        FinishCommand(exitErr);
         return;
     }
 
     ChipLogProgress(chipTool, "PairViaProxy: sent ProxyDisconnectRequest, waiting for response");
     mProxyDisconnectCmdSender = std::move(cmdSender);
-    // SetCommandExitStatus is deferred until OnDone/OnError fires for mProxyDisconnectCmdSender.
+    // Finishing the command is deferred until OnDone/OnError fires for mProxyDisconnectCmdSender.
 }
 
 // ProxyTransportDelegate — called by ProxyTransport when it needs to forward

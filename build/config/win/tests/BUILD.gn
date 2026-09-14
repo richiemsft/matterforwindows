@@ -305,6 +305,7 @@ source_set("msvc-windows-all-clusters-delegates") {
     "../../../../examples/all-clusters-app/all-clusters-common/src/soil-measurement-stub.cpp",
     "../../../../examples/all-clusters-app/all-clusters-common/src/tcc-mode.cpp",
     "../../../../examples/all-clusters-app/all-clusters-common/src/test-hidden-manufacturer-specific-stub.cpp",
+    "../../../../examples/all-clusters-app/all-clusters-common/src/thermostat-mode-stub.cpp",
     "../../../../examples/all-clusters-app/all-clusters-common/src/tls-certificate-management-instance.cpp",
     "../../../../examples/all-clusters-app/all-clusters-common/src/tls-client-management-instance.cpp",
   ]
