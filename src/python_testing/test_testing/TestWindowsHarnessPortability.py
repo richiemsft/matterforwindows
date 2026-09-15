@@ -47,6 +47,11 @@ class TestWindowsHarnessPortability(unittest.TestCase):
 
         self.assertTrue(Library.CONTROLLER.value.endswith(expected_suffix))
 
+    def test_windows_exports_proxy_commissioning_binding(self):
+        exports = (CHIP_ROOT / "src" / "controller" / "python" / "ChipDeviceCtrl.def").read_text(encoding="utf-8")
+
+        self.assertIn("pychip_DeviceController_CommissionViaProxy", (line.strip() for line in exports.splitlines()))
+
     @unittest.skipUnless(os.name == "nt", "Windows-specific tracing policy")
     def test_perfetto_is_explicitly_unsupported(self):
         with self.assertRaisesRegex(ValueError, "not supported"):

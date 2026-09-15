@@ -45,6 +45,7 @@ EXPORTS
     pychip_DeleteP256Keypair
     pychip_DeviceCommissioner_CloseBleConnection
     pychip_DeviceController_Commission
+    pychip_DeviceController_CommissionViaProxy
     pychip_DeviceController_ConnectBLE
     pychip_DeviceController_ConnectIP
     pychip_DeviceController_ConnectNFC
