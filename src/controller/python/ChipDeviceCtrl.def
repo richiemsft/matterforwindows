@@ -24,6 +24,12 @@ EXPORTS
     pychip_case_capture_get_snapshot
     pychip_case_capture_reset
     pychip_case_capture_set_observer
+    pychip_case_handshake_metrics_get_abandoned_count
+    pychip_case_handshake_metrics_get_in_flight_count
+    pychip_case_handshake_metrics_get_record_size
+    pychip_case_handshake_metrics_start_notifications
+    pychip_case_handshake_metrics_stop_notifications
+    pychip_case_handshake_metrics_wait_for_notification
     pychip_CauseCrash
     pychip_CheckInDelegate_SetOnCheckInCompleteCallback
     pychip_CloseTCPConnectionWithPeer
@@ -105,9 +111,11 @@ EXPORTS
     pychip_GetCommandSenderHandle
     pychip_GetCommissioningRCACData
     pychip_GetCompletionError
+    pychip_GetCertificateChainDocumentSizeForProfiles
     pychip_GetConnectedDeviceByNodeId
     pychip_GetDeviceBeingCommissioned
     pychip_GetLocalSessionId
+    pychip_GetMaxCertificateChainDocumentSize
     pychip_GetNumSessionsToPeer
     pychip_im_capture_get_snapshot
     pychip_im_capture_reset

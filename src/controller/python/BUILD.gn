@@ -62,7 +62,7 @@ if (chip_support_commissioning_in_controller) {
 
 shared_library("ChipDeviceCtrl") {
   output_name = _chip_device_ctrl_output_name
-  if (current_os == "win" && chip_support_commissioning_in_controller) {
+  if (current_os == "win") {
     output_dir = target_out_dir
   } else {
     output_dir = "${target_out_dir}/matter"
@@ -79,9 +79,14 @@ shared_library("ChipDeviceCtrl") {
   defines = []
 
   if (current_os == "win") {
-    inputs = [ "ChipDeviceCtrl.def" ]
+    if (chip_support_commissioning_in_controller) {
+      _module_definition_file = "ChipDeviceCtrl.def"
+    } else {
+      _module_definition_file = "ChipServer.def"
+    }
+    inputs = [ _module_definition_file ]
     ldflags = [
-      "/DEF:" + rebase_path("ChipDeviceCtrl.def", root_build_dir),
+      "/DEF:" + rebase_path(_module_definition_file, root_build_dir),
     ]
   }
 
@@ -155,11 +160,13 @@ shared_library("ChipDeviceCtrl") {
       sources += [ "matter/native/ChipMainLoopWork_WorkSchedule.cpp" ]
     }
   } else {
-    sources += [
-      "matter/server/Options.cpp",
-      "matter/server/Options.h",
-      "matter/server/ServerInit.cpp",
-    ]
+    sources += [ "matter/server/ServerInit.cpp" ]
+    if (current_os != "win") {
+      sources += [
+        "matter/server/Options.cpp",
+        "matter/server/Options.h",
+      ]
+    }
   }
 
   if (chip_enable_ble) {
@@ -250,7 +257,9 @@ shared_library("ChipDeviceCtrl") {
       public_deps += [ "${chip_root}/src/controller/data_model" ]
     }
   } else {
-    public_deps += [ "${chip_root}/src/lib/support:arg_parser" ]
+    if (current_os != "win") {
+      public_deps += [ "${chip_root}/src/lib/support:arg_parser" ]
+    }
     public_deps += [ "$chip_data_model" ]
   }
 
