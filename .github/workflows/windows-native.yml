@@ -68,6 +68,15 @@ jobs:
                       if (-not (Test-Path $env:OPENSSL_DIR -PathType Container)) {
                           throw "ARM64 OpenSSL installation was not found at $env:OPENSSL_DIR"
                       }
+                      $opensslLibrary = Get-ChildItem -LiteralPath $env:OPENSSL_DIR -Recurse -Filter 'libcrypto.lib' -File |
+                          Where-Object { Test-Path (Join-Path $_.DirectoryName 'libssl.lib') } |
+                          Sort-Object @{ Expression = { $_.DirectoryName -notmatch '\\VC\\arm64\\MD$' } }, FullName |
+                          Select-Object -First 1
+                      if (-not $opensslLibrary) {
+                          throw "ARM64 OpenSSL import libraries were not found below $env:OPENSSL_DIR"
+                      }
+                      $env:OPENSSL_LIB_DIR = $opensslLibrary.DirectoryName
+                      $env:OPENSSL_STATIC = '0'
                   }
                   .\scripts\tools\windows_python_controller.ps1 @parameters
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
