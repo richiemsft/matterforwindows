@@ -60,7 +60,7 @@ jobs:
                   $parameters = @{
                       Architecture = '${{ matrix.architecture }}'
                       OutputRoot = 'out\windows-python-${{ matrix.architecture }}'
-                      InstallVirtualEnv = 'out\venv-${{ matrix.architecture }}'
+                      InstallVirtualEnv = 'out\venv'
                       BuildTestApp = $true
                   }
                   .\scripts\tools\windows_python_controller.ps1 @parameters
@@ -108,7 +108,7 @@ jobs:
             - name: Run native Python integration
               shell: pwsh
               run: |
-                  $python = 'out\venv-${{ matrix.architecture }}\Scripts\python.exe'
+                  $python = 'out\venv\Scripts\python.exe'
                   & $python -m unittest -v src.python_testing.test_testing.TestWindowsHarnessPortability
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
