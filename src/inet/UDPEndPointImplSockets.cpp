@@ -429,12 +429,20 @@ CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, Sy
     msgHeader.lpBuffers     = &dataBuffer;
     msgHeader.dwBufferCount = 1;
 
+    // If the endpoint has been bound to a particular interface, and the caller did not
+    // supply a specific interface to send on, use the bound interface.
+    InterfaceId intf = aPktInfo->Interface;
+    if (!intf.IsPresent())
+    {
+        intf = mBoundIntfId;
+    }
+
     if (mAddrType == IPAddressType::kIPv6)
     {
         peerSockAddr.in6.sin6_family   = AF_INET6;
         peerSockAddr.in6.sin6_port     = htons(aPktInfo->DestPort);
         peerSockAddr.in6.sin6_addr     = aPktInfo->DestAddress.ToIPv6();
-        peerSockAddr.in6.sin6_scope_id = aPktInfo->Interface.GetInterfaceIndex();
+        peerSockAddr.in6.sin6_scope_id = intf.GetInterfaceIndex();
         msgHeader.namelen              = static_cast<INT>(sizeof(sockaddr_in6));
     }
 #if INET_CONFIG_ENABLE_IPV4
@@ -446,14 +454,6 @@ CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, Sy
         msgHeader.namelen          = static_cast<INT>(sizeof(sockaddr_in));
     }
 #endif // INET_CONFIG_ENABLE_IPV4
-
-    // If the endpoint has been bound to a particular interface, and the caller did not
-    // supply a specific interface to send on, use the bound interface.
-    InterfaceId intf = aPktInfo->Interface;
-    if (!intf.IsPresent())
-    {
-        intf = mBoundIntfId;
-    }
 
     // For a scoped IPv6 link-local destination, `sin6_scope_id` above already selects the
     // outgoing interface. Attaching an IPV6_PKTINFO control message solely to select that same
@@ -502,11 +502,14 @@ CHIP_ERROR UDPEndPointImplSockets::SendMsgImpl(const IPPacketInfo * aPktInfo, Sy
     }
 #endif // INET_CONFIG_UDP_SOCKET_PKTINFO
 
-    LPFN_WSASENDMSG wsaSendMsg = WinsockSendMsg(mSocket);
-    VerifyOrReturnError(wsaSendMsg != nullptr, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
+    if (mWSASendMsg == nullptr)
+    {
+        mWSASendMsg = WinsockSendMsg(mSocket);
+    }
+    VerifyOrReturnError(mWSASendMsg != nullptr, CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE);
 
     DWORD bytesSent = 0;
-    if (wsaSendMsg(mSocket, &msgHeader, 0, &bytesSent, nullptr, nullptr) == SOCKET_ERROR)
+    if (mWSASendMsg(mSocket, &msgHeader, 0, &bytesSent, nullptr, nullptr) == SOCKET_ERROR)
     {
         return LastWinsockError();
     }
@@ -665,6 +668,8 @@ void UDPEndPointImplSockets::CloseImpl()
         TEMPORARY_RETURN_IGNORED static_cast<System::LayerSockets *>(&GetSystemLayer())->StopWatchingSocket(&mWatch);
 #if defined(_WIN32)
         closesocket(mSocket);
+        mWSASendMsg = nullptr;
+        mWSARecvMsg = nullptr;
 #else
         close(mSocket);
 #endif // defined(_WIN32)
@@ -924,12 +929,14 @@ void UDPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
         msgHeader.Control.buf   = reinterpret_cast<CHAR *>(controlData);
         msgHeader.Control.len   = static_cast<ULONG>(sizeof(controlData));
 
-        LPFN_WSARECVMSG wsaRecvMsg = WinsockRecvMsg(mSocket);
-        DWORD rcvLen               = 0;
-        int recvResult             = (wsaRecvMsg != nullptr) ? wsaRecvMsg(mSocket, &msgHeader, &rcvLen, nullptr, nullptr)
-                                                             : SOCKET_ERROR;
+        if (mWSARecvMsg == nullptr)
+        {
+            mWSARecvMsg = WinsockRecvMsg(mSocket);
+        }
+        DWORD rcvLen   = 0;
+        int recvResult = (mWSARecvMsg != nullptr) ? mWSARecvMsg(mSocket, &msgHeader, &rcvLen, nullptr, nullptr) : SOCKET_ERROR;
 
-        if (wsaRecvMsg == nullptr)
+        if (mWSARecvMsg == nullptr)
         {
             lStatus = CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
         }
@@ -1277,6 +1284,7 @@ CHIP_ERROR UDPEndPointImplSockets::IPv6JoinLeaveMulticastGroupImpl(InterfaceId a
         }
 
         ChipLogError(Inet, "No valid IPv6 multicast interface found");
+        return INET_ERROR_ADDRESS_NOT_FOUND;
     }
 
     ipv6_mreq lMulticastRequest;

@@ -26,6 +26,10 @@
 #include <inet/EndPointStateSockets.h>
 #include <inet/UDPEndPoint.h>
 
+#if defined(_WIN32)
+#include <MSWSock.h>
+#endif
+
 namespace chip {
 namespace Inet {
 
@@ -59,6 +63,11 @@ private:
 
     InterfaceId mBoundIntfId;
     uint16_t mBoundPort;
+
+#if defined(_WIN32)
+    LPFN_WSASENDMSG mWSASendMsg = nullptr;
+    LPFN_WSARECVMSG mWSARecvMsg = nullptr;
+#endif
 
 #if CHIP_SYSTEM_CONFIG_USE_PLATFORM_MULTICAST_API
 public:
