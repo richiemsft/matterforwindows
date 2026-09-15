@@ -87,7 +87,7 @@ template("msvc_toolchain") {
     }
 
     tool("copy") {
-      command = "cmd.exe /d /c \"copy /y {{source}} {{output}} > nul\""
+      command = "python.exe -c \"import shutil,sys; shutil.copyfile(sys.argv[1],sys.argv[2])\" \"{{source}}\" \"{{output}}\""
       description = "COPY {{source}} {{output}}"
     }
 
