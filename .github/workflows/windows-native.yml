@@ -32,7 +32,7 @@ permissions:
 jobs:
     python-controller:
         name: Windows Python controller ${{ matrix.architecture }}
-        runs-on: windows-latest
+        runs-on: ${{ matrix.runner }}
         timeout-minutes: 120
 
         strategy:
@@ -40,7 +40,9 @@ jobs:
             matrix:
                 include:
                     - architecture: x64
+                      runner: windows-latest
                     - architecture: arm64
+                      runner: windows-11-vs2026-arm
 
         steps:
             - name: Enable git long paths
@@ -58,10 +60,8 @@ jobs:
                   $parameters = @{
                       Architecture = '${{ matrix.architecture }}'
                       OutputRoot = 'out\windows-python-${{ matrix.architecture }}'
-                  }
-                  if ('${{ matrix.architecture }}' -eq 'x64') {
-                      $parameters.InstallVirtualEnv = 'out\venv'
-                      $parameters.BuildTestApp = $true
+                      InstallVirtualEnv = 'out\venv-${{ matrix.architecture }}'
+                      BuildTestApp = $true
                   }
                   .\scripts\tools\windows_python_controller.ps1 @parameters
 
@@ -75,51 +75,67 @@ jobs:
                   if (-not ($headers | Select-String $expectedMachine)) {
                       throw "_ChipDeviceCtrl.dll has the wrong machine type"
                   }
-                  $exports = dumpbin /exports $dll | Out-String
+                  $exportedBindings = dumpbin /exports $dll |
+                      Select-String '\s(pychip_[A-Za-z0-9_]+)$' |
+                      ForEach-Object { $_.Matches[0].Groups[1].Value } |
+                      Sort-Object -Unique
                   foreach ($requiredExport in @(
                       'pychip_CommonStackInit',
                       'pychip_FormatError',
                       'pychip_DeviceController_StackInit',
                       'pychip_DeviceController_ConnectBLE',
+                      'pychip_DeviceController_CommissionViaProxy',
                       'pychip_ReadClient_Read'
                   )) {
-                      if (-not $exports.Contains($requiredExport)) {
+                      if ($requiredExport -notin $exportedBindings) {
                           throw "_ChipDeviceCtrl.dll omitted export: $requiredExport"
                       }
                   }
 
+                  $objectDirectory = 'out\windows-python-${{ matrix.architecture }}\obj\src\controller\python'
+                  $definedBindings = Get-ChildItem -LiteralPath $objectDirectory -Recurse -Filter '*.obj' -File |
+                      ForEach-Object {
+                          dumpbin /nologo /symbols $_.FullName |
+                              Select-String 'SECT[0-9A-F]+\s+notype \(\)\s+External\s+\|\s+(pychip_[A-Za-z0-9_]+)$' |
+                              ForEach-Object { $_.Matches[0].Groups[1].Value }
+                      } |
+                      Sort-Object -Unique
+                  $missingExports = @($definedBindings | Where-Object { $_ -notin $exportedBindings })
+                  if ($missingExports.Count -ne 0) {
+                      throw "_ChipDeviceCtrl.dll omitted native bindings: $($missingExports -join ', ')"
+                  }
+
             - name: Run native Python integration
-              if: matrix.architecture == 'x64'
               shell: pwsh
               run: |
-                  $python = 'out\venv\Scripts\python.exe'
+                  $python = 'out\venv-${{ matrix.architecture }}\Scripts\python.exe'
                   & $python -m unittest -v src.python_testing.test_testing.TestWindowsHarnessPortability
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
                   & $python .\scripts\tests\run_python_test.py `
                       --factory-reset `
-                      --app .\out\windows-python-x64\all-devices-app.exe `
+                      --app .\out\windows-python-${{ matrix.architecture }}\all-devices-app.exe `
                       --app-ready-pattern 'APP STATUS: Starting event loop' `
-                      --app-args '--device temperature-sensor:1 --discriminator 1234 --KVS out/windows-python-x64/test-kvs' `
+                      --app-args '--device temperature-sensor:1 --discriminator 1234 --KVS out/windows-python-${{ matrix.architecture }}/test-kvs' `
                       --script .\src\python_testing\TC_TMP_2_1.py `
-                      --script-args '--storage-path out/windows-python-x64/admin-storage.json --commissioning-method on-network-ip --ip-addr 127.0.0.1 --discriminator 1234 --passcode 20202021 --endpoint 1'
+                      --script-args '--storage-path out/windows-python-${{ matrix.architecture }}/admin-storage.json --commissioning-method on-network-ip --ip-addr 127.0.0.1 --discriminator 1234 --passcode 20202021 --endpoint 1'
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
                   & $python .\scripts\tests\local.py python-tests `
                       --test-filter TC_BOOL_2_2,TC_DeviceBasicComposition,TC_DeviceConformance,TC_G_2_2,TC_IDM_2_3,TC_OCC_3_1,TC_OCC_3_2,TC_SC_5_1 `
                       --app-filter ALL_DEVICES_APP `
-                      --override-binary-path ALL_DEVICES_APP out\windows-python-x64\all-devices-app.exe `
+                      --override-binary-path ALL_DEVICES_APP out\windows-python-${{ matrix.architecture }}\all-devices-app.exe `
                       --commissionee-ip 127.0.0.1 `
                       --keep-going `
-                      --fail-log-dir out\windows-suite-failures
+                      --fail-log-dir out\windows-suite-failures-${{ matrix.architecture }}
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
             - name: Upload simulator suite failures
-              if: failure() && matrix.architecture == 'x64'
+              if: failure()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
               with:
-                  name: windows-simulator-suite-failures
-                  path: out/windows-suite-failures
+                  name: windows-simulator-suite-failures-${{ matrix.architecture }}
+                  path: out/windows-suite-failures-${{ matrix.architecture }}
                   if-no-files-found: ignore
                   retention-days: 7
 
@@ -134,7 +150,7 @@ jobs:
 
     build:
         name: Windows ${{ matrix.architecture }}
-        runs-on: windows-latest
+        runs-on: ${{ matrix.runner }}
         timeout-minutes: 120
 
         strategy:
@@ -143,8 +159,10 @@ jobs:
                 include:
                     - architecture: x64
                       target_cpu: x64
+                      runner: windows-latest
                     - architecture: arm64
                       target_cpu: arm64
+                      runner: windows-11-vs2026-arm
 
         steps:
             - name: Enable git long paths
@@ -189,7 +207,18 @@ jobs:
                       chip-tool `
                       msvc-canonical-controller-stack-smoke `
                       msvc-canonical-platform-smoke `
+                      msvc-core-unit-tests `
+                      msvc-crypto-boringssl-tests `
+                      msvc-crypto-pal-tests `
+                      msvc-crypto-upstream-tests `
+                      msvc-inet-endpoint-tests `
+                      msvc-inet-upstream-tests `
                       msvc-key-value-store-smoke `
+                      msvc-secure-channel-status-report-tests `
+                      msvc-secure-channel-tests `
+                      msvc-system-upstream-tests `
+                      msvc-transport-crypto-context-tests `
+                      msvc-transport-tests `
                       msvc-windows-all-clusters `
                       msvc-windows-ble-smoke `
                       msvc-windows-configuration-manager-smoke
@@ -204,11 +233,26 @@ jobs:
                       }
                   }
 
-            - name: Run x64 smoke coverage
-              if: matrix.architecture == 'x64'
+            - name: Run native test coverage
               shell: pwsh
               run: |
-                  $output = "out\win-ci-x64"
+                  $output = "out\win-ci-${{ matrix.architecture }}"
+                  foreach ($test in @(
+                      'msvc-core-unit-tests',
+                      'msvc-crypto-boringssl-tests',
+                      'msvc-crypto-pal-tests',
+                      'msvc-crypto-upstream-tests',
+                      'msvc-inet-endpoint-tests',
+                      'msvc-inet-upstream-tests',
+                      'msvc-secure-channel-status-report-tests',
+                      'msvc-secure-channel-tests',
+                      'msvc-system-upstream-tests',
+                      'msvc-transport-crypto-context-tests',
+                      'msvc-transport-tests'
+                  )) {
+                      & "$output\$test.exe" --gtest_brief=1
+                      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  }
                   & "$output\msvc-key-value-store-smoke.exe"
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                   & "$output\msvc-canonical-platform-smoke.exe"
