@@ -63,7 +63,14 @@ jobs:
                       InstallVirtualEnv = 'out\venv'
                       BuildTestApp = $true
                   }
+                  if ('${{ matrix.architecture }}' -eq 'arm64') {
+                      $env:OPENSSL_DIR = Join-Path $env:ProgramFiles 'OpenSSL'
+                      if (-not (Test-Path $env:OPENSSL_DIR -PathType Container)) {
+                          throw "ARM64 OpenSSL installation was not found at $env:OPENSSL_DIR"
+                      }
+                  }
                   .\scripts\tools\windows_python_controller.ps1 @parameters
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
                   $dll = 'out\windows-python-${{ matrix.architecture }}\obj\src\controller\python\_ChipDeviceCtrl.dll'
                   $headers = dumpbin /headers $dll
