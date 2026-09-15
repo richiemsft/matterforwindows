@@ -80,6 +80,19 @@ jobs:
                   }
                   .\scripts\tools\windows_python_controller.ps1 @parameters
                   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  if ('${{ matrix.architecture }}' -eq 'arm64') {
+                      $sitePackages = & 'out\venv\Scripts\python.exe' -c 'import site; print(site.getsitepackages()[0])'
+                      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                      $cryptographyBindings = Join-Path $sitePackages 'cryptography\hazmat\bindings'
+                      $opensslRuntimeLibraries = @(
+                          Get-ChildItem -LiteralPath (Join-Path $env:OPENSSL_DIR 'bin') -Filter '*.dll' -File |
+                              Where-Object { $_.Name -match '^lib(crypto|ssl).+\.dll$' }
+                      )
+                      if ($opensslRuntimeLibraries.Count -lt 2) {
+                          throw "ARM64 OpenSSL runtime libraries were not found below $env:OPENSSL_DIR"
+                      }
+                      Copy-Item -LiteralPath $opensslRuntimeLibraries.FullName -Destination $cryptographyBindings
+                  }
 
                   $dll = 'out\windows-python-${{ matrix.architecture }}\obj\src\controller\python\_ChipDeviceCtrl.dll'
                   $headers = dumpbin /headers $dll
