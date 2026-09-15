@@ -17,6 +17,7 @@ name: Native Windows
 on:
     push:
         branches:
+            - master
             - windows-port
     pull_request:
     workflow_dispatch:

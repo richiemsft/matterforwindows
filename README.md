@@ -17,6 +17,7 @@
 [![ASR](https://github.com/project-chip/connectedhomeip/workflows/Build%20example%20-%20ASR/badge.svg)](https://github.com/project-chip/connectedhomeip/actions/workflows/examples-asr.yaml)
 [![BouffaloLab](https://github.com/project-chip/connectedhomeip/workflows/Build%20example%20-%20BouffaloLab/badge.svg)](https://github.com/project-chip/connectedhomeip/actions/workflows/examples-bouffalolab.yaml)
 [![Darwin](https://github.com/project-chip/connectedhomeip/workflows/Darwin/badge.svg)](https://github.com/project-chip/connectedhomeip/blob/master/.github/workflows/darwin.yaml)
+[![Native Windows](https://github.com/project-chip/connectedhomeip/actions/workflows/windows-native.yml/badge.svg?branch=master)](https://github.com/project-chip/connectedhomeip/actions/workflows/windows-native.yml?query=branch%3Amaster)
 [![TI CC26X2X7](https://github.com/project-chip/connectedhomeip/workflows/Build%20example%20-%20TI%20CC13XX_26XX/badge.svg)](https://github.com/project-chip/connectedhomeip/actions/workflows/examples-cc13xx_26xx.yaml)
 [![TI CC32XX](https://github.com/project-chip/connectedhomeip/workflows/Build%20example%20-%20TI%20CC32XX/badge.svg)](https://github.com/project-chip/connectedhomeip/actions/workflows/examples-cc32xx.yaml)
 [![EFR32](https://github.com/project-chip/connectedhomeip/workflows/Build%20example%20-%20EFR32/badge.svg)](https://github.com/project-chip/connectedhomeip/actions/workflows/examples-efr32.yaml)
