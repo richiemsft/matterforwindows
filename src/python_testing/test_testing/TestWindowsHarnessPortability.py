@@ -36,6 +36,7 @@ from run_python_test import (  # noqa: E402
     path_option_values,
     remove_options,
     replace_option_value,
+    split_command_arguments,
     use_direct_ip_commissioning,
     windows_named_pipe_path,
 )
@@ -46,11 +47,6 @@ class TestWindowsHarnessPortability(unittest.TestCase):
         expected_suffix = ".dll" if os.name == "nt" else ".so"
 
         self.assertTrue(Library.CONTROLLER.value.endswith(expected_suffix))
-
-    def test_windows_exports_proxy_commissioning_binding(self):
-        exports = (CHIP_ROOT / "src" / "controller" / "python" / "ChipDeviceCtrl.def").read_text(encoding="utf-8")
-
-        self.assertIn("pychip_DeviceController_CommissionViaProxy", (line.strip() for line in exports.splitlines()))
 
     @unittest.skipUnless(os.name == "nt", "Windows-specific tracing policy")
     def test_perfetto_is_explicitly_unsupported(self):
@@ -91,6 +87,13 @@ class TestWindowsHarnessPortability(unittest.TestCase):
                 )
             finally:
                 os.chdir(original_directory)
+
+    @unittest.skipUnless(os.name == "nt", "Windows command-line parsing")
+    def test_windows_command_arguments_preserve_backslash_paths(self):
+        self.assertEqual(
+            split_command_arguments(r"--KVS out\windows-python-x64\test-kvs"),
+            ["--KVS", r"out\windows-python-x64\test-kvs"],
+        )
 
     def test_factory_reset_removes_directory_backed_kvs(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

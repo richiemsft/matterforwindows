@@ -48,9 +48,10 @@ class PathsFinder:
         return None
 
     def _find_from_root(self, root: str, target_name: str) -> Path | None:
-        names = [target_name]
+        names = []
         if sys.platform == "win32" and not target_name.lower().endswith(".exe"):
             names.append(f"{target_name}.exe")
+        names.append(target_name)
 
         for name in names:
             for path in Path(root).rglob(name):

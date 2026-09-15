@@ -119,9 +119,21 @@ class TestRunConfig:
     app_stdin_pipe: str | None = None
 
 
+def split_command_arguments(arguments: str) -> list[str]:
+    """Split an argument string without treating Windows path separators as escapes."""
+    tokens = shlex.split(arguments, posix=os.name != "nt")
+    if os.name != "nt":
+        return tokens
+
+    return [
+        token[1:-1] if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"') else token
+        for token in tokens
+    ]
+
+
 def normalize_windows_path_options(arguments: str, option_names: set[str]) -> str:
     """Resolve path-valued options before forwarding them through the Windows harness."""
-    tokens = shlex.split(arguments)
+    tokens = split_command_arguments(arguments)
     for index, token in enumerate(tokens):
         option, separator, value = token.partition("=")
         if option not in option_names:
@@ -135,7 +147,7 @@ def normalize_windows_path_options(arguments: str, option_names: set[str]) -> st
 
 def replace_option_value(arguments: str, option_name: str, replacement: str) -> str:
     """Replace an option value while preserving unrelated arguments."""
-    tokens = shlex.split(arguments)
+    tokens = split_command_arguments(arguments)
     for index, token in enumerate(tokens):
         option, separator, _ = token.partition("=")
         if option != option_name:
@@ -149,7 +161,7 @@ def replace_option_value(arguments: str, option_name: str, replacement: str) -> 
 
 def remove_options(arguments: str, option_names: set[str]) -> str:
     """Remove options and their values from an argument string."""
-    tokens = shlex.split(arguments)
+    tokens = split_command_arguments(arguments)
     filtered = []
     index = 0
     while index < len(tokens):
@@ -171,7 +183,7 @@ def windows_named_pipe_path(name: str) -> str:
 
 def use_direct_ip_commissioning(arguments: str, ip_address: str) -> str:
     """Use direct IP for local simulator runs that otherwise require discovery."""
-    tokens = shlex.split(arguments)
+    tokens = split_command_arguments(arguments)
     changed = False
     has_commissioning_method = False
     for index, token in enumerate(tokens):
@@ -206,7 +218,7 @@ def filter_runs_by_app(runs: list[Metadata], app_filter: str, environment: dict[
 
 def path_option_values(arguments: str, option_names: set[str]) -> typing.Iterator[str]:
     """Yield values for path options expressed as either `--name value` or `--name=value`."""
-    tokens = shlex.split(arguments)
+    tokens = split_command_arguments(arguments)
     for index, token in enumerate(tokens):
         option, separator, value = token.partition("=")
         if option not in option_names:
@@ -230,7 +242,7 @@ class AppProcessManager:
             ready_pattern = re.compile(self.config.app_ready_pattern.encode())
         else:
             ready_pattern = self.config.app_ready_pattern
-        self.app_process = Subprocess(self.config.app, *shlex.split(self.config.app_args),
+        self.app_process = Subprocess(self.config.app, *split_command_arguments(self.config.app_args),
                                       output_cb=process_chip_app_output,
                                       f_stdout=self.config.stream_output,
                                       f_stderr=self.config.stream_output)
@@ -293,7 +305,7 @@ def run_timeout(run: Metadata) -> float:
 
     if run.script_args is not None:
         p = matter_test_args_parser()
-        (args, _) = p.parse_known_args(shlex.split(run.script_args))
+        (args, _) = p.parse_known_args(split_command_arguments(run.script_args))
         script_timeout = args.timeout
 
     if run.timeout is not None and script_timeout is not None:
@@ -443,21 +455,21 @@ class AppRestartMonitor:
             with open(self.restart_flag_file) as f:
                 flag_file_content = f.read().strip()
 
-            # Determine reset type and remove app/ctrl config and storage
+            # Determine reset type before stopping the app and removing its state.
             reset_type = None
             if flag_file_content == "factory reset":
                 reset_type = FactoryResetType.AppAndController
             elif flag_file_content == "factory reset app only":
                 reset_type = FactoryResetType.AppOnly
 
-            if reset_type:
-                factory_reset_config_removal(self.config.app_args, self.config.script_args, reset_type)
-
-            # Restart the app
-            log.info("Restarting app '%s'...", self.config.app)
-            new_app_manager = AppProcessManager(self.config)
             with self.app_manager_lock:
                 self.app_manager_ref[0].stop()
+                if reset_type:
+                    factory_reset_config_removal(self.config.app_args, self.config.script_args, reset_type)
+
+                # Restart the app after state files are no longer held open.
+                log.info("Restarting app '%s'...", self.config.app)
+                new_app_manager = AppProcessManager(self.config)
                 new_app_manager.start()
                 self.app_manager_ref[0] = new_app_manager
 
@@ -486,7 +498,7 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
         if script_gdb:
             raise click.ClickException("--script-gdb is not supported on Windows")
 
-        app_tokens = shlex.split(app_args)
+        app_tokens = split_command_arguments(app_args)
         unsupported_options = {"--app-pipe-out"}
         if any(token.split("=", 1)[0] in unsupported_options for token in app_tokens):
             raise click.ClickException("Application output pipes are not supported on Windows")
@@ -546,14 +558,14 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
         # That flag commissions the device and then re-opens the commissioning window with the same
         # discriminator and passcode.
         p = matter_test_args_parser()
-        args, _ = p.parse_known_args(shlex.split(script_args))
+        args, _ = p.parse_known_args(split_command_arguments(script_args))
 
         if not args.commissioning_method or args.commissioning_method != "on-network":
             raise click.ClickException(
                 "When using --pre-existing-fabric, script-args must include --commissioning-method on-network."
             )
 
-        commission_tokens = shlex.split(script_args)
+        commission_tokens = split_command_arguments(script_args)
         storage_path_found = False
         for idx, token in enumerate(commission_tokens):
             if token == '--storage-path':
@@ -596,7 +608,7 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
         script,
         "--fail-on-skipped",
         "--paa-trust-store-path", os.path.join(DEFAULT_CHIP_ROOT, MATTER_DEVELOPMENT_PAA_ROOT_CERTS)
-    ] + shlex.split(script_args)
+    ] + split_command_arguments(script_args)
 
     if script_gdb:
         #
@@ -659,7 +671,7 @@ def main_impl(app: str, factory_reset: bool, factory_reset_app_only: bool, app_a
         if exit_code != 0:
             log.error("SUBPROCESS failure: ")
             log.error("  TEST SCRIPT: %d (%r)", test_script_exit_code, final_script_command)
-            log.error("  APP:         %d (%r)", app_exit_code, [app] + shlex.split(app_args))
+            log.error("  APP:         %d (%r)", app_exit_code, [app] + split_command_arguments(app_args))
             sys.exit(exit_code)
 
     finally:

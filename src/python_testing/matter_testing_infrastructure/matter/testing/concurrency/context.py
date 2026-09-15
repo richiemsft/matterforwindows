@@ -201,12 +201,15 @@ class TerminablePopen(TerminableResourceBase[subprocess.Popen[PopenT]]):
                     self._process.send_signal(graceful_signal)
                 else:
                     self._signal_process_group(self._process, graceful_signal)
-            except OSError:
-                # Can occur in case of race condition when process exits between poll and terminate.
-                return
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                self._process.wait(self.RESOURCE_TIMEOUT_TERMINATE_S)
-                return
+            except (OSError, ValueError):
+                # The child may have exited or may not accept Ctrl+Break. If it
+                # is still alive, continue to the forced termination below.
+                if self._process.poll() is not None:
+                    return
+            else:
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    self._process.wait(self.RESOURCE_TIMEOUT_TERMINATE_S)
+                    return
 
             log.warning('Failed to terminate the process "%s". Killing instead', cmd)
             try:

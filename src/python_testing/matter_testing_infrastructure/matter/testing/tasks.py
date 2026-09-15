@@ -233,11 +233,12 @@ class Subprocess(threading.Thread):
         if not self.is_alive() and self.returncode is not None:
             return
 
-        LOGGER.warning("Subprocess did not stop gracefully; terminating it")
-        self.p.terminate()
-        self.join(TestingDefaults.TERMINATION_TIMEOUT_S)
-        if not self.is_alive() and self.returncode is not None:
-            return
+        if sys.platform == "win32":
+            LOGGER.warning("Subprocess did not stop gracefully; terminating it")
+            self.p.terminate()
+            self.join(TestingDefaults.TERMINATION_TIMEOUT_S)
+            if not self.is_alive() and self.returncode is not None:
+                return
 
         LOGGER.warning("Subprocess or controller thread did not terminate within timeout. Killing it")
         self.p.kill()

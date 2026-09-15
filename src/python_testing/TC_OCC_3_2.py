@@ -140,7 +140,7 @@ class TC_OCC_3_2(MatterBaseTest):
         self.step("3a")
         # CI call to trigger off
         if self.is_ci:
-            self.write_to_app_pipe({"Name": "SetOccupancy", "EndpointId": 1, "Occupancy": 0})
+            self.write_to_app_pipe({"Name": "SetOccupancy", "EndpointId": endpoint_id, "Occupancy": 0})
         else:
             self.wait_for_user_input(prompt_msg="Type any letter and press ENTER after DUT goes back to unoccupied state.")
 
@@ -154,7 +154,7 @@ class TC_OCC_3_2(MatterBaseTest):
 
         # CI call to trigger on
         if self.is_ci:
-            self.write_to_app_pipe({"Name": "SetOccupancy", "EndpointId": 1, "Occupancy": 1})
+            self.write_to_app_pipe({"Name": "SetOccupancy", "EndpointId": endpoint_id, "Occupancy": 1})
         else:
             self.wait_for_user_input(
                 prompt_msg="Type any letter and press ENTER after the sensor occupancy is triggered and its occupancy state changed.")
