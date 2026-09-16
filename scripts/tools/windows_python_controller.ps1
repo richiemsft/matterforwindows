@@ -146,7 +146,7 @@ if ($InstallVirtualEnv) {
         -Destination $testingPackage -Recurse
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    foreach ($version in @("1.1", "1.2", "1.3", "1.4", "1.4.1", "1.4.2", "1.5", "1.5.1", "1.6", "1.6.1")) {
+    foreach ($version in @("1.1", "1.2", "1.3", "1.4", "1.4.1", "1.4.2", "1.5", "1.5.1", "1.6", "1.6.1", "1.7")) {
         $archiveDirectory = Join-Path $testingMatterPackage "testing\data_model\$version"
         New-Item -Path $archiveDirectory -ItemType Directory -Force | Out-Null
         [System.IO.Compression.ZipFile]::CreateFromDirectory(
