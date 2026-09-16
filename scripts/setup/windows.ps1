@@ -30,7 +30,7 @@ if (-not $ToolsDirectory) {
 
 $gnInstance = "6KccwOIUe7fkTjqmAJhCuY51aVrCKpbiSXk10DnD4T4C"
 $ninjaInstance = "3TgJ1Ckw_8bqhqyrAzltNPV1oYhZClrVWwXWMVE8RVgC"
-$zapVersion = "v2026.08.24.2"
+$zapVersion = "v2026.09.09.2"
 
 function Install-CipdTool {
     param(
