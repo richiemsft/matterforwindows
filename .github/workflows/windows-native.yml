@@ -40,7 +40,7 @@ jobs:
             matrix:
                 include:
                     - architecture: x64
-                      runner: windows-latest
+                      runner: windows-2025
                     - architecture: arm64
                       runner: windows-11-vs2026-arm
 
@@ -190,7 +190,7 @@ jobs:
                 include:
                     - architecture: x64
                       target_cpu: x64
-                      runner: windows-latest
+                      runner: windows-2025
                     - architecture: arm64
                       target_cpu: arm64
                       runner: windows-11-vs2026-arm

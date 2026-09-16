@@ -28,13 +28,38 @@ Selected targets have also been run on native ARM64 hardware.
 This support is a development preview. See
 [Limitations](#limitations) before using it as the basis for a product.
 
+## Preview support matrix
+
+The preview support contract is intentionally narrow. A configuration is
+supported only when it is represented by the Windows CI workflow or explicitly
+listed below.
+
+| Area | Supported preview baseline |
+| --- | --- |
+| Operating system | Windows 11 for development and execution |
+| Architectures | Native x64 and native ARM64 processes |
+| Compiler | MSVC from Visual Studio 2022 17.14 or newer, with the **Desktop development with C++** workload |
+| Windows SDK | 10.0.26100.0 or newer |
+| Build system | Repository-pinned GN, Ninja, and ZAP tools initialized by `scripts\setup\windows.ps1` |
+| PowerShell | Windows PowerShell 5.1 or PowerShell 7 |
+| Python | Python 3.11 or newer matching the target process architecture |
+| Bluetooth LE | Controller/central and commissionee/peripheral roles, subject to adapter and driver support |
+| Thread | Operational IPv6 through an external Thread Border Router; no local Thread stack or border router |
+| Distribution | Unsigned application ZIPs and native Python wheels for validation; no stable ABI or production support commitment |
+
+The reproducible CI baseline uses the pinned `windows-2025` GitHub runner for
+x64 and `windows-11-vs2026-arm` for ARM64. Runner image servicing can update
+installed patch versions, but the runner labels and minimum tool versions above
+remain fixed for this preview.
+
 ## Prerequisites
 
 Install:
 
 -   Windows 11.
--   Visual Studio with the **Desktop development with C++** workload and the
-    MSVC build tools for the target architecture.
+-   Visual Studio 2022 17.14 or newer with the **Desktop development with C++**
+    workload, Windows SDK 10.0.26100.0 or newer, and the MSVC build tools for
+    the target architecture.
 -   Python 3.11 or newer, available as `python3.exe` or `python.exe` on
     `PATH`.
 -   PowerShell 5.1 or newer.
@@ -282,10 +307,12 @@ not delete it when testing persistence across restarts.
 
 The native Windows port is not yet a production support commitment:
 
--   Windows 10, 32-bit x86, MinGW, clang-cl, and MSBuild-only builds are not
+-   [Windows 10, 32-bit x86, MinGW, clang-cl, and MSBuild-only
+    builds](https://github.com/richiemsft/matterforwindows/issues/1) are not
     supported.
 -   Bluetooth LE and external Thread interoperability still require broader
-    hardware coverage across x64 and ARM64.
+    [hardware coverage across x64 and
+    ARM64](https://github.com/richiemsft/matterforwindows/issues/2).
 -   A complete certification suite against physical devices has not been run
     on every supported architecture and transport.
 -   Same-host tests can be affected by the Windows mDNS responder not resolving
@@ -293,9 +320,15 @@ The native Windows port is not yet a production support commitment:
     not discover its own advertisement.
 -   The Python test harness does not support Perfetto tracing, packet capture,
     application output pipes, or stdin-pipe mode on Windows.
--   CI application ZIP files are unsigned validation artifacts, not release
-    packages.
--   The preview does not provide an ABI or long-term servicing guarantee.
+-   CI application ZIP files are
+    [unsigned validation artifacts](https://github.com/richiemsft/matterforwindows/issues/3),
+    not release packages.
+-   The preview does not provide a
+    [stable ABI](https://github.com/richiemsft/matterforwindows/issues/4) or
+    long-term servicing guarantee.
+-   [Production packaging and
+    distribution](https://github.com/richiemsft/matterforwindows/issues/5)
+    remain deferred.
 
 Before shipping a product, provide:
 
