@@ -293,6 +293,24 @@ The Bluetooth smoke test exercises the state machine and no-adapter behavior;
 it does not replace over-the-air interoperability testing on the target
 hardware.
 
+### Representative device validation
+
+In addition to light-device testing, the Windows `chip-tool.exe` has been
+independently exercised with a Shelly EM Mini Gen4 energy-monitoring device.
+The reported validation:
+
+-   commissioned the device onto a second Matter fabric while its existing Home
+    Assistant fabric remained connected;
+-   read the Basic Information and Descriptor data;
+-   discovered Electrical Power Measurement, Electrical Energy Measurement,
+    Power Topology, and Identify clusters on endpoint 1; and
+-   read live cumulative imported-energy data.
+
+This community-reported result demonstrates a non-lighting device type,
+multi-admin commissioning, endpoint discovery, and measurement-cluster
+interaction. It is representative interoperability evidence, not an exhaustive
+hardware matrix or Matter certification result.
+
 ### Persistent storage
 
 The native key-value store uses versioned files, atomic replacement, process
