@@ -28,6 +28,38 @@ Selected targets have also been run on native ARM64 hardware.
 This support is a development preview. See
 [Limitations](#limitations) before using it as the basis for a product.
 
+## Application-facing API
+
+[`Matter.Windows.Controller`](https://github.com/dotMorten/matter.winrt) is the
+application-facing API for native Windows applications. It packages a C++/WinRT
+component, WinRT metadata, and architecture-specific native DLLs for x64 and
+ARM64. Applications use that versioned WinRT surface instead of linking to
+Matter SDK C++ types or depending on their ABI.
+
+The API is device-type agnostic. Matter device types are compositions of
+clusters on endpoints, and the generic API addresses attributes, commands, and
+events by endpoint, cluster, and field identifiers. It supports generic reads,
+writes, invokes, attribute subscriptions, event reads, event subscriptions,
+and the timed writes and invokes required by clusters such as Door Lock,
+Energy EVSE, Administrator Commissioning, and Thread management. Consequently,
+device-type coverage follows the data model in the pinned Matter SDK rather
+than a list of WinRT device classes. Typed Basic Information, On/Off, and Level
+Control clients are conveniences, not the supported device-type boundary.
+
+Generic Matter TLV values project recursively through `IPropertySet`. Decimal
+context-tag strings identify structure fields, `value` wraps a scalar root,
+inspectable vectors represent lists, and byte vectors represent octet strings.
+
+The WinRT package is independently versioned and pins a specific revision of
+this fork. Its metadata is the intended application contract, but it remains a
+development preview: applications must deploy the native DLL from the same
+package version used at build time. Neither project currently promises
+compatibility between preview package versions or exposes the Matter SDK's C++
+ABI as a supported application interface. Stable WinRT releases will follow
+semantic versioning: additive changes increment the minor version and breaking
+changes require a new major version. A Matter SDK pin update requires a package
+version change and x64/ARM64 component and sample validation.
+
 ## Preview support matrix
 
 The preview support contract is intentionally narrow. A configuration is
@@ -45,7 +77,7 @@ listed below.
 | Python | Python 3.11 or newer matching the target process architecture |
 | Bluetooth LE | Controller/central and commissionee/peripheral roles, subject to adapter and driver support |
 | Thread | Operational IPv6 through an external Thread Border Router; no local Thread stack or border router |
-| Distribution | Unsigned application ZIPs and native Python wheels for validation; no stable ABI or production support commitment |
+| Distribution | Unsigned application ZIPs and native Python wheels for validation; `Matter.Windows.Controller` provides the separately versioned application-facing WinRT package |
 
 The reproducible CI baseline uses the pinned `windows-2025` GitHub runner for
 x64 and `windows-11-vs2026-arm` for ARM64. Runner image servicing can update
@@ -341,9 +373,10 @@ The native Windows port is not yet a production support commitment:
 -   CI application ZIP files are
     [unsigned validation artifacts](https://github.com/richiemsft/matterforwindows/issues/3),
     not release packages.
--   The preview does not provide a
-    [stable ABI](https://github.com/richiemsft/matterforwindows/issues/4) or
-    long-term servicing guarantee.
+-   `Matter.Windows.Controller` is the application-facing API, but preview
+    versions do not yet provide a
+    [stable ABI guarantee](https://github.com/richiemsft/matterforwindows/issues/4)
+    or long-term servicing commitment.
 -   [Production packaging and
     distribution](https://github.com/richiemsft/matterforwindows/issues/5)
     remain deferred.
