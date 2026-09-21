@@ -103,7 +103,8 @@ public:
     void SetCentralGatt(winrt::Windows::Devices::Bluetooth::BluetoothLEDevice device,
                         winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattDeviceService service,
                         winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic rxCharacteristic,
-                        winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic txCharacteristic);
+                        winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic txCharacteristic,
+                        winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSession session);
 
     const winrt::Windows::Devices::Bluetooth::BluetoothLEDevice & CentralDevice() const { return mCentralDevice; }
     const winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic & CentralRxCharacteristic() const
@@ -114,18 +115,13 @@ public:
     {
         return mCentralTxCharacteristic;
     }
+    void StartConnectionStatusMonitoring();
 
     void SetTxValueChangedRevoker(
         winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic::ValueChanged_revoker revoker)
     {
         mTxValueChangedRevoker = std::move(revoker);
     }
-    void SetConnectionStatusChangedRevoker(
-        winrt::Windows::Devices::Bluetooth::BluetoothLEDevice::ConnectionStatusChanged_revoker revoker)
-    {
-        mConnectionStatusChangedRevoker = std::move(revoker);
-    }
-
     // ----- Peripheral-role GATT server state -----
     void SetPeripheralClient(winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSubscribedClient client);
     const winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSubscribedClient & PeripheralClient() const
@@ -157,6 +153,7 @@ public:
 private:
     const BleConnectionRole mRole;
     std::atomic<bool> mClosed{ false };
+    std::atomic<bool> mDisconnectReported{ false };
     BleCallbackEpoch mEpoch;
     std::atomic<uint16_t> mMtu{ 0 };
 
@@ -164,6 +161,7 @@ private:
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattDeviceService mCentralService{ nullptr };
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic mCentralRxCharacteristic{ nullptr };
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic mCentralTxCharacteristic{ nullptr };
+    winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattSession mCentralSession{ nullptr };
     winrt::Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic::ValueChanged_revoker mTxValueChangedRevoker;
     winrt::Windows::Devices::Bluetooth::BluetoothLEDevice::ConnectionStatusChanged_revoker mConnectionStatusChangedRevoker;
 

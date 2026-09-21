@@ -102,6 +102,28 @@ void WinRTBleConnection::Close()
     mTxValueChangedRevoker.revoke();
     mConnectionStatusChangedRevoker.revoke();
 
+    if (mRole == BleConnectionRole::kCentral && mCentralSession)
+    {
+        try
+        {
+            mCentralSession.MaintainConnection(false);
+            ChipLogProgress(Ble, "Released maintained BLE GATT session");
+        } catch (winrt::hresult_error const & error)
+        {
+            ChipLogError(Ble, "Failed to release maintained BLE GATT session: 0x%08lx",
+                         static_cast<unsigned long>(error.code().value));
+        }
+        try
+        {
+            mCentralSession.Close();
+        } catch (winrt::hresult_error const & error)
+        {
+            ChipLogError(Ble, "Failed to close BLE GATT session: 0x%08lx",
+                         static_cast<unsigned long>(error.code().value));
+        }
+        mCentralSession = nullptr;
+    }
+
     if (mRole == BleConnectionRole::kCentral && mCentralDevice)
     {
         mCentralDevice.Close();
@@ -115,12 +137,38 @@ void WinRTBleConnection::Close()
 }
 
 void WinRTBleConnection::SetCentralGatt(BluetoothLEDevice device, GattDeviceService service, GattCharacteristic rxCharacteristic,
-                                        GattCharacteristic txCharacteristic)
+                                        GattCharacteristic txCharacteristic, GattSession session)
 {
     mCentralDevice           = std::move(device);
     mCentralService          = std::move(service);
     mCentralRxCharacteristic = std::move(rxCharacteristic);
     mCentralTxCharacteristic = std::move(txCharacteristic);
+    mCentralSession          = std::move(session);
+}
+
+void WinRTBleConnection::StartConnectionStatusMonitoring()
+{
+    VerifyOrReturn(mRole == BleConnectionRole::kCentral && mCentralDevice);
+
+    auto self  = weak_from_this();
+    auto guard = MakeGuard();
+    mConnectionStatusChangedRevoker = mCentralDevice.ConnectionStatusChanged(
+        winrt::auto_revoke, [self, guard](BluetoothLEDevice const & changedDevice, IInspectable const &) {
+            RunConnectionCallback(self, guard, "BLE connection-status callback", BLE_ERROR_REMOTE_DEVICE_DISCONNECTED,
+                                  [&](std::shared_ptr<WinRTBleConnection> const & connection) {
+                                      if (changedDevice.ConnectionStatus() == BluetoothConnectionStatus::Disconnected &&
+                                          !connection->mDisconnectReported.exchange(true, std::memory_order_acq_rel))
+                                      {
+                                          BLEManagerImpl::HandleConnectionClosed(connection.get());
+                                      }
+                                  });
+        });
+
+    if (mCentralDevice.ConnectionStatus() == BluetoothConnectionStatus::Disconnected &&
+        !mDisconnectReported.exchange(true, std::memory_order_acq_rel))
+    {
+        BLEManagerImpl::HandleConnectionClosed(this);
+    }
 }
 
 void WinRTBleConnection::SetPeripheralClient(GattSubscribedClient client)

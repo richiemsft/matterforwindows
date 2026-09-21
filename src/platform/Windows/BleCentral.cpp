@@ -274,7 +274,8 @@ void BleCentralScanner::ConnectAndDiscover(uint64_t bluetoothAddress, uint16_t m
                     return;
                 }
 
-                auto serviceOp = device.GetGattServicesForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_SVC_ID));
+                auto serviceOp =
+                    device.GetGattServicesForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_SVC_ID), BluetoothCacheMode::Uncached);
                 serviceOp.Completed([device, guard](IAsyncOperation<GattDeviceServicesResult> const & serviceAsyncOp,
                                                     AsyncStatus serviceStatus) {
                     RunConnectCallback(guard, "GetGattServicesForUuidAsync completion", [&] {
@@ -291,7 +292,8 @@ void BleCentralScanner::ConnectAndDiscover(uint64_t bluetoothAddress, uint16_t m
                         }
                         GattDeviceService service = serviceResult.Services().GetAt(0);
 
-                        auto rxOp = service.GetCharacteristicsForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_CHAR_1_UUID));
+                        auto rxOp = service.GetCharacteristicsForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_CHAR_1_UUID),
+                                                                           BluetoothCacheMode::Uncached);
                         rxOp.Completed([device, service, guard](IAsyncOperation<GattCharacteristicsResult> const & rxAsyncOp,
                                                                 AsyncStatus rxStatus) {
                             RunConnectCallback(guard, "RX GetCharacteristicsForUuidAsync completion", [&] {
@@ -308,7 +310,8 @@ void BleCentralScanner::ConnectAndDiscover(uint64_t bluetoothAddress, uint16_t m
                                 }
                                 GattCharacteristic rxCharacteristic = rxResult.Characteristics().GetAt(0);
 
-                                auto txOp = service.GetCharacteristicsForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_CHAR_2_UUID));
+                                auto txOp = service.GetCharacteristicsForUuidAsync(GuidFromChipBleUUID(Ble::CHIP_BLE_CHAR_2_UUID),
+                                                                                   BluetoothCacheMode::Uncached);
                                 txOp.Completed([device, service, rxCharacteristic,
                                                 guard](IAsyncOperation<GattCharacteristicsResult> const & txAsyncOp,
                                                        AsyncStatus txStatus) {
@@ -327,52 +330,42 @@ void BleCentralScanner::ConnectAndDiscover(uint64_t bluetoothAddress, uint16_t m
                                         }
                                         GattCharacteristic txCharacteristic = txResult.Characteristics().GetAt(0);
 
-                                        auto connection = std::make_shared<WinRTBleConnection>(BleConnectionRole::kCentral);
-                                        connection->SetCentralGatt(device, service, rxCharacteristic, txCharacteristic);
-
-                                        std::weak_ptr<WinRTBleConnection> weakConnection = connection;
-                                        BleCallbackGuard connectionGuard                 = connection->MakeGuard();
-                                        connection->SetConnectionStatusChangedRevoker(device.ConnectionStatusChanged(
-                                            winrt::auto_revoke,
-                                            [weakConnection, connectionGuard](BluetoothLEDevice const & changedDevice,
-                                                                              IInspectable const &) {
-                                                RunWinRTCallback("BLE connection-status callback", [&] {
-                                                    auto conn = weakConnection.lock();
-                                                    if (!conn || !connectionGuard.IsValid() || conn->IsClosed())
-                                                    {
-                                                        return;
-                                                    }
-                                                    if (changedDevice.ConnectionStatus() == BluetoothConnectionStatus::Disconnected)
-                                                    {
-                                                        BLEManagerImpl::HandleConnectionClosed(conn.get());
-                                                    }
-                                                });
-                                            }));
-
                                         try
                                         {
                                             auto sessionOp = GattSession::FromDeviceIdAsync(device.BluetoothDeviceId());
-                                            sessionOp.Completed([weakConnection, connectionGuard](
-                                                                    IAsyncOperation<GattSession> const & sessionAsyncOp,
-                                                                    AsyncStatus sessionStatus) {
-                                                RunWinRTCallback("GattSession::FromDeviceIdAsync completion", [&] {
-                                                    auto conn = weakConnection.lock();
-                                                    if (!conn || !connectionGuard.IsValid() || conn->IsClosed() ||
-                                                        sessionStatus != AsyncStatus::Completed)
-                                                    {
-                                                        return;
-                                                    }
-                                                    GattSession session = sessionAsyncOp.GetResults();
-                                                    if (session)
-                                                    {
-                                                        conn->SetMTU(static_cast<uint16_t>(session.MaxPduSize()));
-                                                    }
-                                                });
-                                            });
-                                        } catch (winrt::hresult_error const &)
-                                        {}
+                                            sessionOp.Completed(
+                                                [device, service, rxCharacteristic, txCharacteristic,
+                                                 guard](IAsyncOperation<GattSession> const & sessionAsyncOp,
+                                                        AsyncStatus sessionStatus) {
+                                                    RunConnectCallback(guard, "GattSession::FromDeviceIdAsync completion", [&] {
+                                                        if (sessionStatus != AsyncStatus::Completed)
+                                                        {
+                                                            BLEManagerImpl::HandleConnectFailed(CHIP_ERROR_INTERNAL);
+                                                            return;
+                                                        }
+                                                        GattSession session = sessionAsyncOp.GetResults();
+                                                        if (!session)
+                                                        {
+                                                            BLEManagerImpl::HandleConnectFailed(CHIP_ERROR_INTERNAL);
+                                                            return;
+                                                        }
 
-                                        BLEManagerImpl::HandleNewConnection(std::move(connection));
+                                                        session.MaintainConnection(true);
+                                                        auto connection =
+                                                            std::make_shared<WinRTBleConnection>(BleConnectionRole::kCentral);
+                                                        connection->SetMTU(static_cast<uint16_t>(session.MaxPduSize()));
+                                                        connection->SetCentralGatt(device, service, rxCharacteristic, txCharacteristic,
+                                                                                   session);
+                                                        ChipLogProgress(Ble, "BLE GATT session ready with MTU %u",
+                                                                        static_cast<unsigned int>(connection->GetMTU()));
+
+                                                        BLEManagerImpl::HandleNewConnection(std::move(connection), guard);
+                                                    });
+                                                });
+                                        } catch (winrt::hresult_error const &)
+                                        {
+                                            BLEManagerImpl::HandleConnectFailed(CHIP_ERROR_INTERNAL);
+                                        }
                                     });
                                 });
                             });

@@ -55,6 +55,16 @@ struct ConnectionWorkContext
     std::shared_ptr<WinRTBleConnection> connection;
 };
 
+struct CentralConnectionWorkContext
+{
+    CentralConnectionWorkContext(std::shared_ptr<WinRTBleConnection> value, BleCallbackGuard callbackGuard) :
+        connection(std::move(value)), guard(std::move(callbackGuard))
+    {}
+
+    std::shared_ptr<WinRTBleConnection> connection;
+    BleCallbackGuard guard;
+};
+
 struct PeripheralRemovalWorkContext
 {
     explicit PeripheralRemovalWorkContext(uint64_t value) : sessionKey(value) {}
@@ -350,19 +360,16 @@ void BLEManagerImpl::NotifyChipConnectionClosed(BLE_CONNECTION_OBJECT conId)
     DriveBLEState();
 }
 
-void BLEManagerImpl::RegisterConnection(std::shared_ptr<WinRTBleConnection> connection)
+bool BLEManagerImpl::RegisterConnection(std::shared_ptr<WinRTBleConnection> connection)
 {
     BLEManagerImpl & self = BLEMgrImpl();
-    // CHIPoBLE, like every other platform's BLEManagerImpl, supports exactly
-    // one concurrent BLE connection. A superseding connection replaces
-    // (and safely closes) any prior one rather than being refused, matching
-    // the "one active connection at a time" contract the rest of this class
-    // assumes.
     if (self.mConnection && self.mConnection != connection)
     {
-        self.mConnection->Close();
+        ChipLogError(Ble, "Cannot adopt a second BLE connection while the first is active");
+        return false;
     }
     self.mConnection = std::move(connection);
+    return true;
 }
 
 void BLEManagerImpl::NewConnection(BleLayer * bleLayer, void * appState, const SetupDiscriminator & connDiscriminator)
@@ -371,6 +378,11 @@ void BLEManagerImpl::NewConnection(BleLayer * bleLayer, void * appState, const S
     mAppState                        = appState;
     SetupDiscriminator discriminator = connDiscriminator;
     TEMPORARY_RETURN_IGNORED DeviceLayer::SystemLayer().ScheduleLambda([this, discriminator] {
+        if (mConnection)
+        {
+            BleConnectionDelegate::OnConnectionError(mAppState, CHIP_ERROR_INCORRECT_STATE);
+            return;
+        }
         CHIP_ERROR err = mCentralScanner->ScanAndConnect(Span<const SetupDiscriminator>(&discriminator, 1));
         if (err == CHIP_NO_ERROR)
         {
@@ -487,9 +499,9 @@ void BLEManagerImpl::HandleScanTimeout(chip::System::Layer *, void * appState)
     self->BleConnectionDelegate::OnConnectionError(self->mAppState, CHIP_ERROR_TIMEOUT);
 }
 
-void BLEManagerImpl::HandleNewConnection(std::shared_ptr<WinRTBleConnection> connection)
+void BLEManagerImpl::HandleNewConnection(std::shared_ptr<WinRTBleConnection> connection, BleCallbackGuard guard)
 {
-    auto * context = new (std::nothrow) ConnectionWorkContext(std::move(connection));
+    auto * context = new (std::nothrow) CentralConnectionWorkContext(std::move(connection), std::move(guard));
     if (context == nullptr)
     {
         HandleConnectFailed(CHIP_ERROR_NO_MEMORY);
@@ -506,9 +518,47 @@ void BLEManagerImpl::HandleNewConnection(std::shared_ptr<WinRTBleConnection> con
 
 void BLEManagerImpl::AdoptCentralConnectionWork(intptr_t rawContext)
 {
-    std::unique_ptr<ConnectionWorkContext> context(reinterpret_cast<ConnectionWorkContext *>(rawContext));
-    RegisterConnection(context->connection);
+    std::unique_ptr<CentralConnectionWorkContext> context(reinterpret_cast<CentralConnectionWorkContext *>(rawContext));
+    if (!context->guard.IsValid())
+    {
+        context->connection->Close();
+        return;
+    }
+    try
+    {
+        if (context->connection->CentralDevice().ConnectionStatus() ==
+            winrt::Windows::Devices::Bluetooth::BluetoothConnectionStatus::Disconnected)
+        {
+            context->connection->Close();
+            HandleConnectFailed(BLE_ERROR_REMOTE_DEVICE_DISCONNECTED);
+            return;
+        }
+    } catch (winrt::hresult_error const & error)
+    {
+        ChipLogError(Ble, "Failed to query BLE connection status before adoption: 0x%08lx",
+                     static_cast<unsigned long>(error.code().value));
+        context->connection->Close();
+        HandleConnectFailed(CHIP_ERROR_INTERNAL);
+        return;
+    }
+
+    if (!RegisterConnection(context->connection))
+    {
+        context->connection->Close();
+        HandleConnectFailed(CHIP_ERROR_INCORRECT_STATE);
+        return;
+    }
+    ChipLogProgress(Ble, "BLE GATT connection ready; notifying Matter stack");
     PostCentralConnected(context->connection.get());
+    try
+    {
+        context->connection->StartConnectionStatusMonitoring();
+    } catch (winrt::hresult_error const & error)
+    {
+        ChipLogError(Ble, "Failed to monitor BLE connection status: 0x%08lx",
+                     static_cast<unsigned long>(error.code().value));
+        HandleConnectionError(context->connection.get(), CHIP_ERROR_INTERNAL);
+    }
 }
 
 void BLEManagerImpl::PostCentralConnected(BLE_CONNECTION_OBJECT conId)
@@ -619,7 +669,11 @@ void BLEManagerImpl::HandleSubscribedClientAdded(std::shared_ptr<WinRTBleConnect
 void BLEManagerImpl::AdoptPeripheralConnectionWork(intptr_t rawContext)
 {
     std::unique_ptr<ConnectionWorkContext> context(reinterpret_cast<ConnectionWorkContext *>(rawContext));
-    RegisterConnection(context->connection);
+    if (!RegisterConnection(context->connection))
+    {
+        context->connection->Close();
+        return;
+    }
     PostPeripheralSubscribed(context->connection.get());
 }
 
