@@ -44,6 +44,7 @@
 #include <lib/support/CodeUtils.h>
 #include <lib/support/SetupDiscriminator.h>
 #include <lib/support/Span.h>
+#include <platform/Windows/BleCallbackGuard.h>
 
 #if CHIP_DEVICE_CONFIG_ENABLE_CHIPOBLE
 
@@ -96,7 +97,7 @@ public:
     // validated its BleCallbackGuard, so by the time control reaches here the
     // operation is still logically current; each function's own job is only
     // to translate that into the shared ChipDeviceEvent contract.
-    static void HandleNewConnection(std::shared_ptr<WinRTBleConnection> connection);
+    static void HandleNewConnection(std::shared_ptr<WinRTBleConnection> connection, BleCallbackGuard guard);
     static void HandleConnectFailed(CHIP_ERROR error);
     static void HandleWriteComplete(BLE_CONNECTION_OBJECT conId);
     static void HandleSubscribeOpComplete(BLE_CONNECTION_OBJECT conId, bool subscribed);
@@ -182,7 +183,7 @@ private:
     static void AdoptPeripheralConnectionWork(intptr_t context);
     static void RemovePeripheralConnectionWork(intptr_t context);
     static void HandlePeripheralWriteWork(intptr_t context);
-    static void RegisterConnection(std::shared_ptr<WinRTBleConnection> connection);
+    static bool RegisterConnection(std::shared_ptr<WinRTBleConnection> connection);
     static void PostCentralConnected(BLE_CONNECTION_OBJECT conId);
     static void PostPeripheralSubscribed(BLE_CONNECTION_OBJECT conId);
 
