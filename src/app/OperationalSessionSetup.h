@@ -275,6 +275,7 @@ public:
     // AddressResolve::NodeListener - notifications when dnssd finds a node IP address
     void OnNodeAddressResolved(const PeerId & peerId, const AddressResolve::ResolveResult & result) override;
     void OnNodeAddressResolutionFailed(const PeerId & peerId, CHIP_ERROR reason) override;
+    void OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason) override;
 
 #if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
     // Update our remaining attempt count to be at least the given value.

@@ -74,6 +74,10 @@ public:
     /// The callback is expected to be executed within the CHIP event loop
     /// thread.
     virtual void OnNodeAddressResolutionFailed(const PeerId & peerId, CHIP_ERROR reason) = 0;
+
+    /// A preferred-interface lookup failed and resolution is retrying with
+    /// automatic interface selection.
+    virtual void OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason) {}
 };
 
 /// Represents an active Address resolution lookup.
