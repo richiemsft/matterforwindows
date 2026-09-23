@@ -2460,6 +2460,12 @@ void DeviceCommissioner::OnDeviceConnectionRetryFn(void * context, const ScopedN
                 self->GetCommissioningStage() == CommissioningStage::kFindOperationalForCommissioningComplete);
     VerifyOrDie(self->mDeviceBeingCommissioned->GetDeviceId() == peerId.GetNodeId());
 
+    if (self->mPairingDelegate != nullptr)
+    {
+        self->mPairingDelegate->OnCommissioningRetry(PeerId(self->GetCompressedFabricId(), peerId.GetNodeId()),
+                                                     self->GetCommissioningStage(), error);
+    }
+
     bool supportsConcurrent =
         self->mCommissioningDelegate->GetCommissioningParameters().GetSupportsConcurrentConnection().ValueOr(true);
     if (!supportsConcurrent)
@@ -4491,7 +4497,8 @@ void DeviceCommissioner::PerformCommissioningStep(DeviceProxy * proxy, Commissio
 #if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
             /* attemptCount = */ 3, &mOnDeviceConnectionRetryCallback,
 #endif // CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
-            TransportPayloadCapability::kMRPPayload, mFallbackOperationalResolveResult);
+            TransportPayloadCapability::kMRPPayload, mFallbackOperationalResolveResult,
+            params.GetOperationalInterfaceSelection());
     }
     break;
     case CommissioningStage::kPrimaryOperationalNetworkFailed: {

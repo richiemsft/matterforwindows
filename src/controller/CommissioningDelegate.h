@@ -467,6 +467,10 @@ public:
     // Status to send when calling CommissioningComplete on the PairingDelegate during the kCleanup step. The AutoCommissioner uses
     // this to pass through any error messages received during commissioning.
     const CompletionStatus & GetCompletionStatus() const { return completionStatus; }
+    const Optional<AddressResolve::InterfaceSelection> & GetOperationalInterfaceSelection() const
+    {
+        return mOperationalInterfaceSelection;
+    }
 
     CommissioningParameters & SetFailsafeTimerSeconds(uint16_t seconds)
     {
@@ -700,6 +704,12 @@ public:
     }
     void SetCompletionStatus(const CompletionStatus & status) { completionStatus = status; }
 
+    CommissioningParameters & SetOperationalInterfaceSelection(const AddressResolve::InterfaceSelection & selection)
+    {
+        mOperationalInterfaceSelection.SetValue(selection);
+        return *this;
+    }
+
     CommissioningParameters & SetDeviceAttestationDelegate(Credentials::DeviceAttestationDelegate * deviceAttestationDelegate)
     {
         mDeviceAttestationDelegate = deviceAttestationDelegate;
@@ -894,6 +904,7 @@ private:
     Optional<bool> mAttemptWiFiNetworkScan;
     Optional<bool> mAttemptThreadNetworkScan; // This automatically gets set to false when a ThreadOperationalDataset is set
     Optional<bool> mSkipCommissioningComplete;
+    Optional<AddressResolve::InterfaceSelection> mOperationalInterfaceSelection;
 
     Optional<NodeId> mICDCheckInNodeId;
     Optional<uint64_t> mICDMonitoredSubject;
