@@ -162,6 +162,7 @@ public:
         return mRequest.GetInterfaceSelection().mode == InterfaceSelectionMode::kPrefer && !mTriedAutomaticFallback;
     }
 
+    bool IsAutomaticFallbackActive() const { return mTriedAutomaticFallback; }
     void MarkAutomaticFallbackStarted() { mTriedAutomaticFallback = true; }
 
 private:

@@ -223,6 +223,26 @@ TEST(TestAddressResolveDefaultImpl, UpdateResultsPreservesSelectedInterface)
     EXPECT_EQ(selectedResults.ConsumeResult().address.GetInterface(), interfaceId);
 }
 
+TEST(TestAddressResolveDefaultImpl, AutomaticFallbackClearsSelectedInterface)
+{
+    const Inet::InterfaceId interfaceId(static_cast<Inet::InterfaceId::PlatformType>(1));
+    InterfaceSelection selection;
+    selection.mode        = InterfaceSelectionMode::kPrefer;
+    selection.interfaceId = interfaceId;
+
+    Impl::NodeLookupHandle handle;
+    handle.ResetForLookup(System::SystemClock().GetMonotonicTimestamp(),
+                          NodeLookupRequest(PeerId(1, 2)).SetInterfaceSelection(selection));
+    handle.MarkAutomaticFallbackStarted();
+
+    ResolveResult result;
+    result.address = GetAddressWithMediumScore(CHIP_PORT, interfaceId);
+    handle.LookupResult(result);
+
+    ASSERT_TRUE(handle.HasLookupResult());
+    EXPECT_FALSE(handle.TakeLookupResult().address.GetInterface().IsPresent());
+}
+
 TEST(TestAddressResolveDefaultImpl, TestLookupResult)
 {
     ResolveResult lowResult;
@@ -795,6 +815,33 @@ TEST_F(TestAddressResolveDefaultImplWithSystemLayerAndNodeListener, PreferredInt
     resolver.OnOperationalNodeResolutionFailed(peerId, CHIP_ERROR_TIMEOUT);
 
     EXPECT_EQ(retryError, CHIP_ERROR_TIMEOUT);
+    EXPECT_EQ(mockResolver.ResolveNodeIdCalls, 1u);
+    EXPECT_TRUE(handle.IsActive());
+}
+
+TEST_F(TestAddressResolveDefaultImplWithSystemLayerAndNodeListener, PreferredInterfaceStartFailureUsesAutomaticFallback)
+{
+    chip::Dnssd::Resolver::SetInstance(mockResolver);
+    mockResolver.ResolveNodeIdOnInterfaceStatus = CHIP_ERROR_INVALID_ARGUMENT;
+
+    chip::AddressResolve::Impl::Resolver resolver;
+    ASSERT_EQ(resolver.Init(&mSystemLayer), CHIP_NO_ERROR);
+
+    AddressResolve::NodeLookupHandle handle;
+    const PeerId peerId(1, 2);
+    InterfaceSelection selection;
+    selection.mode        = InterfaceSelectionMode::kPrefer;
+    selection.interfaceId = Inet::InterfaceId(static_cast<Inet::InterfaceId::PlatformType>(1));
+    auto request          = NodeLookupRequest(peerId).SetInterfaceSelection(selection);
+    handle.SetListener(&mNodeListener);
+
+    CHIP_ERROR retryError = CHIP_NO_ERROR;
+    mNodeListener.SetOnNodeAddressResolutionRetry(
+        [&retryError](const PeerId &, CHIP_ERROR reason) { retryError = reason; });
+
+    EXPECT_EQ(resolver.LookupNode(request, handle), CHIP_NO_ERROR);
+    EXPECT_EQ(retryError, CHIP_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(mockResolver.ResolveNodeIdOnInterfaceCalls, 1u);
     EXPECT_EQ(mockResolver.ResolveNodeIdCalls, 1u);
     EXPECT_TRUE(handle.IsActive());
 }
