@@ -43,8 +43,8 @@ void NodeLookupHandle::LookupResult(const ResolveResult & result)
     MATTER_LOG_NODE_DISCOVERED(Tracing::DiscoveryInfoType::kIntermediateResult, &GetRequest().GetPeerId(), &result);
 
     auto score = Dnssd::IPAddressSorter::ScoreIpAddress(result.address.GetIPAddress(), result.address.GetInterface());
-    const bool preserveInterface =
-        mRequest.GetInterfaceSelection().mode != InterfaceSelectionMode::kAutomatic;
+    const bool preserveInterface = mRequest.GetInterfaceSelection().mode != InterfaceSelectionMode::kAutomatic &&
+        !IsAutomaticFallbackActive();
     [[maybe_unused]] bool success = mResults.UpdateResults(result, score, preserveInterface);
 
 #if CHIP_PROGRESS_LOGGING
@@ -218,7 +218,20 @@ CHIP_ERROR Resolver::LookupNode(const NodeLookupRequest & request, Impl::NodeLoo
     else
     {
         VerifyOrReturnError(selection.interfaceId.IsPresent(), CHIP_ERROR_INVALID_ARGUMENT);
-        ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeIdOnInterface(peerId, selection.interfaceId));
+        CHIP_ERROR err = Dnssd::Resolver::Instance().ResolveNodeIdOnInterface(peerId, selection.interfaceId);
+        if (err != CHIP_NO_ERROR && selection.mode == InterfaceSelectionMode::kPrefer)
+        {
+            ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeId(peerId));
+            handle.MarkAutomaticFallbackStarted();
+            if (handle.GetListener() != nullptr)
+            {
+                handle.GetListener()->OnNodeAddressResolutionRetry(peerId, err);
+            }
+        }
+        else
+        {
+            ReturnErrorOnFailure(err);
+        }
     }
     mActiveLookups.PushBack(&handle);
     ReArmTimer();
