@@ -421,6 +421,7 @@ void Resolver::OnOperationalNodeResolutionFailed(const PeerId & peerId, CHIP_ERR
             if (fallbackError == CHIP_NO_ERROR)
             {
                 current->MarkAutomaticFallbackStarted();
+                current->GetListener()->OnNodeAddressResolutionRetry(peerId, error);
                 continue;
             }
             error = fallbackError;

@@ -544,7 +544,16 @@ public:
     bool IsInitialized() override { return true; }
     void Shutdown() override {}
     void SetOperationalDelegate(OperationalResolveDelegate * delegate) override {}
-    CHIP_ERROR ResolveNodeId(const PeerId & peerId) override { return ResolveNodeIdStatus; }
+    CHIP_ERROR ResolveNodeId(const PeerId & peerId) override
+    {
+        ++ResolveNodeIdCalls;
+        return ResolveNodeIdStatus;
+    }
+    CHIP_ERROR ResolveNodeIdOnInterface(const PeerId & peerId, Inet::InterfaceId interfaceId) override
+    {
+        ++ResolveNodeIdOnInterfaceCalls;
+        return ResolveNodeIdOnInterfaceStatus;
+    }
     void NodeIdResolutionNoLongerNeeded(const PeerId & peerId) override {}
     CHIP_ERROR StartDiscovery(DiscoveryType type, DiscoveryFilter filter, DiscoveryContext &) override
     {
@@ -558,9 +567,12 @@ public:
         return CHIP_ERROR_NOT_IMPLEMENTED;
     }
 
-    CHIP_ERROR InitStatus                  = CHIP_NO_ERROR;
-    CHIP_ERROR ResolveNodeIdStatus         = CHIP_NO_ERROR;
-    CHIP_ERROR DiscoverCommissionersStatus = CHIP_NO_ERROR;
+    CHIP_ERROR InitStatus                      = CHIP_NO_ERROR;
+    CHIP_ERROR ResolveNodeIdStatus             = CHIP_NO_ERROR;
+    CHIP_ERROR ResolveNodeIdOnInterfaceStatus = CHIP_NO_ERROR;
+    CHIP_ERROR DiscoverCommissionersStatus     = CHIP_NO_ERROR;
+    uint32_t ResolveNodeIdCalls                = 0;
+    uint32_t ResolveNodeIdOnInterfaceCalls     = 0;
 };
 
 class TestAddressResolveDefaultImplWithSystemLayer : public ::testing::Test
@@ -608,6 +620,7 @@ public:
         using OnNodeAddressResolvedCallback =
             std::function<void(const chip::PeerId &, const chip::AddressResolve::ResolveResult &)>;
         using OnNodeAddressResolutionFailedCallback = std::function<void(const chip::PeerId &, CHIP_ERROR)>;
+        using OnNodeAddressResolutionRetryCallback  = std::function<void(const chip::PeerId &, CHIP_ERROR)>;
 
         /// @brief  Sets the callback to be called when a node address is resolved. Acts as a customization point for tests.
         /// @param callback OnNodeAddressResolvedCallback
@@ -618,6 +631,10 @@ public:
         void SetOnNodeAddressResolutionFailed(OnNodeAddressResolutionFailedCallback callback)
         {
             mOnNodeAddressResolutionFailed = std::move(callback);
+        }
+        void SetOnNodeAddressResolutionRetry(OnNodeAddressResolutionRetryCallback callback)
+        {
+            mOnNodeAddressResolutionRetry = std::move(callback);
         }
 
         /// @brief  Called when a node address is resolved. Dispatches handling to the injected callback if set.
@@ -637,10 +654,18 @@ public:
                 mOnNodeAddressResolutionFailed.value()(peerId, reason);
             }
         };
+        void OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason) override
+        {
+            if (mOnNodeAddressResolutionRetry)
+            {
+                mOnNodeAddressResolutionRetry.value()(peerId, reason);
+            }
+        };
 
     private:
         std::optional<OnNodeAddressResolvedCallback> mOnNodeAddressResolved{ std::nullopt };
         std::optional<OnNodeAddressResolutionFailedCallback> mOnNodeAddressResolutionFailed{ std::nullopt };
+        std::optional<OnNodeAddressResolutionRetryCallback> mOnNodeAddressResolutionRetry{ std::nullopt };
     };
 
     TestNodeListener mNodeListener;
@@ -742,6 +767,36 @@ TEST_F(TestAddressResolveDefaultImplWithSystemLayerAndNodeListener, CancellingLo
 
     EXPECT_EQ(r, CHIP_NO_ERROR);
     EXPECT_EQ(expectedError, CHIP_ERROR_CANCELLED);
+}
+
+TEST_F(TestAddressResolveDefaultImplWithSystemLayerAndNodeListener, PreferredInterfaceFailureReportsAutomaticFallbackRetry)
+{
+    chip::Dnssd::Resolver::SetInstance(mockResolver);
+
+    chip::AddressResolve::Impl::Resolver resolver;
+    ASSERT_EQ(resolver.Init(&mSystemLayer), CHIP_NO_ERROR);
+
+    AddressResolve::NodeLookupHandle handle;
+    const PeerId peerId(1, 2);
+    InterfaceSelection selection;
+    selection.mode        = InterfaceSelectionMode::kPrefer;
+    selection.interfaceId = Inet::InterfaceId(static_cast<Inet::InterfaceId::PlatformType>(1));
+    auto request          = NodeLookupRequest(peerId).SetInterfaceSelection(selection);
+    handle.SetListener(&mNodeListener);
+
+    CHIP_ERROR retryError = CHIP_NO_ERROR;
+    mNodeListener.SetOnNodeAddressResolutionRetry(
+        [&retryError](const PeerId &, CHIP_ERROR reason) { retryError = reason; });
+
+    ASSERT_EQ(resolver.LookupNode(request, handle), CHIP_NO_ERROR);
+    EXPECT_EQ(mockResolver.ResolveNodeIdOnInterfaceCalls, 1u);
+    EXPECT_EQ(mockResolver.ResolveNodeIdCalls, 0u);
+
+    resolver.OnOperationalNodeResolutionFailed(peerId, CHIP_ERROR_TIMEOUT);
+
+    EXPECT_EQ(retryError, CHIP_ERROR_TIMEOUT);
+    EXPECT_EQ(mockResolver.ResolveNodeIdCalls, 1u);
+    EXPECT_TRUE(handle.IsActive());
 }
 
 TEST_F(TestAddressResolveDefaultImplWithSystemLayerAndNodeListener, LooksUpFailsAndCallsFailureListenerWhenSystemStartTimerFails)
