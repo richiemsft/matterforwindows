@@ -211,6 +211,7 @@ CHIP_ERROR Resolver::LookupNode(const NodeLookupRequest & request, Impl::NodeLoo
     handle.ResetForLookup(mTimeSource.GetMonotonicTimestamp(), request);
     auto & peerId = request.GetPeerId();
     const InterfaceSelection & selection = request.GetInterfaceSelection();
+    CHIP_ERROR interfaceFallbackReason   = CHIP_NO_ERROR;
     if (selection.mode == InterfaceSelectionMode::kAutomatic)
     {
         ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeId(peerId));
@@ -223,10 +224,7 @@ CHIP_ERROR Resolver::LookupNode(const NodeLookupRequest & request, Impl::NodeLoo
         {
             ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeId(peerId));
             handle.MarkAutomaticFallbackStarted();
-            if (handle.GetListener() != nullptr)
-            {
-                handle.GetListener()->OnNodeAddressResolutionRetry(peerId, err);
-            }
+            interfaceFallbackReason = err;
         }
         else
         {
@@ -236,6 +234,11 @@ CHIP_ERROR Resolver::LookupNode(const NodeLookupRequest & request, Impl::NodeLoo
     mActiveLookups.PushBack(&handle);
     ReArmTimer();
     ChipLogProgress(Discovery, "Lookup started for " ChipLogFormatPeerId, ChipLogValuePeerId(peerId));
+    if (interfaceFallbackReason != CHIP_NO_ERROR && handle.GetListener() != nullptr)
+    {
+        handle.GetListener()->OnNodeAddressResolutionRetry(peerId, interfaceFallbackReason);
+        // The listener may synchronously cancel this lookup and destroy the handle.
+    }
     return CHIP_NO_ERROR;
 }
 
