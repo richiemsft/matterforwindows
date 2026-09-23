@@ -292,6 +292,8 @@ public:
     void SetFallbackResolveResult(const AddressResolve::ResolveResult & result);
 #endif // CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK
 
+    void SetInterfaceSelection(const AddressResolve::InterfaceSelection & selection) { mInterfaceSelection.SetValue(selection); }
+
 private:
     enum class State : uint8_t
     {
@@ -325,6 +327,7 @@ private:
 
     /// This is used when a node address is required.
     chip::AddressResolve::NodeLookupHandle mAddressLookupHandle;
+    Optional<AddressResolve::InterfaceSelection> mInterfaceSelection;
 
     State mState = State::Uninitialized;
 

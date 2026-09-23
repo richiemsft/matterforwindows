@@ -208,6 +208,21 @@ TEST(TestAddressResolveDefaultImpl, UpdateResultsDoesNotAddDuplicates)
 
 #endif
 
+TEST(TestAddressResolveDefaultImpl, UpdateResultsPreservesSelectedInterface)
+{
+    const Inet::InterfaceId interfaceId(static_cast<Inet::InterfaceId::PlatformType>(1));
+    ResolveResult result;
+    result.address = GetAddressWithMediumScore(CHIP_PORT, interfaceId);
+
+    Impl::NodeLookupResults automaticResults;
+    ASSERT_TRUE(automaticResults.UpdateResults(result, Dnssd::IPAddressSorter::IpScore::kGlobalUnicast));
+    EXPECT_FALSE(automaticResults.ConsumeResult().address.GetInterface().IsPresent());
+
+    Impl::NodeLookupResults selectedResults;
+    ASSERT_TRUE(selectedResults.UpdateResults(result, Dnssd::IPAddressSorter::IpScore::kGlobalUnicast, true));
+    EXPECT_EQ(selectedResults.ConsumeResult().address.GetInterface(), interfaceId);
+}
+
 TEST(TestAddressResolveDefaultImpl, TestLookupResult)
 {
     ResolveResult lowResult;

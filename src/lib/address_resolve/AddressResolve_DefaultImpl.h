@@ -41,7 +41,7 @@ struct NodeLookupResults
     uint8_t count                                = 0; // number of valid ResolveResult
     uint8_t consumed                             = 0; // number of already read ResolveResult
 
-    bool UpdateResults(const ResolveResult & result, Dnssd::IPAddressSorter::IpScore score);
+    bool UpdateResults(const ResolveResult & result, Dnssd::IPAddressSorter::IpScore score, bool preserveInterface = false);
 
     bool HasValidResult() const { return count > consumed; }
 
@@ -157,10 +157,18 @@ public:
     /// be triggered for this lookup handle
     System::Clock::Timeout NextEventTimeout(System::Clock::Timestamp now);
 
+    bool ShouldFallbackToAutomatic() const
+    {
+        return mRequest.GetInterfaceSelection().mode == InterfaceSelectionMode::kPrefer && !mTriedAutomaticFallback;
+    }
+
+    void MarkAutomaticFallbackStarted() { mTriedAutomaticFallback = true; }
+
 private:
     NodeLookupResults mResults;
     NodeLookupRequest mRequest; // active request to process
     System::Clock::Timestamp mRequestStartTime;
+    bool mTriedAutomaticFallback = false;
 };
 
 class Resolver : public ::chip::AddressResolve::Resolver, public Dnssd::OperationalResolveDelegate

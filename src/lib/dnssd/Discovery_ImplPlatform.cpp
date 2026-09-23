@@ -687,6 +687,11 @@ bool DiscoveryImplPlatform::IsInitialized()
 
 CHIP_ERROR DiscoveryImplPlatform::ResolveNodeId(const PeerId & peerId)
 {
+    return ResolveNodeIdOnInterface(peerId, Inet::InterfaceId::Null());
+}
+
+CHIP_ERROR DiscoveryImplPlatform::ResolveNodeIdOnInterface(const PeerId & peerId, Inet::InterfaceId interfaceId)
+{
     // Resolve requests can only be issued once DNSSD is initialized and there is
     // no caching currently
     VerifyOrReturnError(mState == State::kInitialized, CHIP_ERROR_INCORRECT_STATE);
@@ -701,7 +706,7 @@ CHIP_ERROR DiscoveryImplPlatform::ResolveNodeId(const PeerId & peerId)
     service.mProtocol    = DnssdServiceProtocol::kDnssdProtocolTcp;
     service.mAddressType = Inet::IPAddressType::kAny;
 
-    return ChipDnssdResolve(&service, Inet::InterfaceId::Null(), HandleNodeIdResolve, this);
+    return ChipDnssdResolve(&service, interfaceId, HandleNodeIdResolve, this);
 }
 
 void DiscoveryImplPlatform::NodeIdResolutionNoLongerNeeded(const PeerId & peerId)

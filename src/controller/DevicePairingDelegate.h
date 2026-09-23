@@ -216,6 +216,8 @@ public:
      */
     virtual void OnCommissioningStageStart(PeerId peerId, CommissioningStage stageStarting) {}
 
+    virtual void OnCommissioningRetry(PeerId peerId, CommissioningStage stage, CHIP_ERROR error) {}
+
     /**
      * @brief
      *   Called when Wi-Fi credentials are needed.  If the call returns
