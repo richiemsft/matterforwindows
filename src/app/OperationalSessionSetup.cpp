@@ -635,6 +635,10 @@ CHIP_ERROR OperationalSessionSetup::LookupPeerAddress()
     PeerId peerId(fabricInfo->GetCompressedFabricId(), mPeerId.GetNodeId());
 
     NodeLookupRequest request(peerId);
+    if (mInterfaceSelection.HasValue())
+    {
+        request.SetInterfaceSelection(mInterfaceSelection.Value());
+    }
 
     CHIP_ERROR err = Resolver::Instance().LookupNode(request, mAddressLookupHandle);
 

@@ -35,6 +35,7 @@ void NodeLookupHandle::ResetForLookup(System::Clock::Timestamp now, const NodeLo
     mRequestStartTime = now;
     mRequest          = request;
     mResults          = NodeLookupResults();
+    mTriedAutomaticFallback = false;
 }
 
 void NodeLookupHandle::LookupResult(const ResolveResult & result)
@@ -42,7 +43,9 @@ void NodeLookupHandle::LookupResult(const ResolveResult & result)
     MATTER_LOG_NODE_DISCOVERED(Tracing::DiscoveryInfoType::kIntermediateResult, &GetRequest().GetPeerId(), &result);
 
     auto score = Dnssd::IPAddressSorter::ScoreIpAddress(result.address.GetIPAddress(), result.address.GetInterface());
-    [[maybe_unused]] bool success = mResults.UpdateResults(result, score);
+    const bool preserveInterface =
+        mRequest.GetInterfaceSelection().mode != InterfaceSelectionMode::kAutomatic;
+    [[maybe_unused]] bool success = mResults.UpdateResults(result, score, preserveInterface);
 
 #if CHIP_PROGRESS_LOGGING
     char addr_string[Transport::PeerAddress::kMaxToStringSize];
@@ -127,10 +130,11 @@ NodeLookupAction NodeLookupHandle::NextAction(System::Clock::Timestamp now)
     return NodeLookupAction::KeepSearching();
 }
 
-bool NodeLookupResults::UpdateResults(const ResolveResult & result, const Dnssd::IPAddressSorter::IpScore newScore)
+bool NodeLookupResults::UpdateResults(const ResolveResult & result, const Dnssd::IPAddressSorter::IpScore newScore,
+                                      bool preserveInterface)
 {
     Transport::PeerAddress addressWithAdjustedInterface = result.address;
-    if (!addressWithAdjustedInterface.GetIPAddress().IsIPv6LinkLocal())
+    if (!preserveInterface && !addressWithAdjustedInterface.GetIPAddress().IsIPv6LinkLocal())
     {
         // Only use the DNS-SD resolution's InterfaceID for addresses that are IPv6 LLA.
         // For all other addresses, we should rely on the device's routing table to route messages sent.
@@ -206,7 +210,16 @@ CHIP_ERROR Resolver::LookupNode(const NodeLookupRequest & request, Impl::NodeLoo
 
     handle.ResetForLookup(mTimeSource.GetMonotonicTimestamp(), request);
     auto & peerId = request.GetPeerId();
-    ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeId(peerId));
+    const InterfaceSelection & selection = request.GetInterfaceSelection();
+    if (selection.mode == InterfaceSelectionMode::kAutomatic)
+    {
+        ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeId(peerId));
+    }
+    else
+    {
+        VerifyOrReturnError(selection.interfaceId.IsPresent(), CHIP_ERROR_INVALID_ARGUMENT);
+        ReturnErrorOnFailure(Dnssd::Resolver::Instance().ResolveNodeIdOnInterface(peerId, selection.interfaceId));
+    }
     mActiveLookups.PushBack(&handle);
     ReArmTimer();
     ChipLogProgress(Discovery, "Lookup started for " ChipLogFormatPeerId, ChipLogValuePeerId(peerId));
@@ -399,10 +412,27 @@ void Resolver::OnOperationalNodeResolutionFailed(const PeerId & peerId, CHIP_ERR
             continue;
         }
 
+        bool resolutionStillActive = true;
+        if (current->ShouldFallbackToAutomatic())
+        {
+            Dnssd::Resolver::Instance().NodeIdResolutionNoLongerNeeded(peerId);
+            resolutionStillActive = false;
+            CHIP_ERROR fallbackError = Dnssd::Resolver::Instance().ResolveNodeId(peerId);
+            if (fallbackError == CHIP_NO_ERROR)
+            {
+                current->MarkAutomaticFallbackStarted();
+                continue;
+            }
+            error = fallbackError;
+        }
+
         NodeListener * listener = current->GetListener();
         mActiveLookups.Erase(current);
 
-        Dnssd::Resolver::Instance().NodeIdResolutionNoLongerNeeded(peerId);
+        if (resolutionStillActive)
+        {
+            Dnssd::Resolver::Instance().NodeIdResolutionNoLongerNeeded(peerId);
+        }
 
         // Failure callback only called after iterator was cleared:
         // This allows failure handlers to deallocate structures that may

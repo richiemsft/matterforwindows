@@ -151,6 +151,15 @@ public:
      */
     virtual CHIP_ERROR ResolveNodeId(const PeerId & peerId) = 0;
 
+    virtual CHIP_ERROR ResolveNodeIdOnInterface(const PeerId & peerId, Inet::InterfaceId interfaceId)
+    {
+        if (interfaceId.IsPresent())
+        {
+            return CHIP_ERROR_NOT_IMPLEMENTED;
+        }
+        return ResolveNodeId(peerId);
+    }
+
     /*
      * Notify the resolver that one of the consumers that called ResolveNodeId
      * successfully no longer needs the resolution result (e.g. because it got

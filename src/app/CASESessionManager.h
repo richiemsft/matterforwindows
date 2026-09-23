@@ -85,7 +85,8 @@ public:
                                 uint8_t attemptCount = 1, Callback::Callback<OnDeviceConnectionRetry> * onRetry = nullptr,
 #endif // CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
                                 TransportPayloadCapability transportPayloadCapability = TransportPayloadCapability::kMRPPayload,
-                                const Optional<AddressResolve::ResolveResult> & fallbackResolveResult = NullOptional);
+                                const Optional<AddressResolve::ResolveResult> & fallbackResolveResult = NullOptional,
+                                const Optional<AddressResolve::InterfaceSelection> & interfaceSelection = NullOptional);
 
     /**
      * Find an existing session for the given node ID or trigger a new session request.
@@ -205,7 +206,8 @@ private:
                                       uint8_t attemptCount, Callback::Callback<OnDeviceConnectionRetry> * onRetry,
 #endif
                                       TransportPayloadCapability transportPayloadCapability,
-                                      const Optional<AddressResolve::ResolveResult> & fallbackResolveResult = NullOptional);
+                                      const Optional<AddressResolve::ResolveResult> & fallbackResolveResult = NullOptional,
+                                      const Optional<AddressResolve::InterfaceSelection> & interfaceSelection = NullOptional);
 
     CASESessionManagerConfig mConfig;
 };
