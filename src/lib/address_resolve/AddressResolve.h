@@ -26,6 +26,19 @@
 namespace chip {
 namespace AddressResolve {
 
+enum class InterfaceSelectionMode : uint8_t
+{
+    kAutomatic = 0,
+    kPrefer,
+    kRequire,
+};
+
+struct InterfaceSelection
+{
+    Inet::InterfaceId interfaceId;
+    InterfaceSelectionMode mode = InterfaceSelectionMode::kAutomatic;
+};
+
 /// Contains resolve information received from nodes. Contains all information
 /// bits that are considered useful but does not contain a full DNSSD data
 /// structure since not all DNSSD data is useful during operational processing.
@@ -61,6 +74,10 @@ public:
     /// The callback is expected to be executed within the CHIP event loop
     /// thread.
     virtual void OnNodeAddressResolutionFailed(const PeerId & peerId, CHIP_ERROR reason) = 0;
+
+    /// A preferred-interface lookup failed and resolution is retrying with
+    /// automatic interface selection.
+    virtual void OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason) {}
 };
 
 /// Represents an active Address resolution lookup.
@@ -105,6 +122,13 @@ public:
     const PeerId & GetPeerId() const { return mPeerId; }
     System::Clock::Milliseconds32 GetMinLookupTime() const { return mMinLookupTimeMs; }
     System::Clock::Milliseconds32 GetMaxLookupTime() const { return mMaxLookupTimeMs; }
+    const InterfaceSelection & GetInterfaceSelection() const { return mInterfaceSelection; }
+
+    NodeLookupRequest & SetInterfaceSelection(const InterfaceSelection & value)
+    {
+        mInterfaceSelection = value;
+        return *this;
+    }
 
     /// The minimum lookup time is how much to wait for additional DNSSD
     /// queries even if a reply has already been received or to allow for
@@ -155,6 +179,7 @@ private:
     PeerId mPeerId;
     System::Clock::Milliseconds32 mMinLookupTimeMs{ kMinLookupTimeMsDefault };
     System::Clock::Milliseconds32 mMaxLookupTimeMs{ kMaxLookupTimeMsDefault };
+    InterfaceSelection mInterfaceSelection;
 };
 
 /// These things are expected to be defined by the implementation header.

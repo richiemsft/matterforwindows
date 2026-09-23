@@ -635,6 +635,10 @@ CHIP_ERROR OperationalSessionSetup::LookupPeerAddress()
     PeerId peerId(fabricInfo->GetCompressedFabricId(), mPeerId.GetNodeId());
 
     NodeLookupRequest request(peerId);
+    if (mInterfaceSelection.HasValue())
+    {
+        request.SetInterfaceSelection(mInterfaceSelection.Value());
+    }
 
     CHIP_ERROR err = Resolver::Instance().LookupNode(request, mAddressLookupHandle);
 
@@ -741,6 +745,19 @@ void OperationalSessionSetup::OnNodeAddressResolutionFailed(const PeerId & peerI
     // No need to modify any variables in `this` since call below releases `this`.
     DequeueConnectionCallbacks(reason);
     // Do not touch `this` instance anymore; it has been destroyed in DequeueConnectionCallbacks.
+}
+
+void OperationalSessionSetup::OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason)
+{
+    ChipLogProgress(Discovery,
+                    "OperationalSessionSetup[%u:" ChipLogFormatX64
+                    "]: preferred-interface discovery failed with %" CHIP_ERROR_FORMAT
+                    "; retrying with automatic interface selection",
+                    mPeerId.GetFabricIndex(), ChipLogValueX64(peerId.GetNodeId()), reason.Format());
+#if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
+    using namespace chip::System::Clock::Literals;
+    NotifyRetryHandlers(reason, 60_s16);
+#endif
 }
 
 #if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES

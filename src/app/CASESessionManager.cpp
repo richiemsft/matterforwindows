@@ -40,13 +40,14 @@ void CASESessionManager::FindOrEstablishSession(const ScopedNodeId & peerId, Cal
                                                 uint8_t attemptCount, Callback::Callback<OnDeviceConnectionRetry> * onRetry,
 #endif // CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
                                                 TransportPayloadCapability transportPayloadCapability,
-                                                const Optional<AddressResolve::ResolveResult> & fallbackResolveResult)
+                                                const Optional<AddressResolve::ResolveResult> & fallbackResolveResult,
+                                                const Optional<AddressResolve::InterfaceSelection> & interfaceSelection)
 {
     FindOrEstablishSessionHelper(peerId, onConnection, onFailure, nullptr,
 #if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
                                  attemptCount, onRetry,
 #endif
-                                 transportPayloadCapability, fallbackResolveResult);
+                                 transportPayloadCapability, fallbackResolveResult, interfaceSelection);
 }
 
 void CASESessionManager::FindOrEstablishSession(const ScopedNodeId & peerId, Callback::Callback<OnDeviceConnected> * onConnection,
@@ -96,7 +97,8 @@ void CASESessionManager::FindOrEstablishSessionHelper(const ScopedNodeId & peerI
                                                       uint8_t attemptCount, Callback::Callback<OnDeviceConnectionRetry> * onRetry,
 #endif
                                                       TransportPayloadCapability transportPayloadCapability,
-                                                      const Optional<AddressResolve::ResolveResult> & fallbackResolveResult)
+                                                      const Optional<AddressResolve::ResolveResult> & fallbackResolveResult,
+                                                      const Optional<AddressResolve::InterfaceSelection> & interfaceSelection)
 {
     ChipLogDetail(CASESessionManager, "FindOrEstablishSession: PeerId = [%d:" ChipLogFormatX64 "]", peerId.GetFabricIndex(),
                   ChipLogValueX64(peerId.GetNodeId()));
@@ -140,6 +142,11 @@ void CASESessionManager::FindOrEstablishSessionHelper(const ScopedNodeId & peerI
         session->SetFallbackResolveResult(fallbackResolveResult.Value());
     }
 #endif // CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK
+
+    if (interfaceSelection.HasValue())
+    {
+        session->SetInterfaceSelection(interfaceSelection.Value());
+    }
 
     if (onFailure != nullptr)
     {

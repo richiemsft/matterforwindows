@@ -275,6 +275,7 @@ public:
     // AddressResolve::NodeListener - notifications when dnssd finds a node IP address
     void OnNodeAddressResolved(const PeerId & peerId, const AddressResolve::ResolveResult & result) override;
     void OnNodeAddressResolutionFailed(const PeerId & peerId, CHIP_ERROR reason) override;
+    void OnNodeAddressResolutionRetry(const PeerId & peerId, CHIP_ERROR reason) override;
 
 #if CHIP_DEVICE_CONFIG_ENABLE_AUTOMATIC_CASE_RETRIES
     // Update our remaining attempt count to be at least the given value.
@@ -291,6 +292,8 @@ public:
      */
     void SetFallbackResolveResult(const AddressResolve::ResolveResult & result);
 #endif // CHIP_CONFIG_ENABLE_ADDRESS_RESOLVE_FALLBACK
+
+    void SetInterfaceSelection(const AddressResolve::InterfaceSelection & selection) { mInterfaceSelection.SetValue(selection); }
 
 private:
     enum class State : uint8_t
@@ -325,6 +328,7 @@ private:
 
     /// This is used when a node address is required.
     chip::AddressResolve::NodeLookupHandle mAddressLookupHandle;
+    Optional<AddressResolve::InterfaceSelection> mInterfaceSelection;
 
     State mState = State::Uninitialized;
 
