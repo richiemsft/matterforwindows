@@ -26,6 +26,7 @@ CHIP_ROOT = next(path for path in Path(__file__).parents if (path / "SPECIFICATI
 sys.path.insert(0, str(CHIP_ROOT / "scripts" / "tests"))
 
 from matter.native import Library  # noqa: E402
+from matter.testing import global_stash  # noqa: E402
 from matter.testing.runner import convert_args_to_matter_config, matter_test_args_parser  # noqa: E402
 from matter.tracing import StartTracingTo, TraceType  # noqa: E402
 from run_python_test import (  # noqa: E402
@@ -43,6 +44,14 @@ from run_python_test import (  # noqa: E402
 
 
 class TestWindowsHarnessPortability(unittest.TestCase):
+    def test_global_stash_entry_can_be_released_before_stack_shutdown(self):
+        value = object()
+        stash_id = global_stash.stash_globally(value)
+
+        self.assertIs(global_stash.unstash_globally(stash_id), value)
+        self.assertIs(global_stash.pop_global_stash(stash_id), value)
+        self.assertIsNone(global_stash.unstash_globally(stash_id))
+
     def test_native_library_uses_platform_suffix(self):
         expected_suffix = ".dll" if os.name == "nt" else ".so"
 

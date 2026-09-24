@@ -37,3 +37,7 @@ def stash_globally(o: object) -> str:
 
 def unstash_globally(_id: str) -> Any:
     return _GLOBAL_DATA.get(_id)
+
+
+def pop_global_stash(_id: str) -> Any:
+    return _GLOBAL_DATA.pop(_id, None)

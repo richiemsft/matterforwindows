@@ -398,6 +398,12 @@ def run_tests_no_exit(
 
     # Load test config file.
     test_config = generate_mobly_test_config(matter_test_config)
+    stashed_ids = []
+
+    def stash_for_test_run(value: object) -> str:
+        stash_id = global_stash.stash_globally(value)
+        stashed_ids.append(stash_id)
+        return stash_id
 
     # Parse test specifiers if exist.
     tests = None
@@ -422,7 +428,7 @@ def run_tests_no_exit(
         for destination in matter_test_config.trace_to:
             tracing_ctx.StartFromString(destination)
 
-        test_config.user_params["matter_stack"] = global_stash.stash_globally(stack)
+        test_config.user_params["matter_stack"] = stash_for_test_run(stack)
 
         # TODO: Steer to right FabricAdmin!
         # TODO: If CASE Admin Subject is a CAT tag range, then make sure to
@@ -436,17 +442,14 @@ def run_tests_no_exit(
                 dacRevocationSetPath=matter_test_config.dac_revocation_set_path if matter_test_config.dac_revocation_set_path else ""
             )
         default_controller._is_default_controller = True
-        test_config.user_params["default_controller"] = global_stash.stash_globally(
-            default_controller)
-        test_config.user_params["matter_test_config"] = global_stash.stash_globally(
-            matter_test_config)
-        test_config.user_params["hooks"] = global_stash.stash_globally(hooks)
+        test_config.user_params["default_controller"] = stash_for_test_run(default_controller)
+        test_config.user_params["matter_test_config"] = stash_for_test_run(matter_test_config)
+        test_config.user_params["hooks"] = stash_for_test_run(hooks)
 
         # Execute the test class with the config
         ok = True
 
-        test_config.user_params["certificate_authority_manager"] = global_stash.stash_globally(
-            stack.certificate_authority_manager)
+        test_config.user_params["certificate_authority_manager"] = stash_for_test_run(stack.certificate_authority_manager)
 
         # Execute the test class with the config
         ok = True
@@ -497,6 +500,9 @@ def run_tests_no_exit(
     if hooks:
         duration = (datetime.now(UTC) - runner_start_time) / timedelta(microseconds=1)
         hooks.stop(duration=duration)
+
+    for stash_id in reversed(stashed_ids):
+        global_stash.pop_global_stash(stash_id)
 
     if not external_stack:
         async def shutdown():

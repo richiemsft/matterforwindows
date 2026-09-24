@@ -27,6 +27,7 @@
 
 import asyncio
 import builtins
+import gc
 from ctypes import CFUNCTYPE, Structure, c_bool, c_char_p, c_uint16, c_uint32, c_void_p, py_object, pythonapi
 from threading import Condition, Lock
 from typing import Any
@@ -186,35 +187,40 @@ class ChipStack:
         del self._subscriptions[id(subscription)]
 
     def Shutdown(self):
+        gc_was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            # Shutdown all subscriptions before shutting down the stack. Please note it is not
+            # possible to directly iterate over the dictionary values, because when the subscription
+            # is shut down, it will remove itself from the dictionary - causing the iterator to be
+            # invalidated. Hence, we need to create a local copy of the values before iterating.
+            for subscription in tuple(self._subscriptions.values()):
+                subscription.Shutdown()
 
-        # Shutdown all subscriptions before shutting down the stack. Please note it is not
-        # possible to directly iterate over the dictionary values, because when the subscription
-        # is shut down, it will remove itself from the dictionary - causing the iterator to be
-        # invalidated. Hence, we need to create a local copy of the values before iterating.
-        for subscription in tuple(self._subscriptions.values()):
-            subscription.Shutdown()
+            # Shut down the BDX server.
+            Bdx.Shutdown()
 
-        # Shut down the BDX server.
-        Bdx.Shutdown()
+            # Terminate Matter thread and shutdown the stack.
+            self._ChipStackLib.pychip_DeviceController_StackShutdown()
 
-        # Terminate Matter thread and shutdown the stack.
-        self._ChipStackLib.pychip_DeviceController_StackShutdown()
+            # We only shutdown the persistent storage layer AFTER we've shut down the stack,
+            # since there is a possibility of interactions with the storage layer during shutdown.
+            # TODO: The storage object was passed to the stack during initialization,
+            #       maybe it should not be shut down here?
+            self._persistentStorage.Shutdown()
 
-        # We only shutdown the persistent storage layer AFTER we've shut down the stack,
-        # since there is a possibility of interactions with the storage layer during shutdown.
-        # TODO: The storage object was passed to the stack during initialization,
-        #       maybe it should not be shut down here?
-        self._persistentStorage.Shutdown()
+            # Stack init happens in native, but shutdown happens here unfortunately.
+            # #20437 tracks consolidating these.
+            self._ChipStackLib.pychip_CommonStackShutdown()
+            self.completeEvent = None
+            self._ChipStackLib = None
+            self._chipDLLPath = None
+            self.devMgr = None
 
-        # Stack init happens in native, but shutdown happens here unfortunately.
-        # #20437 tracks consolidating these.
-        self._ChipStackLib.pychip_CommonStackShutdown()
-        self.completeEvent = None
-        self._ChipStackLib = None
-        self._chipDLLPath = None
-        self.devMgr = None
-
-        delattr(builtins, "chipStack")
+            delattr(builtins, "chipStack")
+        finally:
+            if gc_was_enabled:
+                gc.enable()
 
     def Call(self, callFunct, timeoutMs: int | None = None):
         '''Run a Python function on CHIP stack, and wait for the response.
