@@ -27,9 +27,6 @@ import("$dir_pw_build/python_dist.gni")
 import("$dir_pw_build/python_venv.gni")
 
 declare_args() {
-  # Value to passed to the c/c++ compiler wrapper.
-  cc_wrapper = ""
-
   # Restrict an incremental native Windows port to its toolchain validation
   # target until the core libraries have Windows System and Inet backends.
   chip_build_windows_bootstrap_only = current_os == "win"

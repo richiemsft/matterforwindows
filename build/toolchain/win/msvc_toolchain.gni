@@ -12,13 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+declare_args() {
+  # Optional command prepended to MSVC compiler invocations.
+  cc_wrapper = ""
+}
+
 template("msvc_toolchain") {
   assert(defined(invoker.toolchain_cpu))
   assert(invoker.toolchain_cpu == "x64" || invoker.toolchain_cpu == "arm64")
 
+  compiler_prefix = ""
+  if (cc_wrapper != "") {
+    compiler_prefix = "${cc_wrapper} "
+  }
+
   toolchain(target_name) {
     tool("cc") {
-      command = "cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
+      command = "${compiler_prefix}cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
       description = "CC {{output}}"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
@@ -29,7 +39,7 @@ template("msvc_toolchain") {
     }
 
     tool("cxx") {
-      command = "cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
+      command = "${compiler_prefix}cl.exe /nologo /showIncludes @{{output}}.rsp /c {{source}} /Fo{{output}}"
       description = "CXX {{output}}"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
