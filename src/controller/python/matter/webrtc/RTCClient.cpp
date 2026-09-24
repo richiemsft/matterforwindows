@@ -22,115 +22,124 @@
 using namespace chip;
 using namespace chip::webrtc;
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#define PYCHIP_WEBRTC_EXPORT __declspec(dllexport)
+#else
+#define PYCHIP_WEBRTC_EXPORT DLL_EXPORT
+#endif
+
 extern "C" {
 
-DLL_EXPORT void * pychip_webrtc_client_create()
+PYCHIP_WEBRTC_EXPORT void * pychip_webrtc_client_create()
 {
     return chip::webrtc::webrtc_client_create();
 }
 
-DLL_EXPORT void pychip_webrtc_client_destroy(void * client)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_destroy(void * client)
 {
     chip::webrtc::webrtc_client_destroy(client);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_client_create_peer_connection(void * client, char * stun_url)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_client_create_peer_connection(void * client, char * stun_url)
 {
     return chip::webrtc::webrtc_client_create_peer_connection(client, stun_url);
 }
 
-DLL_EXPORT void pychip_webrtc_client_create_offer(void * client)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_create_offer(void * client)
 {
     chip::webrtc::webrtc_client_create_offer(client);
 }
 
-DLL_EXPORT void pychip_webrtc_client_create_answer(void * client)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_create_answer(void * client)
 {
     chip::webrtc::webrtc_client_create_answer(client);
 }
 
-DLL_EXPORT void pychip_webrtc_client_set_remote_description(void * client, char * sdp, char * type)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_remote_description(void * client, char * sdp, char * type)
 {
     chip::webrtc::webrtc_client_set_remote_description(client, sdp, type);
 }
 
-DLL_EXPORT void pychip_webrtc_client_add_ice_candidate(void * client, char * candidate, char * mid)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_add_ice_candidate(void * client, char * candidate, char * mid)
 {
     chip::webrtc::webrtc_client_add_ice_candidate(client, candidate, mid);
 }
 
-DLL_EXPORT void pychip_webrtc_client_set_local_description_callback(void * client, LocalDescriptionCallback cb, void * user_data)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_local_description_callback(void * client, LocalDescriptionCallback cb,
+                                                                              void * user_data)
 {
     chip::webrtc::webrtc_client_set_local_description_callback(client, cb, user_data);
 }
 
-DLL_EXPORT void pychip_webrtc_client_set_ice_candidate_callback(void * client, IceCandidateCallback cb, void * user_data)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_ice_candidate_callback(void * client, IceCandidateCallback cb,
+                                                                          void * user_data)
 {
     chip::webrtc::webrtc_client_set_ice_candidate_callback(client, cb, user_data);
 }
 
-DLL_EXPORT const char * pychip_webrtc_get_local_description(WebRTCClientHandle handle)
+PYCHIP_WEBRTC_EXPORT const char * pychip_webrtc_get_local_description(WebRTCClientHandle handle)
 {
     return chip::webrtc::webrtc_get_local_description(handle);
 }
 
-DLL_EXPORT const char * pychip_webrtc_get_peer_connection_state(WebRTCClientHandle handle)
+PYCHIP_WEBRTC_EXPORT const char * pychip_webrtc_get_peer_connection_state(WebRTCClientHandle handle)
 {
     return chip::webrtc::webrtc_get_peer_connection_state(handle);
 }
 
-DLL_EXPORT void pychip_webrtc_client_set_gathering_complete_callback(WebRTCClientHandle handle, GatheringCompleteCallback cb)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_gathering_complete_callback(WebRTCClientHandle handle,
+                                                                               GatheringCompleteCallback cb)
 {
     chip::webrtc::webrtc_client_set_gathering_complete_callback(handle, cb);
 }
 
-DLL_EXPORT void pychip_webrtc_client_set_state_change_callback(WebRTCClientHandle handle, OnStateChangeCallback cb)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_state_change_callback(WebRTCClientHandle handle, OnStateChangeCallback cb)
 {
     chip::webrtc::webrtc_client_set_state_change_callback(handle, cb);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_get_video_frame_count(WebRTCClientHandle handle, uint32_t * out_count)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_get_video_frame_count(WebRTCClientHandle handle, uint32_t * out_count)
 {
     return chip::webrtc::webrtc_get_video_frame_count(handle, out_count);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_get_video_bytes_count(WebRTCClientHandle handle, uint64_t * out_bytes)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_get_video_bytes_count(WebRTCClientHandle handle, uint64_t * out_bytes)
 {
     return chip::webrtc::webrtc_get_video_bytes_count(handle, out_bytes);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_get_audio_packet_count(WebRTCClientHandle handle, uint32_t * out_count)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_get_audio_packet_count(WebRTCClientHandle handle, uint32_t * out_count)
 {
     return chip::webrtc::webrtc_get_audio_packet_count(handle, out_count);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_get_audio_bytes_count(WebRTCClientHandle handle, uint64_t * out_bytes)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_get_audio_bytes_count(WebRTCClientHandle handle, uint64_t * out_bytes)
 {
     return chip::webrtc::webrtc_get_audio_bytes_count(handle, out_bytes);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_reset_media_counters(WebRTCClientHandle handle)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_reset_media_counters(WebRTCClientHandle handle)
 {
     return chip::webrtc::webrtc_reset_media_counters(handle);
 }
 
-DLL_EXPORT void * pychip_webrtc_provider_client_create()
+PYCHIP_WEBRTC_EXPORT void * pychip_webrtc_provider_client_create()
 {
     return chip::webrtc::webrtc_provider_client_create();
 }
 
-DLL_EXPORT void pychip_webrtc_provider_client_destroy(void * client)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_provider_client_destroy(void * client)
 {
     chip::webrtc::webrtc_provider_client_destroy(client);
 }
 
-DLL_EXPORT void pychip_webrtc_provider_client_init(WebRTCClientHandle handle, uint64_t nodeId, uint8_t fabricIndex,
-                                                   uint16_t endpoint)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_provider_client_init(WebRTCClientHandle handle, uint64_t nodeId, uint8_t fabricIndex,
+                                                             uint16_t endpoint)
 {
     chip::webrtc::webrtc_provider_client_init(handle, nodeId, fabricIndex, endpoint);
 }
 
-DLL_EXPORT void pychip_webrtc_provider_client_init_commandsender_callbacks(
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_provider_client_init_commandsender_callbacks(
     WebRTCClientHandle handle, OnCommandSenderResponseCallback onCommandSenderResponseCallback,
     OnCommandSenderErrorCallback onCommandSenderErrorCallback, OnCommandSenderDoneCallback onCommandSenderDoneCallback)
 {
@@ -138,9 +147,9 @@ DLL_EXPORT void pychip_webrtc_provider_client_init_commandsender_callbacks(
                                                                       onCommandSenderErrorCallback, onCommandSenderDoneCallback);
 }
 
-DLL_EXPORT PyChipError pychip_webrtc_provider_client_send_command(WebRTCClientHandle handle, void * appContext,
-                                                                  uint16_t endpointId, uint32_t clusterId, uint32_t commandId,
-                                                                  const uint8_t * payload, size_t length)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_provider_client_send_command(
+    WebRTCClientHandle handle, void * appContext, uint16_t endpointId, uint32_t clusterId, uint32_t commandId,
+    const uint8_t * payload, size_t length)
 {
     return chip::webrtc::webrtc_provider_client_send_command(handle, appContext, endpointId, clusterId, commandId, payload, length);
 }
