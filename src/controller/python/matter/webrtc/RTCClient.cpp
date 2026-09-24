@@ -71,8 +71,7 @@ PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_local_description_callback(vo
     chip::webrtc::webrtc_client_set_local_description_callback(client, cb, user_data);
 }
 
-PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_ice_candidate_callback(void * client, IceCandidateCallback cb,
-                                                                          void * user_data)
+PYCHIP_WEBRTC_EXPORT void pychip_webrtc_client_set_ice_candidate_callback(void * client, IceCandidateCallback cb, void * user_data)
 {
     chip::webrtc::webrtc_client_set_ice_candidate_callback(client, cb, user_data);
 }
@@ -147,9 +146,10 @@ PYCHIP_WEBRTC_EXPORT void pychip_webrtc_provider_client_init_commandsender_callb
                                                                       onCommandSenderErrorCallback, onCommandSenderDoneCallback);
 }
 
-PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_provider_client_send_command(
-    WebRTCClientHandle handle, void * appContext, uint16_t endpointId, uint32_t clusterId, uint32_t commandId,
-    const uint8_t * payload, size_t length)
+PYCHIP_WEBRTC_EXPORT PyChipError pychip_webrtc_provider_client_send_command(WebRTCClientHandle handle, void * appContext,
+                                                                            uint16_t endpointId, uint32_t clusterId,
+                                                                            uint32_t commandId, const uint8_t * payload,
+                                                                            size_t length)
 {
     return chip::webrtc::webrtc_provider_client_send_command(handle, appContext, endpointId, clusterId, commandId, payload, length);
 }
