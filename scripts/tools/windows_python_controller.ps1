@@ -52,6 +52,9 @@ $gnArguments = @(
     'matter_enable_tracing_support=true'
     'is_debug=false'
 )
+if (Get-Command sccache.exe -ErrorAction SilentlyContinue) {
+    $gnArguments += 'cc_wrapper="sccache"'
+}
 if ($BuildTestApp) {
     $gnArguments += 'chip_windows_build_all_devices_app=true'
     $gnArguments += 'chip_config_enable_groupcast=true'
