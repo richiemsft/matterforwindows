@@ -115,6 +115,8 @@ public:
 
     void RemoveAllEntriesForFabric(FabricIndex fabric);
 
+    void Clear();
+
     void RegisterPendingNotificationContextReleaseHandler(PendingNotificationContextReleaseHandler handler)
     {
         mPendingNotificationContextReleaseHandler = handler;
@@ -126,9 +128,11 @@ public:
     };
 
 private:
+    void RemoveAt(uint8_t index);
+
     uint8_t mPendingBindingEntries[kMaxPendingNotifications];
     PendingNotificationContext * mPendingContexts[kMaxPendingNotifications];
-    PendingNotificationContextReleaseHandler mPendingNotificationContextReleaseHandler;
+    PendingNotificationContextReleaseHandler mPendingNotificationContextReleaseHandler = nullptr;
 
     Table & mBindingTable;
 

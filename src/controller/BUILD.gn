@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import("//build_overrides/chip.gni")
+import("${chip_root}/build/chip/buildconfig_header.gni")
 import("${chip_root}/build/config/compiler/compiler.gni")
 import("${chip_root}/src/app/common_flags.gni")
 import("${chip_root}/src/controller/flags.gni")
@@ -43,6 +44,13 @@ source_set("interactions") {
   public_deps = [ "${chip_root}/src/app" ]
 }
 
+buildconfig_header("controller_buildconfig") {
+  header = "CHIPControllerBuildConfig.h"
+  header_dir = "controller"
+  defines =
+      [ "CHIP_CONTROLLER_BUILD_WEBRTC_SIGNALING=$chip_build_webrtc_signaling" ]
+}
+
 static_library("controller") {
   output_name = "libChipController"
 
@@ -53,11 +61,12 @@ static_library("controller") {
     # These conditionals are NOT ok and should have been solved with separate
     # source sets - either include some functionality or do not
     #
-    # Then CHIPDeviceController.h pulls in AbstractDnssdDiscoveryController and everything
-    # cascades. In the end it looks like basically every header file is pulled in.
+    # Then CHIPDeviceController.h pulls in AbstractDnssdDiscoveryController and
+    # everything cascades. In the end it looks like basically every header file
+    # is pulled in.
     #
-    # Unfortunately this is hard to fix in one go, hence these odd list of header-only
-    # dependencies
+    # Unfortunately this is hard to fix in one go, hence these odd list of
+    # header-only dependencies
     "AbstractDnssdDiscoveryController.h",
     "AutoCommissioner.h",
     "CHIPCommissionableNodeController.h",
@@ -111,10 +120,11 @@ static_library("controller") {
   }
 
   public_deps = [
+    ":controller_buildconfig",
     ":interactions",
     "${chip_root}/src/app",
     "${chip_root}/src/app/server",
-    "${chip_root}/src/credentials/jcm:jcm",
+    "${chip_root}/src/credentials/jcm",
     "${chip_root}/src/lib/core",
     "${chip_root}/src/lib/dnssd",
     "${chip_root}/src/lib/support",
@@ -133,9 +143,14 @@ static_library("controller") {
   if (chip_support_webrtc_python_bindings) {
     public_deps += [ "${chip_root}/src/controller/webrtc:chip_webrtc" ]
   }
+  if (chip_build_webrtc_signaling) {
+    public_deps +=
+        [ "${chip_root}/src/controller/webrtc:chip_webrtc_signaling" ]
+  }
 
   # ot-commissioner bundles its own mbedTLS, which collides at link time with
-  # CHIP's mbedTLS. As such, we exclude mbedtls and psa (which also links CHIP's mbedTLS) backends.
+  # CHIP's mbedTLS. As such, we exclude mbedtls and psa (which also links CHIP's
+  # mbedTLS) backends.
   if (chip_device_platform == "linux" && chip_crypto != "mbedtls" &&
       chip_crypto != "psa" && chip_support_thread_meshcop &&
       current_cpu == host_cpu && current_os == host_os) {
@@ -144,7 +159,7 @@ static_library("controller") {
       "ThreadMeshcopCommissionProxy.h",
     ]
     deps += [
-      "${chip_root}/src/lib/dnssd/minimal_mdns:minimal_mdns",
+      "${chip_root}/src/lib/dnssd/minimal_mdns",
       "${chip_root}/third_party/jsoncpp",
     ]
     public_deps += [ "${chip_root}/third_party/ot-commissioner" ]

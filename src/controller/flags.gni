@@ -23,6 +23,11 @@ declare_args() {
 
   # Build controller with webrtc python bindings
   chip_support_webrtc_python_bindings = false
+
+  # Build native camera signaling components without a media receiver or
+  # Python bindings. The application still owns endpoint registration,
+  # authorization, and session lifecycle.
+  chip_build_webrtc_signaling = false
 }
 
 declare_args() {

@@ -34,7 +34,19 @@ Table & Table::GetInstance()
 
 Table::Table()
 {
+    ClearInMemory();
+}
+
+void Table::ClearInMemory()
+{
+    for (auto & entry : mBindingTable)
+    {
+        entry.type = MATTER_UNUSED_BINDING;
+        entry.clusterId.reset();
+    }
     memset(mNextIndex, kNextNullIndex, sizeof(mNextIndex));
+    mHead = mTail = kNextNullIndex;
+    mSize         = 0;
 }
 
 CHIP_ERROR Table::Add(const TableEntry & entry)
@@ -43,6 +55,7 @@ CHIP_ERROR Table::Add(const TableEntry & entry)
     {
         return CHIP_ERROR_INVALID_ARGUMENT;
     }
+    VerifyOrReturnError(mStorage != nullptr, CHIP_ERROR_INCORRECT_STATE);
     uint8_t newIndex = GetNextAvaiableIndex();
     if (newIndex >= kMaxBindingEntries)
     {
@@ -141,12 +154,21 @@ CHIP_ERROR Table::SaveListInfo(uint8_t head)
 
 CHIP_ERROR Table::LoadFromStorage()
 {
+    bool storagePresent;
+    return LoadFromStorage(storagePresent);
+}
+
+CHIP_ERROR Table::LoadFromStorage(bool & storagePresent)
+{
+    storagePresent = false;
     VerifyOrReturnError(mStorage != nullptr, CHIP_ERROR_INCORRECT_STATE);
+    ClearInMemory();
     uint8_t buffer[kListInfoStorageSize] = { 0 };
     uint16_t size                        = sizeof(buffer);
     CHIP_ERROR error;
 
     ReturnErrorOnFailure(mStorage->SyncGetKeyValue(DefaultStorageKeyAllocator::BindingTable().KeyName(), buffer, size));
+    storagePresent = true;
     TLV::TLVReader reader;
     reader.Init(buffer, size);
 
@@ -162,28 +184,27 @@ CHIP_ERROR Table::LoadFromStorage()
     ReturnErrorOnFailure(reader.Next(TLV::ContextTag(kTagHead)));
     uint8_t index;
     ReturnErrorOnFailure(reader.Get(index));
+    ReturnErrorOnFailure(reader.ExitContainer(container));
     mHead = index;
     while (index != kNextNullIndex)
     {
+        if (index >= kMaxBindingEntries || mBindingTable[index].type != MATTER_UNUSED_BINDING)
+        {
+            ClearInMemory();
+            return CHIP_ERROR_INVALID_ARGUMENT;
+        }
         uint8_t nextIndex = kNextNullIndex;
         error             = LoadEntryFromStorage(index, nextIndex);
         if (error != CHIP_NO_ERROR)
         {
-            mHead = kNextNullIndex;
-            mTail = kNextNullIndex;
+            ClearInMemory();
             return error;
         }
         mTail = index;
         index = nextIndex;
         mSize++;
     }
-    error = reader.ExitContainer(container);
-    if (error != CHIP_NO_ERROR)
-    {
-        mHead = kNextNullIndex;
-        mTail = kNextNullIndex;
-    }
-    return error;
+    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR Table::LoadEntryFromStorage(uint8_t index, uint8_t & nextIndex)

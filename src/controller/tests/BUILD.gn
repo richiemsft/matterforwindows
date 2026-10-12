@@ -93,6 +93,19 @@ chip_test_suite("tests") {
     "${chip_root}/src/transport/raw/tests:helpers",
   ]
 
+  if (chip_build_webrtc_signaling) {
+    test_sources += [
+      "TestCameraSignaling.cpp",
+      "TestCameraTransport.cpp",
+    ]
+    public_deps += [
+      "${chip_root}/src/app/persistence:default",
+      "${chip_root}/src/app/server-cluster/testing:fabric-fixture",
+      "${chip_root}/src/controller/webrtc:chip_webrtc_signaling",
+      "${chip_root}/src/credentials/tests:cert_test_vectors",
+    ]
+  }
+
   if (chip_device_platform == "linux" && chip_crypto != "mbedtls" &&
       chip_crypto != "psa" && chip_support_thread_meshcop &&
       current_cpu == host_cpu && current_os == host_os) {

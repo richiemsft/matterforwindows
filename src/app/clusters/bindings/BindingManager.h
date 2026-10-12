@@ -90,7 +90,21 @@ public:
         mPendingNotificationMap.RegisterPendingNotificationContextReleaseHandler(handler);
     }
 
+    /**
+     * Repeated initialization with identical dependencies and connection policy is a no-op.
+     * Changing them requires Shutdown() first. Initialization during dispatch is rejected.
+     */
     CHIP_ERROR Init(const ManagerInitParams & params);
+
+    /**
+     * Call on the Matter thread, before destroying an owned manager or its dependencies, and before
+     * controller shutdown can forget its fabric. Cancels only this manager's callbacks and releases
+     * pending contexts; does not erase persistent bindings or release shared CASE sessions.
+     * Handlers may call Shutdown(), but must not destroy the manager from inside a handler.
+     * Init() is rejected until the current notification/callback has returned.
+     * Process-lifetime singleton users retain explicit, rather than destructor-driven, teardown.
+     */
+    void Shutdown();
 
     /*
      * Notifies the BindingManager that a new unicast binding is created.
@@ -138,6 +152,8 @@ public:
     static Manager & GetInstance() { return sBindingManager; }
 
 private:
+    friend class ManagerTestAccess;
+
     /*
      * Used when providing OnConnection/Failure callbacks to CASESessionManager when establishing session.
      *
@@ -159,17 +175,21 @@ private:
         Callback::Callback<OnDeviceConnected> * GetOnDeviceConnected() { return &mOnConnectedCallback; }
         Callback::Callback<OnDeviceConnectionFailure> * GetOnDeviceConnectionFailure() { return &mOnConnectionFailureCallback; }
 
+        ConnectionCallback * mNext = nullptr;
+
     private:
         static void HandleDeviceConnected(void * context, Messaging::ExchangeManager & exchangeMgr,
                                           const SessionHandle & sessionHandle)
         {
             ConnectionCallback * _this = static_cast<ConnectionCallback *>(context);
+            _this->mBindingManager.RemoveConnectionCallback(_this);
             _this->mBindingManager.HandleDeviceConnected(exchangeMgr, sessionHandle);
             Platform::Delete(_this);
         }
         static void HandleDeviceConnectionFailure(void * context, const ScopedNodeId & peerId, CHIP_ERROR error)
         {
             ConnectionCallback * _this = static_cast<ConnectionCallback *>(context);
+            _this->mBindingManager.RemoveConnectionCallback(_this);
             _this->mBindingManager.HandleDeviceConnectionFailure(peerId, error);
             Platform::Delete(_this);
         }
@@ -181,6 +201,8 @@ private:
 
     void OnFabricRemoved(const chip::FabricTable & fabricTable, chip::FabricIndex fabricIndex) override
     {
+        ++mDispatchDepth;
+        auto dispatch       = ScopeExit([this] { --mDispatchDepth; });
         auto & bindingTable = GetBindingTable();
         auto iter           = bindingTable.begin();
         while (iter != bindingTable.end())
@@ -194,23 +216,30 @@ private:
                 ++iter;
             }
         }
-        FabricRemoved(fabricIndex);
+        if (mInitParams.mFabricTable != nullptr)
+        {
+            FabricRemoved(fabricIndex);
+        }
     }
 
     static Manager sBindingManager;
 
     CHIP_ERROR EstablishConnection(const ScopedNodeId & nodeId);
+    void RemoveConnectionCallback(ConnectionCallback * callback);
 
     Table mBindingTable;
     PendingNotificationMap mPendingNotificationMap{ mBindingTable };
-    BoundDeviceChangedHandler mBoundDeviceChangedHandler;
+    BoundDeviceChangedHandler mBoundDeviceChangedHandler = nullptr;
     ManagerInitParams mInitParams;
+    ConnectionCallback * mConnectionCallbacks = nullptr;
+    uint32_t mDispatchDepth                   = 0;
+    bool mShuttingDown                        = false;
 
     void HandleDeviceConnected(Messaging::ExchangeManager & exchangeMgr, const SessionHandle & sessionHandle);
     void HandleDeviceConnectionFailure(const ScopedNodeId & peerId, CHIP_ERROR error);
 
     // Used to keep track of synchronous failures from FindOrEstablishSession.
-    CHIP_ERROR mLastSessionEstablishmentError;
+    CHIP_ERROR mLastSessionEstablishmentError = CHIP_NO_ERROR;
 };
 
 } // namespace Binding

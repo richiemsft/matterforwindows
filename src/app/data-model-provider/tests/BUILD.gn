@@ -12,36 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import("//build_overrides/chip.gni")
-import("${chip_root}/build/chip/chip_test_suite.gni")
+import("${chip_root}/build/chip/tests.gni")
 
-chip_test_suite("tests") {
-  output_name = "libIMInterfaceTests"
+if (chip_build_tests) {
+  import("${chip_root}/build/chip/chip_test_suite.gni")
 
-  test_sources = [
-    "TestActionReturnStatus.cpp",
-    "TestEventEmitting.cpp",
-    "TestMetadataEntries.cpp",
-    "TestProviderListeners.cpp",
-  ]
+  chip_test_suite("tests") {
+    output_name = "libIMInterfaceTests"
 
-  cflags = [ "-Wconversion" ]
+    test_sources = [
+      "TestActionReturnStatus.cpp",
+      "TestEventEmitting.cpp",
+      "TestMetadataEntries.cpp",
+      "TestProviderListeners.cpp",
+    ]
 
-  public_deps = [
-    "${chip_root}/src/app/data-model-provider",
-    "${chip_root}/src/app/data-model-provider:string-builder-adapters",
-    "${chip_root}/src/app/server-cluster/testing",
-    "${chip_root}/src/lib/core:string-builder-adapters",
-  ]
+    cflags = [ "-Wconversion" ]
+
+    public_deps = [
+      "${chip_root}/src/app/data-model-provider",
+      "${chip_root}/src/app/data-model-provider:string-builder-adapters",
+      "${chip_root}/src/app/server-cluster/testing",
+      "${chip_root}/src/lib/core:string-builder-adapters",
+    ]
+  }
 }
 
 source_set("encode-decode") {
-  # Handles the conversions between Raw data (usually byte buffers backed by TLV encoders
-  # and `*IBs::Builder` classes) and data used by by Providers like AttributeValueEncoder
-  # or AttributeValueDecoder.
+  # Handles the conversions between Raw data (usually byte buffers backed by TLV
+  # encoders and `*IBs::Builder` classes) and data used by by Providers like
+  # AttributeValueEncoder or AttributeValueDecoder.
   #
-  # Intended to make writing tests simpler and focusing less on encoding and more on
-  # "Assume you receive an int" or "Check that the encoded value was the string 'abc'"
-  # and so on
+  # Intended to make writing tests simpler and focusing less on encoding and
+  # "Assume you receive an int" or "Check that the encoded value was the string
+  # 'abc'" and so on
   sources = [
     "ReadTesting.cpp",
     "ReadTesting.h",

@@ -63,7 +63,7 @@ CHIP_ERROR PendingNotificationMap::FindLRUConnectPeer(ScopedNodeId & nodeId)
         appearIndex++;
     }
     uint8_t lruBindingEntryIndex = 0;
-    uint16_t minLastAppearValue = UINT16_MAX;
+    uint16_t minLastAppearValue  = UINT16_MAX;
     for (uint8_t i = 0; i < Table::kMaxBindingEntries; i++)
     {
         if (lastAppear[i] < minLastAppearValue)
@@ -101,61 +101,73 @@ CHIP_ERROR PendingNotificationMap::AddPendingNotification(uint8_t bindingEntryId
 
 void PendingNotificationMap::RemoveEntry(uint8_t bindingEntryId)
 {
-    uint8_t newEntryCount = 0;
-    for (int i = 0; i < mNumEntries; i++)
+    for (uint8_t i = 0; i < mNumEntries;)
     {
         if (mPendingBindingEntries[i] != bindingEntryId)
         {
-            mPendingBindingEntries[newEntryCount] = mPendingBindingEntries[i];
-            mPendingContexts[newEntryCount]       = mPendingContexts[i];
-            newEntryCount++;
+            ++i;
         }
-        else if (mPendingContexts[i] != nullptr)
+        else
         {
-            mPendingContexts[i]->DecrementConsumersNumber();
+            RemoveAt(i);
         }
     }
-    mNumEntries = newEntryCount;
 }
 
 void PendingNotificationMap::RemoveAllEntriesForNode(const ScopedNodeId & nodeId)
 {
-    uint8_t newEntryCount = 0;
-    for (int i = 0; i < mNumEntries; i++)
+    for (uint8_t i = 0; i < mNumEntries;)
     {
         TableEntry entry = mBindingTable.GetAt(mPendingBindingEntries[i]);
         if (entry.fabricIndex != nodeId.GetFabricIndex() || entry.nodeId != nodeId.GetNodeId())
         {
-            mPendingBindingEntries[newEntryCount] = mPendingBindingEntries[i];
-            mPendingContexts[newEntryCount]       = mPendingContexts[i];
-            newEntryCount++;
+            ++i;
         }
-        else if (mPendingContexts[i] != nullptr)
+        else
         {
-            mPendingContexts[i]->DecrementConsumersNumber();
+            RemoveAt(i);
         }
     }
-    mNumEntries = newEntryCount;
 }
 
 void PendingNotificationMap::RemoveAllEntriesForFabric(FabricIndex fabric)
 {
-    uint8_t newEntryCount = 0;
-    for (int i = 0; i < mNumEntries; i++)
+    for (uint8_t i = 0; i < mNumEntries;)
     {
         TableEntry entry = mBindingTable.GetAt(mPendingBindingEntries[i]);
         if (entry.fabricIndex != fabric)
         {
-            mPendingBindingEntries[newEntryCount] = mPendingBindingEntries[i];
-            mPendingContexts[newEntryCount]       = mPendingContexts[i];
-            newEntryCount++;
+            ++i;
         }
-        else if (mPendingContexts[i] != nullptr)
+        else
         {
-            mPendingContexts[i]->DecrementConsumersNumber();
+            RemoveAt(i);
         }
     }
-    mNumEntries = newEntryCount;
+}
+
+void PendingNotificationMap::RemoveAt(uint8_t index)
+{
+    auto * context = mPendingContexts[index];
+    --mNumEntries;
+    for (uint8_t i = index; i < mNumEntries; ++i)
+    {
+        mPendingBindingEntries[i] = mPendingBindingEntries[i + 1];
+        mPendingContexts[i]       = mPendingContexts[i + 1];
+    }
+    // Publish removal before application code can reenter Clear() or another removal.
+    if (context != nullptr)
+    {
+        context->DecrementConsumersNumber();
+    }
+}
+
+void PendingNotificationMap::Clear()
+{
+    while (mNumEntries != 0)
+    {
+        RemoveAt(static_cast<uint8_t>(mNumEntries - 1));
+    }
 }
 
 } // namespace Binding

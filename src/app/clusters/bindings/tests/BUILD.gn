@@ -22,6 +22,7 @@ chip_test_suite("tests") {
 
   test_sources = [
     "TestBindingCluster.cpp",
+    "TestBindingManager.cpp",
     "TestBindingTable.cpp",
     "TestPendingNotificationMap.cpp",
   ]
@@ -31,6 +32,7 @@ chip_test_suite("tests") {
   public_deps = [
     "${chip_root}/src/app/clusters/bindings",
     "${chip_root}/src/app/server-cluster/testing",
+    "${chip_root}/src/app/server-cluster/testing:fabric-fixture",
     "${chip_root}/src/lib/core:string-builder-adapters",
     "${chip_root}/src/lib/support",
   ]

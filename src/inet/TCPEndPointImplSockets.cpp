@@ -1021,6 +1021,33 @@ void TCPEndPointImplSockets::HandlePendingIO(System::SocketEvents events)
 
     else
     {
+#if defined(_WIN32)
+        // WSAPoll may report a reset/hangup without read or write readiness.
+        if (IsConnected() && events.Has(System::SocketEventFlags::kError))
+        {
+            int socketError        = 0;
+            socklen_t optionLength = static_cast<socklen_t>(sizeof(socketError));
+            if (GetSocketOption(mSocket, SOL_SOCKET, SO_ERROR, &socketError, &optionLength) != 0)
+            {
+                socketError = WSAGetLastError();
+            }
+            if (socketError != 0)
+            {
+                DoClose(CHIP_ERROR_WINDOWS(static_cast<uint32_t>(socketError)), false);
+            }
+            else if ((mState == State::kConnected || mState == State::kSendShutdown) && mReceiveEnabled &&
+                     OnDataReceived != nullptr)
+            {
+                // Drain any remaining bytes before processing the peer's EOF.
+                ReceiveData();
+            }
+            else
+            {
+                DoClose(CHIP_ERROR_CONNECTION_CLOSED_UNEXPECTEDLY, false);
+            }
+            return;
+        }
+#endif // defined(_WIN32)
         // If in a state where sending is allowed, and there is data to be sent, and the socket is ready for
         // writing, drive outbound data into the connection.
         if (IsConnected() && !mSendQueue.IsNull() && events.Has(System::SocketEventFlags::kWrite))

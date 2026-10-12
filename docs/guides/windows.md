@@ -60,6 +60,177 @@ semantic versioning: additive changes increment the minor version and breaking
 changes require a new major version. A Matter SDK pin update requires a package
 version change and x64/ARM64 component and sample validation.
 
+## Camera signaling build components
+
+Native camera signaling components can be compiled independently of the
+upstream Python WebRTC example and its libdatachannel media receiver. Add
+`chip_build_webrtc_signaling=true` to the GN arguments for a Windows controller
+build, leaving `chip_support_webrtc_python_bindings=false`. Both x64 and ARM64
+use the same switch. The default is `false`, preserving the controller-only
+build.
+
+The native Python-controller packaging script also accepts the opt-in switch:
+
+```powershell
+.\scripts\tools\windows_python_controller.ps1 -Architecture x64 -BuildCameraSignaling
+```
+
+This compiles the native components and component-test executable; it does not
+add Python camera-session APIs or run the tests automatically.
+
+The controller then depends on
+`//src/controller/webrtc:chip_webrtc_signaling`, which supplies the WebRTC
+Transport Requestor server, typed WebRTC Transport Provider commands through
+the existing native controller interactions, an owned code-driven requestor
+endpoint, and generated Descriptor and Camera AV Stream Management definitions.
+It does not include `WebRTCClient`, `WebRTCTransportRequestorManager`, the
+example access-control delegate, Python callbacks, or libdatachannel.
+
+Native consumers can include `controller/CHIPControllerBuildConfig.h` and
+inspect `CHIP_CONTROLLER_BUILD_WEBRTC_SIGNALING` (`0` or `1`). This indicates
+compiled components only, not an initialized camera endpoint or available
+video playback. The private SDK archive's consumers must use generated
+headers from the same build as the archive.
+
+These components use the shared generated camera cluster contracts, Interaction
+Model command sender, CASE/TCP transport, Descriptor cluster, and code-driven
+endpoint provider. They do not define a Windows-specific signaling protocol.
+The owned requestor adds bounded queues, peer/fabric authorization, early-answer
+correlation, and explicit lifecycle handling; its initial scope is client-offer
+LiveView, not every flow supported by the upstream Python WebRTC harness.
+
+`camera signaling-check` is an optional native diagnostic, not a replacement for
+the upstream `src/python_testing/TC_WEBRTC_*.py` camera tests. Those tests also
+exercise stream allocation, ICE exchange, actual WebRTC connection establishment,
+and, where applicable, video reception using libdatachannel or a browser. Building
+the Windows signaling components alone does not make that Python harness or media
+backend available.
+
+The signaling regression tests live in
+`src/controller/tests/TestCameraSignaling.cpp` and
+`src/controller/tests/TestCameraTransport.cpp` and are also included in the
+ordinary controller test suite when `chip_build_webrtc_signaling=true`. The
+Windows test executable compiles those same sources rather than a separate
+Windows-only camera test implementation.
+
+The transport tests use real IPv4/IPv6 TCP sockets. Most use encrypted sessions
+with injected test keys; `CameraCaseTransportTests` performs the shared CASE
+handshake with upstream operational test certificates and derived session keys.
+The CASE tests cover large offer/answer commands, peer-reset cleanup, and
+rejection of a mismatched identity-protection key. Windows platform state for
+these tests uses a temporary, isolated storage directory, not controller storage.
+Together the transport tests cover 16 KiB SDP, large ICE batches in both directions,
+100 offer/answer/end cycles, oversized and stale commands, cancellation, and
+prompt exchange cleanup after a peer reset. Shared `CommandSender` reports
+session loss through its timeout callback even when the command timer has not
+expired. These tests do not exercise commissioning, stream allocation,
+real-camera interoperability, or decoded video.
+
+With the switch enabled, build and run the Windows signaling-component tests:
+
+```powershell
+ninja -C out\win-apps-x64 msvc-webrtc-signaling-tests
+.\out\win-apps-x64\msvc-webrtc-signaling-tests.exe
+```
+
+The shared Binding manager's owned-lifecycle regression tests also have a native
+Windows target:
+
+```powershell
+ninja -C out\win-apps-x64 msvc-binding-lifecycle-tests
+.\out\win-apps-x64\msvc-binding-lifecycle-tests.exe
+```
+
+Use the existing [Binding cluster](../../src/app/clusters/bindings/README.md#owned-manager-lifecycle)
+for hosted endpoints that require it, rather than a Windows-specific Binding
+implementation. An owned manager must detach before controller/factory teardown.
+
+`CameraRequestorEndpoint` registers requestor and Descriptor clusters together
+with endpoint metadata, including its WebRTC Transport Provider client cluster,
+in a `CodeDrivenDataModelProvider`. Use
+`FindAvailableEndpoint` rather than assuming endpoint 1 is free. Supply
+device-type metadata appropriate to the selected Matter revision. The provider,
+fabric table, system layer, and metadata spans must outlive the owned endpoint;
+unregister it before shutting down its provider.
+
+The overload accepting an initialized `Binding::Manager` and platform manager
+also registers the SDK's existing Binding cluster transactionally. Its borrowed
+manager must outlive the endpoint and detach before controller teardown forgets
+the fabric. `CameraRequestorEndpoint::CheckAccess` authorizes active CASE peers
+to read Descriptor/Binding metadata and invoke supported signaling commands;
+it does not grant Binding writes or administration. The original two-cluster
+constructor remains available for signaling-only diagnostics.
+
+`CameraSignalingCluster` supports client-generated offers. Create a local session
+before sending `ProvideOffer`; early Answer and ICE commands are correlated and
+copied into owned payloads. `CameraProviderClient` sends typed offers, candidates,
+and end commands, and validates provider response stream identities. Establish
+CASE using `TransportPayloadCapability::kLargePayload` before supplying a
+session to this client: UDP-only, PASE, and mismatched peers/fabrics are rejected.
+Command inputs are encoded synchronously; command results and inbound signals
+are polled independently using `TakeResult` and `TakeSignal`.
+The `SendOffer` overload accepting ICE servers encodes caller-supplied STUN/TURN
+configuration synchronously, preserving optional username, credential and CAID.
+Limits are four servers, four URLs per server, 512 bytes per URI and 256 bytes
+per username or credential. Empty optional credentials remain present; absent
+fields stay absent. The original overload omits ICE servers. Callers configure
+their receiver with matching servers and must not log credentials or URLs.
+Signals preserve protocol-identity presence using `std::optional<uint16_t>`:
+an unbound failure has no identifier, and a bound identifier of zero stays zero.
+
+Stack-facing operations, cancellation, and destruction require the Matter stack
+lock. The two polling methods are thread-safe and do not invoke application
+callbacks. An initialized application access-control policy remains required.
+For the owned requestor path only, that policy can delegate to `CheckAccess`,
+which permits authorized CASE peers with active local sessions and rejects
+unrelated paths and privileges. It does not replace existing ACL policy.
+
+The runtime bounds concurrent sessions to 8, queued signaling messages to 32,
+SDP to 16 KiB, and candidates to 16 per message. Negotiation and provider-command
+timeouts are 30 seconds. Queue overflow, timeout, fabric removal, and shutdown
+produce observable failures. Closing a session immediately reclaims queued
+payload capacity. Retired protocol identities are not reused at the same
+requestor endpoint: after 128 distinct identities, or cancellation before a
+protocol identity is known, create a fresh requestor endpoint rather than
+accepting ambiguous late callbacks. A client must be destroyed before its
+requestor, and a command result must be consumed before starting another command.
+`GetSessionInfoForEnd` exposes retained failed-session metadata only for remote
+cleanup; it does not restore inbound authorization. `SendEnd` can use a known
+authenticated early protocol identity even if the offer response did not arrive.
+Unknown or contradictory identities must not be guessed. Cancellation queues a
+command result, which must also be consumed before a cleanup command.
+
+These are native integration primitives, not a supported live-camera
+implementation. Applications must still wire the endpoint into their active
+controller, explicitly select/allocate and deallocate camera streams, attempt
+bounded remote cleanup on cancellation, and provide a receiver.
+The example requestor manager is not a production authorization or endpoint
+registration policy. WinRT camera APIs and receiver integration belong in
+[`dotMorten/matter.winrt`](https://github.com/dotMorten/matter.winrt), not this
+repository.
+
+The native SDK and WinRT SDK are separate projects: `chip-tool` must not depend
+on WinRT, and WinRT projections, packaging, and receiver UI stay in the WinRT
+repository. Use independent sibling checkouts and an explicit `-MatterSdkRoot`
+when building the WinRT component against a working native SDK.
+
+NativeAOT consumption, live large-payload signaling, actual camera
+interoperability, and playback are not validated by compiling these components
+or running the native lifecycle and descriptor-chunking tests. No media backend
+or recording is enabled by this switch.
+
+With this flag, `chip-tool` also exposes the native-only `camera signaling-check`
+diagnostic. It selects an owned native code-driven provider and allocates an
+available requestor endpoint only for this standalone command, leaving other
+commands' providers unchanged. It enables authenticated incoming CASE/TCP and
+verifies the provider
+response and Answer, then attempts bounded remote End; it is not a media player
+or a complete Camera Controller product endpoint. See the
+[chip-tool camera diagnostic](../../examples/chip-tool/README.md#native-camera-signaling-diagnostic)
+for stream ownership, port selection, optional sensitive transcripts, and
+real-device prerequisites. Default builds and interactive sessions retain their
+existing behavior.
+
 ## Preview support matrix
 
 The preview support contract is intentionally narrow. A configuration is

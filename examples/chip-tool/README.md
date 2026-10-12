@@ -5,6 +5,7 @@ An example application that uses Matter to send messages to a Matter server.
 ---
 
 -   [Building the Example Application](#building-the-example-application)
+-   [Native camera signaling diagnostic](#native-camera-signaling-diagnostic)
 -   [Using the Client to Commission a Device](#using-the-client-to-commission-a-device)
 
 ---
@@ -45,6 +46,62 @@ For example:
 ```
 out/with_trace/chip-tool pairing <pairing_args> --trace_file trace.log
 ```
+
+## Native camera signaling diagnostic
+
+Build with `chip_build_webrtc_signaling=true` to enable the optional native-only
+`camera signaling-check` command. It has no WinRT, Python, libdatachannel, or
+video decoder dependency; default builds do not include it.
+
+For Windows, activate `scripts\setup\windows.ps1 -Architecture x64`, generate a
+Windows chip-tool build with the above flag, and build the `chip-tool` target.
+See [the Windows build guide](../../docs/guides/windows.md) for the native GN
+configuration.
+
+Use a commissioned camera, its Camera AV Stream Management/WebRTC Provider
+endpoint, an already allocated LiveView video stream, and a valid SDP offer from
+an external media engine:
+
+```powershell
+.\out\win-chip-tool-camera-x64\chip-tool.exe camera signaling-check `
+    1234 1 0 C:\camera-test\offer.sdp --timeout 20 `
+    --storage-directory C:\camera-test\controller-storage `
+    --signals-file C:\camera-test\new-signals.jsonl
+```
+
+The command selects an owned native code-driven data model only for this
+standalone diagnostic and allocates an available requestor endpoint, publishing
+Descriptor and signaling handlers together. Normal commands keep their existing
+code-generated controller model. The diagnostic enables incoming CASE/TCP,
+requests a large-payload CASE session, and binds
+inbound authorization to the selected peer and fabric. It refuses to replace an
+existing ACL or run inside interactive mode. This diagnostic does not advertise
+a complete Camera Controller device type or install Binding/product clusters;
+its Descriptor reports the test-vendor-specific diagnostic type `0xFFF10001`,
+revision 1.
+UDP/TCP share the configured nonzero listen port, or 5540 by default, so DNS-SD
+advertises the actual incoming transport port. Use `--listen-port` to select a
+different available port; a collision is an explicit startup failure.
+
+Success requires both ProvideOfferResponse and an authenticated Answer, followed
+by a successful remote EndSession. Connection/negotiation takes at most the
+selected 1-25 seconds (20 by default); remote cleanup has a separate 30-second
+budget. Failure never invents a protocol session ID. Local callbacks, command
+senders, timers, and the temporary cluster are released before controller
+shutdown. Caller-owned streams are not allocated or deallocated by the command.
+
+Normal logs show signaling status and payload lengths, not SDP. The optional
+JSONL transcript records inbound answer, candidate, End, and failure signals,
+preserving null versus zero protocol IDs and ICE fields. Its destination must
+not already exist. At most 32 signals are buffered; overflow fails the check
+explicitly. File I/O runs after the event loop stops, not on the Matter task.
+Treat it as sensitive: SDP and ICE contain credentials and
+network addresses. Protocol tracing can also contain signaling payloads.
+
+This is a signaling diagnostic, **not a video player or an ICE connectivity
+test**. It ends immediately after negotiation; trickled local candidates and
+media decoding belong to an external receiver. Live-camera acceptance still
+requires a real camera or interoperable simulator.
 
 ## Using the Client to commission a device
 

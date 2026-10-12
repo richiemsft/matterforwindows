@@ -180,6 +180,10 @@ public:
     void SetPersistentStorage(PersistentStorageDelegate * storage) { mStorage = storage; }
 
     CHIP_ERROR LoadFromStorage();
+    CHIP_ERROR LoadFromStorage(bool & storagePresent);
+
+    // Clears only the in-memory entries; persistent bindings and the storage delegate are unchanged.
+    void ClearInMemory();
     // prefer to use binding manager instead
     static Table & GetInstance();
 
@@ -214,7 +218,7 @@ private:
     uint8_t mTail = kNextNullIndex;
     uint8_t mSize = 0;
 
-    PersistentStorageDelegate * mStorage;
+    PersistentStorageDelegate * mStorage = nullptr;
 };
 
 } // namespace Binding

@@ -32,6 +32,7 @@
 #include <app/icd/client/DefaultICDClientStorage.h>
 #include <commands/common/CredentialIssuerCommands.h>
 #include <commands/example/ExampleCredentialIssuerCommands.h>
+#include <controller/CHIPDeviceControllerFactory.h>
 #include <credentials/GroupDataProviderImpl.h>
 #include <credentials/PersistentStorageOpCertStore.h>
 #include <crypto/PersistentStorageOperationalKeystore.h>
@@ -154,6 +155,9 @@ protected:
     // CASE sessions.
     virtual bool NeedsOperationalAdvertising() { return mAdvertiseOperational; }
 
+    virtual CHIP_ERROR ConfigureFactory(chip::Controller::FactoryInitParams &) { return CHIP_NO_ERROR; }
+    void MaybeTearDownStack();
+
     // Execute any deferred cleanups.  Used when exiting interactive mode.
     static void ExecuteDeferredCleanups(intptr_t ignored);
 
@@ -189,7 +193,6 @@ protected:
 
 private:
     CHIP_ERROR MaybeSetUpStack();
-    void MaybeTearDownStack();
 
     CHIP_ERROR EnsureCommissionerForIdentity(std::string identity);
 

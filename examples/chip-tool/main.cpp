@@ -31,7 +31,12 @@
 #include "commands/session-management/Commands.h"
 #include "commands/storage/Commands.h"
 
+#include <controller/CHIPControllerBuildConfig.h>
 #include <zap-generated/cluster/Commands.h>
+
+#if CHIP_CONTROLLER_BUILD_WEBRTC_SIGNALING
+#include "commands/camera/CameraSignalingCommand.h"
+#endif
 
 // ================================================================================
 // Main Code
@@ -52,6 +57,11 @@ int main(int argc, char * argv[])
     registerCommandsSubscriptions(commands, &credIssuerCommands);
     registerCommandsStorage(commands);
     registerCommandsSessionManagement(commands, &credIssuerCommands);
+
+#if CHIP_CONTROLLER_BUILD_WEBRTC_SIGNALING
+    commands_list cameraCommands = { make_unique<CameraSignalingCommand>(&credIssuerCommands) };
+    commands.RegisterCommandSet("camera", cameraCommands, "Native camera signaling diagnostics (no media receiver).");
+#endif
 
     return commands.Run(argc, argv);
 }

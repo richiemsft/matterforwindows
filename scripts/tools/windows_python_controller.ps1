@@ -21,7 +21,9 @@ param(
 
     [string] $InstallVirtualEnv,
 
-    [switch] $BuildTestApp
+    [switch] $BuildTestApp,
+
+    [switch] $BuildCameraSignaling
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +54,9 @@ $gnArguments = @(
     'matter_enable_tracing_support=true'
     'is_debug=false'
 )
+if ($BuildCameraSignaling) {
+    $gnArguments += 'chip_build_webrtc_signaling=true'
+}
 if (Get-Command sccache.exe -ErrorAction SilentlyContinue) {
     $gnArguments += 'cc_wrapper="sccache"'
 }
@@ -82,6 +87,9 @@ $targets = @(
 )
 if ($BuildTestApp) {
     $targets += "all-devices-app"
+}
+if ($BuildCameraSignaling) {
+    $targets += "msvc-webrtc-signaling-tests"
 }
 & ninja -C $OutputRoot @targets
 if ($LASTEXITCODE -ne 0) {

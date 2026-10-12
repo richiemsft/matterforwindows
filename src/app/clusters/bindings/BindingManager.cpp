@@ -35,39 +35,59 @@ CHIP_ERROR Manager::UnicastBindingCreated(uint8_t fabricIndex, NodeId nodeId)
 
 CHIP_ERROR Manager::UnicastBindingRemoved(uint8_t bindingEntryId)
 {
+    VerifyOrReturnError(mInitParams.mFabricTable != nullptr, CHIP_ERROR_INCORRECT_STATE);
+    ++mDispatchDepth;
+    auto dispatch = ScopeExit([this] { --mDispatchDepth; });
     mPendingNotificationMap.RemoveEntry(bindingEntryId);
     return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR Manager::Init(const ManagerInitParams & params)
 {
+    VerifyOrReturnError(!mShuttingDown && mDispatchDepth == 0, CHIP_ERROR_INCORRECT_STATE);
     VerifyOrReturnError(params.mCASESessionManager != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(params.mFabricTable != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(params.mStorage != nullptr, CHIP_ERROR_INVALID_ARGUMENT);
-    mInitParams = params;
+    if (mInitParams.mFabricTable != nullptr)
+    {
+        // Preserve repeated singleton initialization without reloading live bindings or duplicating callbacks.
+        VerifyOrReturnError(params.mFabricTable == mInitParams.mFabricTable &&
+                                params.mCASESessionManager == mInitParams.mCASESessionManager &&
+                                params.mStorage == mInitParams.mStorage &&
+                                params.mEstablishConnectionOnInit == mInitParams.mEstablishConnectionOnInit,
+                            CHIP_ERROR_INCORRECT_STATE);
+        return CHIP_NO_ERROR;
+    }
     mBindingTable.SetPersistentStorage(params.mStorage);
-    TEMPORARY_RETURN_IGNORED params.mFabricTable->AddFabricDelegate(this);
 
-    CHIP_ERROR error = mBindingTable.LoadFromStorage();
+    bool storagePresent;
+    CHIP_ERROR error = mBindingTable.LoadFromStorage(storagePresent);
+    if (error == CHIP_ERROR_PERSISTED_STORAGE_VALUE_NOT_FOUND && !storagePresent)
+    {
+        error = CHIP_NO_ERROR;
+    }
+    if (error == CHIP_NO_ERROR)
+    {
+        error = params.mFabricTable->AddFabricDelegate(this);
+    }
     if (error != CHIP_NO_ERROR)
     {
-        // This can happen during first boot of the device.
-        ChipLogProgress(AppServer, "Cannot load binding table: %" CHIP_ERROR_FORMAT, error.Format());
+        ChipLogError(AppServer, "Cannot initialize binding manager: %" CHIP_ERROR_FORMAT, error.Format());
+        mBindingTable.ClearInMemory();
+        mBindingTable.SetPersistentStorage(nullptr);
+        return error;
     }
-    else
+    mInitParams = params;
+    if (params.mEstablishConnectionOnInit)
     {
-        // In case the application does not want the BindingManager to establish a CASE session
-        // to the available bindings, it can be disabled by setting mEstablishConnectionOnInit
-        // to false.
-        if (params.mEstablishConnectionOnInit)
+        for (const TableEntry & entry : mBindingTable)
         {
-            for (const TableEntry & entry : mBindingTable)
+            if (entry.type == MATTER_UNICAST_BINDING)
             {
-                if (entry.type == MATTER_UNICAST_BINDING)
+                error = UnicastBindingCreated(entry.fabricIndex, entry.nodeId);
+                if (error != CHIP_NO_ERROR)
                 {
-                    // The CASE connection can also fail if the unicast peer is offline.
-                    // There is recovery mechanism to retry connection on-demand so ignore error.
-                    (void) UnicastBindingCreated(entry.fabricIndex, entry.nodeId);
+                    ChipLogError(AppServer, "Binding session will retry on demand: %" CHIP_ERROR_FORMAT, error.Format());
                 }
             }
         }
@@ -75,16 +95,55 @@ CHIP_ERROR Manager::Init(const ManagerInitParams & params)
     return CHIP_NO_ERROR;
 }
 
+void Manager::RemoveConnectionCallback(ConnectionCallback * callback)
+{
+    auto ** link = &mConnectionCallbacks;
+    while (*link != nullptr && *link != callback)
+    {
+        link = &(*link)->mNext;
+    }
+    VerifyOrDie(*link == callback);
+    *link           = callback->mNext;
+    callback->mNext = nullptr;
+}
+
+void Manager::Shutdown()
+{
+    VerifyOrReturn(!mShuttingDown);
+    mShuttingDown = true;
+    if (mInitParams.mFabricTable != nullptr)
+    {
+        mInitParams.mFabricTable->RemoveFabricDelegate(this);
+    }
+    mInitParams = {};
+    while (mConnectionCallbacks != nullptr)
+    {
+        auto * callback = mConnectionCallbacks;
+        RemoveConnectionCallback(callback);
+        Platform::Delete(callback);
+    }
+    mPendingNotificationMap.Clear();
+    mBindingTable.ClearInMemory();
+    mBindingTable.SetPersistentStorage(nullptr);
+    mLastSessionEstablishmentError = CHIP_NO_ERROR;
+    mShuttingDown                  = false;
+}
+
 CHIP_ERROR Manager::EstablishConnection(const ScopedNodeId & nodeId)
 {
     VerifyOrReturnError(mInitParams.mCASESessionManager != nullptr, CHIP_ERROR_INCORRECT_STATE);
+    ++mDispatchDepth;
+    auto dispatch = ScopeExit([this] { --mDispatchDepth; });
 
     mLastSessionEstablishmentError = CHIP_NO_ERROR;
     auto * connectionCallback      = Platform::New<ConnectionCallback>(*this);
     VerifyOrReturnError(connectionCallback != nullptr, CHIP_ERROR_NO_MEMORY);
+    connectionCallback->mNext = mConnectionCallbacks;
+    mConnectionCallbacks      = connectionCallback;
 
     mInitParams.mCASESessionManager->FindOrEstablishSession(nodeId, connectionCallback->GetOnDeviceConnected(),
                                                             connectionCallback->GetOnDeviceConnectionFailure());
+    VerifyOrReturnError(mInitParams.mCASESessionManager != nullptr, CHIP_ERROR_INCORRECT_STATE);
     if (mLastSessionEstablishmentError == CHIP_ERROR_NO_MEMORY)
     {
         // Release the least recently used entry
@@ -92,11 +151,15 @@ CHIP_ERROR Manager::EstablishConnection(const ScopedNodeId & nodeId)
         if (mPendingNotificationMap.FindLRUConnectPeer(peerToRemove) == CHIP_NO_ERROR)
         {
             mPendingNotificationMap.RemoveAllEntriesForNode(peerToRemove);
+            VerifyOrReturnError(mInitParams.mCASESessionManager != nullptr, CHIP_ERROR_INCORRECT_STATE);
 
             // Now retry
             mLastSessionEstablishmentError = CHIP_NO_ERROR;
             // At this point connectionCallback is null since it deletes itself when the callback is called.
             connectionCallback = Platform::New<ConnectionCallback>(*this);
+            VerifyOrReturnError(connectionCallback != nullptr, CHIP_ERROR_NO_MEMORY);
+            connectionCallback->mNext = mConnectionCallbacks;
+            mConnectionCallbacks      = connectionCallback;
             mInitParams.mCASESessionManager->FindOrEstablishSession(nodeId, connectionCallback->GetOnDeviceConnected(),
                                                                     connectionCallback->GetOnDeviceConnectionFailure());
         }
@@ -106,6 +169,8 @@ CHIP_ERROR Manager::EstablishConnection(const ScopedNodeId & nodeId)
 
 void Manager::HandleDeviceConnected(Messaging::ExchangeManager & exchangeMgr, const SessionHandle & sessionHandle)
 {
+    ++mDispatchDepth;
+    auto dispatch              = ScopeExit([this] { --mDispatchDepth; });
     FabricIndex fabricToRemove = kUndefinedFabricIndex;
     NodeId nodeToRemove        = kUndefinedNodeId;
 
@@ -121,6 +186,7 @@ void Manager::HandleDeviceConnected(Messaging::ExchangeManager & exchangeMgr, co
             nodeToRemove   = entry.nodeId;
             OperationalDeviceProxy device(&exchangeMgr, sessionHandle);
             mBoundDeviceChangedHandler(entry, &device, pendingNotification.mContext->GetContext());
+            VerifyOrReturn(mInitParams.mFabricTable != nullptr);
         }
     }
 
@@ -141,8 +207,11 @@ void Manager::HandleDeviceConnectionFailure(const ScopedNodeId & peerId, CHIP_ER
 void Manager::FabricRemoved(FabricIndex fabricIndex)
 {
     VerifyOrDie(mInitParams.mCASESessionManager != nullptr);
+    ++mDispatchDepth;
+    auto dispatch = ScopeExit([this] { --mDispatchDepth; });
 
     mPendingNotificationMap.RemoveAllEntriesForFabric(fabricIndex);
+    VerifyOrReturn(mInitParams.mCASESessionManager != nullptr);
 
     // TODO(#18436): NOC cluster should handle fabric removal without needing binding manager
     //               to execute such a release. Currently not done because paths were not tested.
@@ -153,6 +222,8 @@ CHIP_ERROR Manager::NotifyBoundClusterChanged(EndpointId endpoint, ClusterId clu
 {
     VerifyOrReturnError(mInitParams.mFabricTable != nullptr, CHIP_ERROR_INCORRECT_STATE);
     VerifyOrReturnError(mBoundDeviceChangedHandler != nullptr, CHIP_ERROR_HANDLER_NOT_SET);
+    ++mDispatchDepth;
+    auto dispatch = ScopeExit([this] { --mDispatchDepth; });
 
     CHIP_ERROR error      = CHIP_NO_ERROR;
     auto * bindingContext = mPendingNotificationMap.NewPendingNotificationContext(context);
@@ -168,13 +239,21 @@ CHIP_ERROR Manager::NotifyBoundClusterChanged(EndpointId endpoint, ClusterId clu
             {
                 error = mPendingNotificationMap.AddPendingNotification(iter.GetIndex(), bindingContext);
                 SuccessOrExit(error);
+                if (mInitParams.mFabricTable == nullptr)
+                {
+                    mPendingNotificationMap.Clear();
+                    error = CHIP_ERROR_INCORRECT_STATE;
+                    goto exit;
+                }
                 error = EstablishConnection(ScopedNodeId(iter->nodeId, iter->fabricIndex));
                 SuccessOrExit(error);
             }
             else if (iter->type == MATTER_MULTICAST_BINDING)
             {
-                mBoundDeviceChangedHandler(*iter, nullptr, bindingContext->GetContext());
+                TableEntry entry = *iter;
+                mBoundDeviceChangedHandler(entry, nullptr, bindingContext->GetContext());
             }
+            VerifyOrExit(mInitParams.mFabricTable != nullptr, error = CHIP_ERROR_INCORRECT_STATE);
         }
     }
 
@@ -186,6 +265,7 @@ exit:
 
 CHIP_ERROR Manager::AddBindingEntry(const Binding::TableEntry & entry)
 {
+    VerifyOrReturnError(mInitParams.mFabricTable != nullptr, CHIP_ERROR_INCORRECT_STATE);
     CHIP_ERROR err = mBindingTable.Add(entry);
     if (err == CHIP_ERROR_NO_MEMORY)
     {

@@ -14,6 +14,67 @@
 
 assert(current_os == "win")
 
+import("//build/chip/tools.gni")
+import("//src/controller/flags.gni")
+
+if (chip_build_webrtc_signaling) {
+  executable("msvc-binding-lifecycle-tests") {
+    sources = [
+      "../../../../src/app/clusters/bindings/tests/TestBindingManager.cpp",
+      "msvc_system_inet_test_main.cpp",
+    ]
+    output_dir = root_out_dir
+    configs += [
+      ":pw-unit-test-override",
+      "//build/config/win:upstream_sdk_warnings",
+    ]
+    deps = [
+      "//build/config/win/googletest",
+      "//src/app/clusters/bindings:binding-manager",
+      "//src/app/server-cluster/testing:fabric-fixture",
+      "//src/platform/logging:headers",
+    ]
+  }
+
+  if (chip_build_tools) {
+    executable("msvc-camera-command-tests") {
+      sources = [
+        "msvc_camera_command_tests.cpp",
+        "msvc_system_inet_test_main.cpp",
+      ]
+      output_dir = root_out_dir
+      deps = [
+        "//build/config/win/googletest",
+        "//examples/chip-tool:chip-tool-utils",
+        "//src/platform/logging:headers",
+      ]
+    }
+  }
+
+  executable("msvc-webrtc-signaling-tests") {
+    sources = [
+      "../../../../src/controller/tests/TestCameraSignaling.cpp",
+      "../../../../src/controller/tests/TestCameraTransport.cpp",
+      "msvc_system_inet_test_main.cpp",
+    ]
+    output_dir = root_out_dir
+    configs += [
+      ":pw-unit-test-override",
+      "//build/config/win:upstream_sdk_warnings",
+    ]
+    deps = [
+      "//build/config/win/googletest",
+      "//src/app/persistence:default",
+      "//src/app/server-cluster/testing:fabric-fixture",
+      "//src/controller:controller_buildconfig",
+      "//src/controller/webrtc:chip_webrtc_signaling",
+      "//src/credentials/windows:windows-operational-cert-test-vectors",
+      "//src/platform/logging:headers",
+      "//src/transport",
+    ]
+  }
+}
+
 executable("msvc-toolchain-smoke") {
   sources = [ "msvc_toolchain_smoke.cpp" ]
   output_dir = root_out_dir
@@ -242,10 +303,11 @@ executable("msvc-windows-controller-discovery") {
   sources = [ "msvc_windows_controller_discovery.cpp" ]
   output_dir = root_out_dir
   deps = [
-    "//src/lib/dnssd:dnssd",
+    "//src/lib/dnssd",
     "//src/platform",
     "//src/platform/logging:default",
   ]
+
   # msvc_windows_controller_discovery.cpp includes upstream lib/dnssd headers
   # (e.g. Advertiser.h) that are not /W4 /WX clean under MSVC; see
   # //build/config/win:upstream_sdk_warnings.
@@ -309,21 +371,15 @@ source_set("msvc-windows-all-clusters-delegates") {
     "../../../../examples/all-clusters-app/all-clusters-common/src/tls-certificate-management-instance.cpp",
     "../../../../examples/all-clusters-app/all-clusters-common/src/tls-client-management-instance.cpp",
   ]
-  include_dirs = [
-    "//examples/all-clusters-app/all-clusters-common/include",
-  ]
-  deps = [
-    "//examples/all-clusters-app/all-clusters-common",
-  ]
+  include_dirs = [ "//examples/all-clusters-app/all-clusters-common/include" ]
+  deps = [ "//examples/all-clusters-app/all-clusters-common" ]
   configs += [ "//build/config/win:upstream_sdk_warnings" ]
 }
 
 executable("msvc-windows-all-clusters") {
   sources = [ "msvc_windows_all_clusters.cpp" ]
   output_dir = root_out_dir
-  include_dirs = [
-    "//examples/all-clusters-app/all-clusters-common/include",
-  ]
+  include_dirs = [ "//examples/all-clusters-app/all-clusters-common/include" ]
   deps = [
     ":msvc-windows-all-clusters-delegates",
     "//examples/all-clusters-app/all-clusters-common",

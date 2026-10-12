@@ -18,6 +18,7 @@ import("//build_overrides/chip.gni")
 import("//build_overrides/mbedtls.gni")
 import("//build_overrides/pigweed.gni")
 import("${chip_root}/src/app/icd/icd.gni")
+import("${chip_root}/src/controller/flags.gni")
 
 import("//build/chip/tools.gni")
 import("//src/lwip/lwip.gni")
@@ -141,9 +142,9 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-transport-tests",
         "//src/app",
         "//src/app:interaction-model",
+        "//src/controller",
         "//src/credentials",
         "//src/crypto",
-        "//src/controller",
         "//src/inet",
         "//src/messaging",
         "//src/messaging:configurations",
@@ -165,18 +166,18 @@ if (chip_build_windows_bootstrap_only) {
         "//build/config/win/tests:msvc-canonical-platform-smoke",
         "//build/config/win/tests:msvc-key-value-store-smoke",
         "//build/config/win/tests:msvc-platform-manager-smoke",
+        "//build/config/win/tests:msvc-windows-ble-smoke",
         "//build/config/win/tests:msvc-windows-configuration-manager-smoke",
         "//build/config/win/tests:msvc-windows-configuration-smoke",
         "//build/config/win/tests:msvc-windows-connectivity-smoke",
-        "//build/config/win/tests:msvc-windows-ble-smoke",
         "//build/config/win/tests:msvc-windows-controller",
-        "//build/config/win/tests:msvc-windows-dnssd-smoke",
-        "//build/config/win/tests:msvc-windows-dnssd-discovery",
         "//build/config/win/tests:msvc-windows-controller-discovery",
+        "//build/config/win/tests:msvc-windows-dnssd-discovery",
+        "//build/config/win/tests:msvc-windows-dnssd-smoke",
+        "//src/platform/Windows:windows-ble",
         "//src/platform/Windows:windows-configuration",
         "//src/platform/Windows:windows-configuration-manager",
         "//src/platform/Windows:windows-connectivity-manager",
-        "//src/platform/Windows:windows-ble",
         "//src/platform/Windows:windows-device-layer",
         "//src/platform/Windows:windows-diagnostic-data-provider",
         "//src/platform/Windows:windows-dnssd",
@@ -188,6 +189,13 @@ if (chip_build_windows_bootstrap_only) {
 
     if (chip_windows_build_python_controller) {
       deps += [ "//src/controller/python:ChipDeviceCtrl" ]
+    }
+
+    if (chip_build_webrtc_signaling) {
+      deps += [
+        "//build/config/win/tests:msvc-webrtc-signaling-tests",
+        "//src/controller",
+      ]
     }
 
     if (chip_windows_build_chip_tool) {
