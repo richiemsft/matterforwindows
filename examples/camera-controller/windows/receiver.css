@@ -1,0 +1,3 @@
+body { margin: 0; background: #161616; color: white; font-family: sans-serif; }
+video { width: 100%; height: calc(100vh - 4rem); object-fit: contain; }
+p { margin: 1rem; }

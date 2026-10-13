@@ -178,6 +178,20 @@ their receiver with matching servers and must not log credentials or URLs.
 Signals preserve protocol-identity presence using `std::optional<uint16_t>`:
 an unbound failure has no identifier, and a bound identifier of zero stays zero.
 
+For new sessions, select each media type with
+`CameraSignalingCluster::StreamSelection`: `Absent()` omits its offer field,
+`AutoSelect()` sends present protocol null, and `ExplicitId(id)` sends a
+nonreserved numeric stream ID (zero is valid). At least one media type must be
+selected. The original `Nullable<uint16_t>` overload remains source compatible:
+its video ID must be non-null and its null audio ID still means automatic
+selection, **not** no audio. Video-only callers use the tagged overload with
+audio `Absent()`. Requested selections remain in `SessionInfo` independently
+of resolved transport metadata; returned automatic IDs are preserved, mismatched
+explicit IDs and unexpected numeric IDs for absent media are rejected.
+The current offer path uses the generated singular-ID fields and never mixes
+them with newer stream arrays. This is not support for arbitrary future cluster
+revisions, stream-array negotiation, audio allocation, listening, or talkback.
+
 Stack-facing operations, cancellation, and destruction require the Matter stack
 lock. The two polling methods are thread-safe and do not invoke application
 callbacks. An initialized application access-control policy remains required.
@@ -422,6 +436,24 @@ Start the WebSocket command server used by the Python YAML adapter:
 
 HTTPS requests, including Distributed Compliance Ledger commands, use WinHTTP
 and the Windows certificate and hostname validation APIs.
+
+## Build the native camera controller
+
+The optional camera-controller example combines native commissioning, endpoint
+and capability discovery, owned H.264 stream allocation, authenticated CASE/TCP
+SDP/ICE signaling, and a native C++ WebView2 receiver:
+
+```powershell
+.\scripts\tools\windows_camera_controller.ps1 `
+    -Architecture x64 -RunTests -RunMediaSelfTest
+```
+
+It does not depend on the separate `dotMorten/matter.winrt` repository. Ordinary
+Windows builds leave `chip_windows_build_camera_controller` disabled and do not
+require WebView2. See the
+[Windows camera-controller guide](../../examples/camera-controller/windows/README.md)
+for prerequisites, commissioning/live-view commands, cleanup behavior, media
+limitations, and remaining physical-camera acceptance.
 
 ## Build the Python controller
 

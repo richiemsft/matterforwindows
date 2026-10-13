@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; media-src blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Matter native camera</title>
+  <link rel="stylesheet" href="receiver.css">
+</head>
+<body>
+  <video id="video" autoplay muted playsinline></video>
+  <p id="status">Initializing receive-only H.264 media engine...</p>
+  <script src="receiver.js"></script>
+</body>
+</html>

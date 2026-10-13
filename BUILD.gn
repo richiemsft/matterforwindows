@@ -62,6 +62,10 @@ if (chip_build_windows_bootstrap_only) {
     # in the application layer are removed.
     chip_windows_build_chip_tool = false
 
+    # Optional native camera live-view application; WinRT remains a separate
+    # SDK.
+    chip_windows_build_camera_controller = false
+
     # Build the dynamic code-driven all-devices simulator against the native
     # Windows Device Layer.
     chip_windows_build_all_devices_app = false
@@ -202,6 +206,13 @@ if (chip_build_windows_bootstrap_only) {
       assert(chip_build_tools,
              "chip_windows_build_chip_tool requires chip_build_tools=true")
       deps += [ "//examples/chip-tool" ]
+    }
+
+    if (chip_windows_build_camera_controller) {
+      assert(
+          chip_build_tools && chip_build_webrtc_signaling,
+          "The Windows camera controller requires tools and WebRTC signaling.")
+      deps += [ "//examples/camera-controller/windows:default" ]
     }
 
     if (chip_windows_build_all_devices_app) {

@@ -1,0 +1,105 @@
+# Copyright (c) 2026 Project CHIP Authors
+# SPDX-License-Identifier: Apache-2.0
+import("//build_overrides/chip.gni")
+import("//src/controller/flags.gni")
+
+assert(current_os == "win")
+assert(chip_build_webrtc_signaling)
+
+declare_args() {
+  # Native headers and static loader from Microsoft.Web.WebView2 1.0.3719.77.
+  chip_windows_webview2_root = ""
+}
+
+assert(
+    chip_windows_webview2_root != "",
+    "Set chip_windows_webview2_root to the restored pinned WebView2 package.")
+
+copy("receiver-assets") {
+  sources = [
+    "receiver.css",
+    "receiver.html",
+    "receiver.js",
+  ]
+  outputs = [ "$root_out_dir/camera-receiver/{{source_file_part}}" ]
+}
+
+source_set("media-receiver") {
+  sources = [
+    "WebView2Receiver.cpp",
+    "WebView2Receiver.h",
+  ]
+  include_dirs = [ "$chip_windows_webview2_root/build/native/include" ]
+  libs = [
+    "$chip_windows_webview2_root/build/native/$target_cpu/WebView2LoaderStatic.lib",
+    "ole32.lib",
+    "user32.lib",
+    "shlwapi.lib",
+    "version.lib",
+  ]
+  public_deps = [
+    "//src/lib/core:types",
+    "//src/lib/support",
+    "//src/platform/logging:headers",
+    "//third_party/jsoncpp",
+  ]
+}
+
+source_set("live-view") {
+  sources = [
+    "LiveViewCommand.cpp",
+    "LiveViewCommand.h",
+    "StreamSelection.h",
+  ]
+  deps = [
+    ":media-receiver",
+    "//examples/chip-tool:chip-tool-utils",
+    "//src/app/clusters/bindings:binding-manager",
+  ]
+  public_deps = [ "//examples/chip-tool:chip-tool-utils" ]
+}
+
+executable("chip-camera-controller") {
+  sources = [ "main.cpp" ]
+  deps = [
+    ":live-view",
+    ":receiver-assets",
+    "//src/platform/logging:stdio",
+  ]
+  output_dir = root_out_dir
+}
+
+executable("camera-liveview-tests") {
+  sources = [
+    "//build/config/win/tests/msvc_system_inet_test_main.cpp",
+    "TestStreamSelection.cpp",
+  ]
+  deps = [
+    ":live-view",
+    "//build/config/win/googletest",
+    "//examples/chip-tool:chip-tool-utils",
+    "//src/platform/logging:headers",
+  ]
+  output_dir = root_out_dir
+}
+
+group("default") {
+  deps = [ ":chip-camera-controller" ]
+}
+
+executable("camera-liveview-flow-tests") {
+  sources = [
+    "//build/config/win/tests/msvc_system_inet_test_main.cpp",
+    "TestLiveViewFlow.cpp",
+  ]
+  deps = [
+    ":live-view",
+    ":receiver-assets",
+    "//build/config/win/googletest",
+    "//src/app/server-cluster/testing:fabric-fixture",
+    "//src/credentials/windows:windows-operational-cert-test-vectors",
+    "//src/platform/logging:headers",
+    "//src/transport",
+  ]
+  output_dir = root_out_dir
+}

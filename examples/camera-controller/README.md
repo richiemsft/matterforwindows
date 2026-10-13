@@ -4,6 +4,11 @@ This example application demonstrates the CHIP Camera Controller running on a
 Linux platform and explains how to build and run the Camera Controller Example
 on Linux.
 
+An optional native Windows player is documented in
+[windows/README.md](windows/README.md). It reuses the shared Matter controller
+and signaling stack with a native C++ WebView2 media host, independently of the
+separate WinRT SDK. The Linux instructions below remain unchanged.
+
 In a typical setup, the Camera Controller app manages a CameraDevice app running
 on a Raspberry Pi. The CameraDevice captures and encodes the video feed before
 streaming it through a WebRTC track, while the CameraController receives this
