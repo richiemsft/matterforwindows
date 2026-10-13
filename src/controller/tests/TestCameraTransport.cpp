@@ -325,6 +325,13 @@ public:
             VerifyOrReturnError(offer.sdp.data_equal(CharSpan(expectedSdp.data(), expectedSdp.size())) &&
                                     offer.originatingEndpointID == 7 && offer.webRTCSessionID.IsNull(),
                                 CHIP_ERROR_INVALID_ARGUMENT);
+            if (verifyVideoOnly)
+            {
+                VerifyOrReturnError(offer.videoStreamID.HasValue() && !offer.videoStreamID.Value().IsNull() &&
+                                        offer.videoStreamID.Value().Value() == 1 && !offer.audioStreamID.HasValue() &&
+                                        !offer.videoStreams.HasValue() && !offer.audioStreams.HasValue(),
+                                    CHIP_ERROR_INVALID_ARGUMENT);
+            }
         }
         else if (commandId == Provider::Commands::ProvideICECandidates::Id)
         {
@@ -362,6 +369,10 @@ public:
         {
             return CHIP_NO_ERROR;
         }
+        if (commandId == Provider::Commands::ProvideOffer::Id && offerStatus != Protocols::InteractionModel::Status::Success)
+        {
+            return Respond(exchange, commandPath, StatusIB(offerStatus));
+        }
         return Respond(exchange, commandPath);
     }
 
@@ -377,7 +388,8 @@ public:
         message.SuppressResponse(true);
         auto & responses = message.CreateInvokeResponses();
         auto & response  = responses.CreateInvokeResponse();
-        if (path.mClusterId == Provider::Id && path.mCommandId == Provider::Commands::ProvideOffer::Id)
+        if (path.mClusterId == Provider::Id && path.mCommandId == Provider::Commands::ProvideOffer::Id &&
+            statusCode.ToChipError() == CHIP_NO_ERROR)
         {
             auto & data = response.CreateCommand();
             ReturnErrorOnFailure(data.CreatePath()
@@ -395,7 +407,7 @@ public:
         {
             auto & status = response.CreateStatus();
             ReturnErrorOnFailure(status.CreatePath()
-                                     .EndpointId(path.mEndpointId)
+                                     .EndpointId(badRejectionPath ? path.mEndpointId + 1 : path.mEndpointId)
                                      .ClusterId(path.mClusterId)
                                      .CommandId(path.mCommandId)
                                      .EndOfCommandPathIB());
@@ -435,12 +447,15 @@ public:
     std::unique_ptr<Controller::CameraRequestorEndpoint> requestor;
     Cluster * cluster = nullptr;
     std::unique_ptr<Client> client;
-    uint64_t handle                  = 0;
-    uint16_t protocolId              = 1;
-    size_t receivedCommands          = 0;
-    size_t receivedRequestorCommands = 0;
-    size_t lastMessageBytes          = 0;
-    bool reply                       = true;
+    uint64_t handle                                 = 0;
+    uint16_t protocolId                             = 1;
+    size_t receivedCommands                         = 0;
+    size_t receivedRequestorCommands                = 0;
+    size_t lastMessageBytes                         = 0;
+    bool reply                                      = true;
+    bool verifyVideoOnly                            = false;
+    bool badRejectionPath                           = false;
+    Protocols::InteractionModel::Status offerStatus = Protocols::InteractionModel::Status::Success;
     std::string expectedSdp;
     std::array<Cluster::Candidate, Cluster::kMaxCandidates> expectedCandidates;
 };
@@ -656,6 +671,78 @@ TEST_F(CameraCaseTransportTests, AuthenticatedConnectionLossCompletesAnOutstandi
     Cluster::SessionState state;
     ASSERT_TRUE(cluster->GetSessionState(handle, state) == CHIP_NO_ERROR);
     EXPECT_EQ(state, Cluster::SessionState::Failed);
+    EXPECT_EQ(exchanges.GetNumActiveExchanges(), 0u);
+}
+
+class CameraCaseRejectionTests : public CameraCaseTransportTests,
+                                 public ::testing::WithParamInterface<Protocols::InteractionModel::Status>
+{
+};
+
+TEST_P(CameraCaseRejectionTests, CorrelatedRejectionPreservesExactStatus)
+{
+    ASSERT_TRUE(ConnectAuthenticated(Inet::IPAddressType::kIPv6) == CHIP_NO_ERROR);
+    ASSERT_TRUE(Create() == CHIP_NO_ERROR);
+    offerStatus = GetParam();
+    expectedSdp = "v=0\r\n";
+    ASSERT_TRUE(client->SendOffer(exchanges, controllerSession.Get().Value(), CharSpan(expectedSdp.data(), expectedSdp.size())) ==
+                CHIP_NO_ERROR);
+    const auto result = AwaitResult();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->error == StatusIB(offerStatus).ToChipError());
+    Cluster::SessionInfo info;
+    ASSERT_TRUE(cluster->GetSessionInfoForEnd(handle, info) == CHIP_NO_ERROR);
+    EXPECT_FALSE(info.protocolId.has_value());
+    EXPECT_FALSE(info.responseReceived);
+    EXPECT_EQ(exchanges.GetNumActiveExchanges(), 0u);
+}
+
+INSTANTIATE_TEST_SUITE_P(CameraOfferStatuses, CameraCaseRejectionTests,
+                         ::testing::Values(Protocols::InteractionModel::Status::DynamicConstraintError,
+                                           Protocols::InteractionModel::Status::ConstraintError,
+                                           Protocols::InteractionModel::Status::InvalidCommand,
+                                           Protocols::InteractionModel::Status::ResourceExhausted,
+                                           Protocols::InteractionModel::Status::InvalidInState));
+
+TEST_F(CameraCaseTransportTests, UncorrelatedRefusalIsNotAKnownRejection)
+{
+    ASSERT_TRUE(ConnectAuthenticated(Inet::IPAddressType::kIPv6) == CHIP_NO_ERROR);
+    ASSERT_TRUE(Create() == CHIP_NO_ERROR);
+    offerStatus      = Protocols::InteractionModel::Status::DynamicConstraintError;
+    badRejectionPath = true;
+    expectedSdp      = "v=0\r\n";
+    ASSERT_TRUE(client->SendOffer(exchanges, controllerSession.Get().Value(), CharSpan(expectedSdp.data(), expectedSdp.size())) ==
+                CHIP_NO_ERROR);
+    const auto result = AwaitResult();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->error == CHIP_ERROR_INVALID_ARGUMENT);
+}
+
+TEST_F(CameraCaseTransportTests, VideoOnlyOfferOmitsAudioOverAuthenticatedTcp)
+{
+    ASSERT_TRUE(ConnectAuthenticated(Inet::IPAddressType::kIPv6) == CHIP_NO_ERROR);
+    using Selection = Cluster::StreamSelection;
+    ASSERT_TRUE(cluster->CreateSession(ScopedNodeId(kCameraNode, fabricIndex), kCameraEndpoint, Selection::ExplicitId(1),
+                                       Selection::Absent(), handle) == CHIP_NO_ERROR);
+    client          = std::make_unique<Client>(*cluster, handle);
+    verifyVideoOnly = true;
+    protocolId      = 0;
+    expectedSdp     = "v=0\r\n";
+    ASSERT_TRUE(client->SendOffer(exchanges, controllerSession.Get().Value(), CharSpan(expectedSdp.data(), expectedSdp.size())) ==
+                CHIP_NO_ERROR);
+    auto result = AwaitResult();
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->error == CHIP_NO_ERROR);
+    Cluster::SessionInfo info;
+    ASSERT_TRUE(cluster->GetSessionInfo(handle, info) == CHIP_NO_ERROR);
+    EXPECT_EQ(info.protocolId, 0);
+    EXPECT_EQ(info.audioSelection.GetKind(), Selection::Kind::Absent);
+    ASSERT_TRUE(client->SendEnd(exchanges, controllerSession.Get().Value(), Clusters::Globals::WebRTCEndReasonEnum::kUserHangup) ==
+                CHIP_NO_ERROR);
+    result = AwaitResult();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->error == CHIP_NO_ERROR);
+    EXPECT_EQ(receivedCommands, 2u);
     EXPECT_EQ(exchanges.GetNumActiveExchanges(), 0u);
 }
 

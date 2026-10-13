@@ -37,6 +37,39 @@ constexpr DataModel::AcceptedCommandEntry kCommands[] = {
 
 } // namespace
 
+Optional<app::DataModel::Nullable<uint16_t>> CameraSignalingCluster::StreamSelection::AsProtocolField() const
+{
+    Optional<app::DataModel::Nullable<uint16_t>> result;
+    if (mKind == Kind::AutoSelect)
+    {
+        result.Emplace().SetNull();
+    }
+    else if (mKind == Kind::ExplicitId)
+    {
+        result.Emplace().SetNonNull(mId);
+    }
+    return result;
+}
+
+bool CameraSignalingCluster::StreamSelection::IsValid() const
+{
+    return mKind != Kind::ExplicitId || app::DataModel::Nullable<uint16_t>(mId).ExistingValueInEncodableRange();
+}
+
+bool CameraSignalingCluster::StreamSelection::MatchesResponse(const Optional<app::DataModel::Nullable<uint16_t>> & response) const
+{
+    if (!response.HasValue())
+    {
+        return true;
+    }
+    if (response.Value().IsNull())
+    {
+        return mKind != Kind::ExplicitId;
+    }
+    return response.Value().ExistingValueInEncodableRange() &&
+        (mKind == Kind::AutoSelect || (mKind == Kind::ExplicitId && response.Value().Value() == mId));
+}
+
 bool CameraSignalingCluster::IsValidSignalingText(CharSpan text, size_t limit)
 {
     if (text.empty() || text.size() > limit)
@@ -116,14 +149,25 @@ CHIP_ERROR CameraSignalingCluster::CreateSession(ScopedNodeId peer, EndpointId c
                                                  const app::DataModel::Nullable<uint16_t> & videoStream,
                                                  const app::DataModel::Nullable<uint16_t> & audioStream, uint64_t & handle)
 {
+    // Preserve the legacy non-null video requirement and present-null audio semantics.
+    VerifyOrReturnError(!videoStream.IsNull(), CHIP_ERROR_INVALID_ARGUMENT);
+    return CreateSession(peer, cameraEndpoint, StreamSelection::ExplicitId(videoStream.Value()),
+                         audioStream.IsNull() ? StreamSelection::AutoSelect() : StreamSelection::ExplicitId(audioStream.Value()),
+                         handle);
+}
+
+CHIP_ERROR CameraSignalingCluster::CreateSession(ScopedNodeId peer, EndpointId cameraEndpoint, StreamSelection videoStream,
+                                                 StreamSelection audioStream, uint64_t & handle)
+{
     VerifyOrReturnError(mRegistered, CHIP_ERROR_INCORRECT_STATE);
     VerifyOrReturnError(IsOperationalNodeId(peer.GetNodeId()) && peer.GetFabricIndex() != kUndefinedFabricIndex &&
                             cameraEndpoint != kInvalidEndpointId,
                         CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(mFabrics.FindFabricWithIndex(peer.GetFabricIndex()) != nullptr, CHIP_ERROR_INVALID_FABRIC_INDEX);
-    VerifyOrReturnError(!videoStream.IsNull() && videoStream.ExistingValueInEncodableRange() &&
-                            (audioStream.IsNull() || audioStream.ExistingValueInEncodableRange()),
-                        CHIP_ERROR_INVALID_ARGUMENT);
+    VerifyOrReturnError(
+        videoStream.IsValid() && audioStream.IsValid() &&
+            (videoStream.GetKind() != StreamSelection::Kind::Absent || audioStream.GetKind() != StreamSelection::Kind::Absent),
+        CHIP_ERROR_INVALID_ARGUMENT);
     for (const auto & identity : mRetired)
     {
         VerifyOrReturnError(!identity.has_value() || identity->peer != peer || identity->protocolId.has_value(),
@@ -151,8 +195,12 @@ CHIP_ERROR CameraSignalingCluster::CreateSession(ScopedNodeId peer, EndpointId c
             session.metadata.fabricIndex    = peer.GetFabricIndex();
             session.metadata.peerEndpointID = cameraEndpoint;
             session.metadata.streamUsage    = app::Clusters::Globals::StreamUsageEnum::kLiveView;
-            session.metadata.videoStreamID  = videoStream;
-            session.metadata.audioStreamID  = audioStream;
+            session.videoSelection          = videoStream;
+            session.audioSelection          = audioStream;
+            const auto videoField           = videoStream.AsProtocolField();
+            const auto audioField           = audioStream.AsProtocolField();
+            session.metadata.videoStreamID  = videoField.HasValue() ? videoField.Value() : app::DataModel::Nullable<uint16_t>();
+            session.metadata.audioStreamID  = audioField.HasValue() ? audioField.Value() : app::DataModel::Nullable<uint16_t>();
             session.deadline                = System::SystemClock().GetMonotonicTimestamp() + System::Clock::Seconds32(30);
             handle                          = session.handle;
             return CHIP_NO_ERROR;
@@ -184,6 +232,27 @@ bool CameraSignalingCluster::IsRetired(ScopedNodeId peer, uint16_t protocolId) c
         }
     }
     return false;
+}
+
+CHIP_ERROR CameraSignalingCluster::BindSession(uint64_t handle, uint16_t protocolId,
+                                               const Optional<app::DataModel::Nullable<uint16_t>> & videoStream,
+                                               const Optional<app::DataModel::Nullable<uint16_t>> & audioStream)
+{
+    Session * session = FindSession(handle);
+    VerifyOrReturnError(session != nullptr && !session->closed && !session->responseReceived, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(session->videoSelection.MatchesResponse(videoStream) &&
+                            session->audioSelection.MatchesResponse(audioStream),
+                        CHIP_ERROR_INVALID_ARGUMENT);
+    ReturnErrorOnFailure(BindSession(handle, protocolId));
+    if (videoStream.HasValue())
+    {
+        session->metadata.videoStreamID = videoStream.Value();
+    }
+    if (audioStream.HasValue())
+    {
+        session->metadata.audioStreamID = audioStream.Value();
+    }
+    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR CameraSignalingCluster::BindSession(uint64_t handle, uint16_t protocolId)
@@ -290,6 +359,8 @@ CHIP_ERROR CameraSignalingCluster::ReadSessionInfo(uint64_t handle, SessionInfo 
             info.metadata         = session->metadata;
             info.protocolId       = session->protocolId;
             info.responseReceived = session->responseReceived;
+            info.videoSelection   = session->videoSelection;
+            info.audioSelection   = session->audioSelection;
             return CHIP_NO_ERROR;
         }
     }

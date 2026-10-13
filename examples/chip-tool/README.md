@@ -103,6 +103,11 @@ test**. It ends immediately after negotiation; trickled local candidates and
 media decoding belong to an external receiver. Live-camera acceptance still
 requires a real camera or interoperable simulator.
 
+The diagnostic explicitly selects the supplied video stream and omits
+AudioStreamID. A present null audio ID would request automatic audio selection,
+not video-only signaling. Unexpected returned audio stream IDs are rejected;
+this command does not allocate audio, listen, or capture a microphone.
+
 ## Using the Client to commission a device
 
 In order to send commands to a device, it must be commissioned with the client.

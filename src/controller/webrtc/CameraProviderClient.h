@@ -57,6 +57,10 @@ public:
     CHIP_ERROR SendOffer(Messaging::ExchangeManager & exchanges, const SessionHandle & session, CharSpan sdp,
                          Span<const IceServer> iceServers);
     static CHIP_ERROR ValidateIceServers(Span<const IceServer> iceServers);
+    /// Construct a bounded singular-ID offer without mixing it with stream arrays.
+    static CHIP_ERROR BuildOffer(const CameraSignalingCluster::SessionInfo & info, EndpointId requestorEndpoint, CharSpan sdp,
+                                 Span<const IceServer> iceServers,
+                                 app::Clusters::WebRTCTransportProvider::Commands::ProvideOffer::Type & request);
     CHIP_ERROR SendCandidates(Messaging::ExchangeManager & exchanges, const SessionHandle & session,
                               Span<const CameraSignalingCluster::Candidate> candidates);
     CHIP_ERROR SendEnd(Messaging::ExchangeManager & exchanges, const SessionHandle & session,

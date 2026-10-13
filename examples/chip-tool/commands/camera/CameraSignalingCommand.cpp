@@ -169,9 +169,9 @@ CHIP_ERROR CameraSignalingCommand::RunCommand()
     ReturnErrorOnFailure(Access::GetAccessControl().Init(&mAccess, mDeviceTypes));
     mAccessOwned = true;
     ReturnErrorOnFailure(mRequestor->Register(*mProvider, Access::GetAccessControl()));
+    using Selection = Controller::CameraSignalingCluster::StreamSelection;
     ReturnErrorOnFailure(mRequestor->Signaling().CreateSession(CurrentCommissioner().GetPeerScopedId(mNodeId), mCamera,
-                                                               app::DataModel::Nullable<uint16_t>(mVideoStream),
-                                                               app::DataModel::Nullable<uint16_t>(), mHandle));
+                                                               Selection::ExplicitId(mVideoStream), Selection::Absent(), mHandle));
     mClient   = std::make_unique<CameraProviderClient>(mRequestor->Signaling(), mHandle);
     mPhase    = Phase::Connecting;
     mDeadline = System::SystemClock().GetMonotonicTimestamp() + System::Clock::Seconds32(mTimeout.ValueOr(20));

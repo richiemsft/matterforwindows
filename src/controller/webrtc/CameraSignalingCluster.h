@@ -62,6 +62,31 @@ public:
         Failed,
     };
 
+    class StreamSelection
+    {
+    public:
+        enum class Kind : uint8_t
+        {
+            Absent,
+            AutoSelect,
+            ExplicitId,
+        };
+
+        StreamSelection() = default;
+        static StreamSelection Absent() { return {}; }
+        static StreamSelection AutoSelect() { return StreamSelection(Kind::AutoSelect, 0); }
+        static StreamSelection ExplicitId(uint16_t id) { return StreamSelection(Kind::ExplicitId, id); }
+        Kind GetKind() const { return mKind; }
+        Optional<app::DataModel::Nullable<uint16_t>> AsProtocolField() const;
+        bool IsValid() const;
+        bool MatchesResponse(const Optional<app::DataModel::Nullable<uint16_t>> & response) const;
+
+    private:
+        StreamSelection(Kind kind, uint16_t id) : mKind(kind), mId(id) {}
+        Kind mKind   = Kind::Absent;
+        uint16_t mId = 0;
+    };
+
     struct Candidate
     {
         std::string candidate;
@@ -87,6 +112,8 @@ public:
         app::Clusters::Globals::Structs::WebRTCSessionStruct::Type metadata;
         std::optional<uint16_t> protocolId;
         bool responseReceived = false;
+        StreamSelection videoSelection;
+        StreamSelection audioSelection;
     };
 
     CameraSignalingCluster(EndpointId endpoint, FabricTable & fabrics, System::Layer & system) :
@@ -109,7 +136,12 @@ public:
     /// Allocate before ProvideOffer, so an early Answer can be correlated.
     CHIP_ERROR CreateSession(ScopedNodeId peer, EndpointId cameraEndpoint, const app::DataModel::Nullable<uint16_t> & videoStream,
                              const app::DataModel::Nullable<uint16_t> & audioStream, uint64_t & handle);
+    /// Unlike the legacy overload, Absent omits a field and AutoSelect sends protocol null.
+    CHIP_ERROR CreateSession(ScopedNodeId peer, EndpointId cameraEndpoint, StreamSelection videoStream, StreamSelection audioStream,
+                             uint64_t & handle);
     CHIP_ERROR BindSession(uint64_t handle, uint16_t protocolId);
+    CHIP_ERROR BindSession(uint64_t handle, uint16_t protocolId, const Optional<app::DataModel::Nullable<uint16_t>> & videoStream,
+                           const Optional<app::DataModel::Nullable<uint16_t>> & audioStream);
     CHIP_ERROR GetSessionInfo(uint64_t handle, SessionInfo & info) const;
     /// Retain failed-session identity for a bounded End attempt without reopening
     /// inbound authorization. Remotely ended and released sessions are excluded.
@@ -137,6 +169,8 @@ private:
         bool closed           = false;
         CHIP_ERROR failure    = CHIP_NO_ERROR;
         System::Clock::Timestamp deadline;
+        StreamSelection videoSelection;
+        StreamSelection audioSelection;
     };
 
     // Retired identities are never reused on this requestor endpoint. Once the

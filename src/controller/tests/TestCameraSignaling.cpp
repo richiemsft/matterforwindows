@@ -219,6 +219,84 @@ TEST_F(WebRTCSignalingTests, ProviderEncodingRejectsInsufficientBuffer)
     EXPECT_TRUE(command.Encode(writer, TLV::AnonymousTag()) == CHIP_ERROR_BUFFER_TOO_SMALL);
 }
 
+TEST_F(WebRTCSignalingTests, ProductionOfferPreservesEveryMediaSelection)
+{
+    using Selection              = Controller::CameraSignalingCluster::StreamSelection;
+    using Client                 = Controller::CameraProviderClient;
+    const Selection selections[] = { Selection::Absent(), Selection::AutoSelect(), Selection::ExplicitId(0) };
+    for (const auto video : selections)
+    {
+        for (const auto audio : selections)
+        {
+            Controller::CameraSignalingCluster::SessionInfo info;
+            info.videoSelection       = video;
+            info.audioSelection       = audio;
+            info.metadata.streamUsage = Globals::StreamUsageEnum::kLiveView;
+            WebRTCTransportProvider::Commands::ProvideOffer::Type request;
+            const uint16_t staleStreams[] = { 42 };
+            request.videoStreams.SetValue(DataModel::List<const uint16_t>(staleStreams));
+            request.audioStreams.SetValue(DataModel::List<const uint16_t>(staleStreams));
+            const auto error = Client::BuildOffer(info, 7, "v=0\r\n"_span, {}, request);
+            if (video.GetKind() == Selection::Kind::Absent && audio.GetKind() == Selection::Kind::Absent)
+            {
+                EXPECT_TRUE(error == CHIP_ERROR_INVALID_ARGUMENT);
+                continue;
+            }
+            ASSERT_TRUE(error == CHIP_NO_ERROR);
+            std::array<uint8_t, 512> bytes;
+            TLV::TLVWriter writer;
+            writer.Init(bytes.data(), bytes.size());
+            ASSERT_TRUE(request.Encode(writer, TLV::AnonymousTag()) == CHIP_NO_ERROR);
+            ASSERT_TRUE(writer.Finalize() == CHIP_NO_ERROR);
+            TLV::TLVReader reader;
+            reader.Init(bytes.data(), writer.GetLengthWritten());
+            ASSERT_TRUE(reader.Next() == CHIP_NO_ERROR);
+            WebRTCTransportProvider::Commands::ProvideOffer::DecodableType decoded;
+            ASSERT_TRUE(decoded.Decode(reader, 1) == CHIP_NO_ERROR);
+            EXPECT_FALSE(decoded.videoStreams.HasValue());
+            EXPECT_FALSE(decoded.audioStreams.HasValue());
+            EXPECT_EQ(decoded.videoStreamID.HasValue(), video.GetKind() != Selection::Kind::Absent);
+            EXPECT_EQ(decoded.audioStreamID.HasValue(), audio.GetKind() != Selection::Kind::Absent);
+            for (const auto & field : { std::pair{ video, decoded.videoStreamID }, std::pair{ audio, decoded.audioStreamID } })
+            {
+                if (field.second.HasValue())
+                {
+                    EXPECT_EQ(field.second.Value().IsNull(), field.first.GetKind() == Selection::Kind::AutoSelect);
+                    if (!field.second.Value().IsNull())
+                    {
+                        EXPECT_EQ(field.second.Value().Value(), 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_F(WebRTCSignalingTests, MediaSelectionRejectsReservedAndUnexpectedResponseIds)
+{
+    using Selection = Controller::CameraSignalingCluster::StreamSelection;
+    Optional<DataModel::Nullable<uint16_t>> field;
+    EXPECT_TRUE(Selection::Absent().MatchesResponse(field));
+    EXPECT_TRUE(Selection::AutoSelect().MatchesResponse(field));
+    EXPECT_TRUE(Selection::ExplicitId(3).MatchesResponse(field));
+    field.Emplace().SetNull();
+    EXPECT_TRUE(Selection::Absent().MatchesResponse(field));
+    EXPECT_TRUE(Selection::AutoSelect().MatchesResponse(field));
+    EXPECT_FALSE(Selection::ExplicitId(3).MatchesResponse(field));
+    field.Emplace().SetNonNull(3);
+    EXPECT_FALSE(Selection::Absent().MatchesResponse(field));
+    EXPECT_TRUE(Selection::AutoSelect().MatchesResponse(field));
+    EXPECT_TRUE(Selection::ExplicitId(3).MatchesResponse(field));
+    EXPECT_FALSE(Selection::ExplicitId(4).MatchesResponse(field));
+    field.Emplace().SetNonNull(UINT16_MAX);
+    EXPECT_FALSE(Selection::AutoSelect().MatchesResponse(field));
+    EXPECT_FALSE(Selection::ExplicitId(UINT16_MAX).IsValid());
+    Controller::CameraSignalingCluster::SessionInfo info;
+    info.videoSelection = Selection::ExplicitId(UINT16_MAX);
+    WebRTCTransportProvider::Commands::ProvideOffer::Type request;
+    EXPECT_TRUE(Controller::CameraProviderClient::BuildOffer(info, 7, "v=0\r\n"_span, {}, request) == CHIP_ERROR_INVALID_ARGUMENT);
+}
+
 TEST_F(WebRTCSignalingTests, IceServerValidationBoundsAndOptionalPresence)
 {
     using Client          = Controller::CameraProviderClient;
@@ -910,6 +988,67 @@ TEST_F(CameraRuntimeTests, TypedOfferResponsePreservesEarlyAnswerAndChecksStream
     ASSERT_TRUE(ApplyResponse(handle, response) == CHIP_NO_ERROR);
     EXPECT_TRUE(requestor->Signaling().IsNegotiated(handle));
     EXPECT_TRUE(ApplyResponse(handle, response) == CHIP_ERROR_INCORRECT_STATE);
+}
+
+TEST_F(CameraRuntimeTests, VideoOnlyOmissionRejectsUnexpectedAudioAndPreservesProtocolZero)
+{
+    using Selection = CameraCluster::StreamSelection;
+    uint64_t handle = 0;
+    ASSERT_TRUE(requestor->Signaling().CreateSession(ScopedNodeId(subject.subject, fabricIndex), 2, Selection::ExplicitId(0),
+                                                     Selection::Absent(), handle) == CHIP_NO_ERROR);
+    EXPECT_NE(handle, 0u);
+    WebRTCTransportRequestor::Commands::Answer::Type answer;
+    answer.webRTCSessionID = 0;
+    answer.sdp             = "v=0\r\n"_span;
+    ASSERT_TRUE(Invoke(answer, subject).IsSuccess());
+    WebRTCTransportProvider::Commands::ProvideOfferResponse::Type response;
+    response.webRTCSessionID = 0;
+    response.videoStreamID.SetValue(DataModel::Nullable<uint16_t>(0));
+    response.audioStreamID.SetValue(DataModel::Nullable<uint16_t>(2));
+    EXPECT_TRUE(ApplyResponse(handle, response) == CHIP_ERROR_INVALID_ARGUMENT);
+    CameraCluster::SessionInfo info;
+    ASSERT_TRUE(requestor->Signaling().GetSessionInfo(handle, info) == CHIP_NO_ERROR);
+    EXPECT_FALSE(info.responseReceived);
+    EXPECT_TRUE(info.metadata.audioStreamID.IsNull());
+    response.audioStreamID.ClearValue();
+    ASSERT_TRUE(ApplyResponse(handle, response) == CHIP_NO_ERROR);
+    ASSERT_TRUE(requestor->Signaling().GetSessionInfo(handle, info) == CHIP_NO_ERROR);
+    EXPECT_EQ(info.protocolId, 0);
+    EXPECT_EQ(info.metadata.videoStreamID.Value(), 0);
+    EXPECT_EQ(info.videoSelection.GetKind(), Selection::Kind::ExplicitId);
+    EXPECT_EQ(info.audioSelection.GetKind(), Selection::Kind::Absent);
+    EXPECT_TRUE(requestor->Signaling().IsNegotiated(handle));
+}
+
+TEST_F(CameraRuntimeTests, AutomaticAudioSelectionRetainsRequestIntentAndReturnedId)
+{
+    using Selection = CameraCluster::StreamSelection;
+    uint64_t handle = 0;
+    ASSERT_TRUE(requestor->Signaling().CreateSession(ScopedNodeId(subject.subject, fabricIndex), 2, Selection::Absent(),
+                                                     Selection::AutoSelect(), handle) == CHIP_NO_ERROR);
+    WebRTCTransportProvider::Commands::ProvideOfferResponse::Type response;
+    response.webRTCSessionID = 0;
+    response.audioStreamID.SetValue(DataModel::Nullable<uint16_t>(3));
+    ASSERT_TRUE(ApplyResponse(handle, response) == CHIP_NO_ERROR);
+    CameraCluster::SessionInfo info;
+    ASSERT_TRUE(requestor->Signaling().GetSessionInfo(handle, info) == CHIP_NO_ERROR);
+    EXPECT_TRUE(info.metadata.videoStreamID.IsNull());
+    EXPECT_EQ(info.metadata.audioStreamID.Value(), 3);
+    EXPECT_EQ(info.videoSelection.GetKind(), Selection::Kind::Absent);
+    EXPECT_EQ(info.audioSelection.GetKind(), Selection::Kind::AutoSelect);
+}
+
+TEST_F(CameraRuntimeTests, LegacyNullableAudioStillRequestsAutomaticSelection)
+{
+    const auto handle = Create();
+    CameraCluster::SessionInfo info;
+    ASSERT_TRUE(requestor->Signaling().GetSessionInfo(handle, info) == CHIP_NO_ERROR);
+    EXPECT_EQ(info.videoSelection.GetKind(), CameraCluster::StreamSelection::Kind::ExplicitId);
+    EXPECT_EQ(info.audioSelection.GetKind(), CameraCluster::StreamSelection::Kind::AutoSelect);
+    WebRTCTransportProvider::Commands::ProvideOffer::Type request;
+    ASSERT_TRUE(Controller::CameraProviderClient::BuildOffer(info, 7, "v=0\r\n"_span, {}, request) == CHIP_NO_ERROR);
+    ASSERT_TRUE(request.audioStreamID.HasValue());
+    EXPECT_TRUE(request.audioStreamID.Value().IsNull());
 }
 
 TEST_F(CameraRuntimeTests, ContradictoryEarlyIdentityCannotLeakIntoLaterOperation)

@@ -121,21 +121,34 @@ CHIP_ERROR CameraProviderClient::SendOffer(Messaging::ExchangeManager & exchange
 {
     ReturnErrorOnFailure(ValidateIceServers(iceServers));
     ReturnErrorOnFailure(Prepare(session, Command::Offer));
-    VerifyOrReturnError(!mInfo.responseReceived && !mInfo.protocolId.has_value(), CHIP_ERROR_INCORRECT_STATE);
+    Commands::ProvideOffer::Type request;
+    ReturnErrorOnFailure(BuildOffer(mInfo, mRequestor.GetPaths()[0].mEndpointId, sdp, iceServers, request));
+    return Send(exchanges, session, request, Command::Offer);
+}
+
+CHIP_ERROR CameraProviderClient::BuildOffer(const CameraSignalingCluster::SessionInfo & info, EndpointId requestorEndpoint,
+                                            CharSpan sdp, Span<const IceServer> iceServers, Commands::ProvideOffer::Type & request)
+{
+    ReturnErrorOnFailure(ValidateIceServers(iceServers));
+    VerifyOrReturnError(!info.responseReceived && !info.protocolId.has_value(), CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(requestorEndpoint != kInvalidEndpointId && info.videoSelection.IsValid() && info.audioSelection.IsValid() &&
+                            (info.videoSelection.GetKind() != CameraSignalingCluster::StreamSelection::Kind::Absent ||
+                             info.audioSelection.GetKind() != CameraSignalingCluster::StreamSelection::Kind::Absent),
+                        CHIP_ERROR_INVALID_ARGUMENT);
     VerifyOrReturnError(CameraSignalingCluster::IsValidSignalingText(sdp, CameraSignalingCluster::kMaxSdpBytes),
                         CHIP_IM_GLOBAL_STATUS(ConstraintError));
-    Commands::ProvideOffer::Type request;
+    request = Commands::ProvideOffer::Type{};
     request.webRTCSessionID.SetNull();
     request.sdp                   = sdp;
-    request.streamUsage           = mInfo.metadata.streamUsage;
-    request.originatingEndpointID = mRequestor.GetPaths()[0].mEndpointId;
-    request.videoStreamID.SetValue(mInfo.metadata.videoStreamID);
-    request.audioStreamID.SetValue(mInfo.metadata.audioStreamID);
+    request.streamUsage           = info.metadata.streamUsage;
+    request.originatingEndpointID = requestorEndpoint;
+    request.videoStreamID         = info.videoSelection.AsProtocolField();
+    request.audioStreamID         = info.audioSelection.AsProtocolField();
     if (!iceServers.empty())
     {
         request.ICEServers.SetValue(app::DataModel::List<const IceServer>(iceServers.data(), iceServers.size()));
     }
-    return Send(exchanges, session, request, Command::Offer);
+    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR CameraProviderClient::SendCandidates(Messaging::ExchangeManager & exchanges, const SessionHandle & session,
@@ -195,11 +208,7 @@ CHIP_ERROR CameraProviderClient::ApplyOfferResponse(CameraSignalingCluster & req
     VerifyOrReturnError(!info.responseReceived, CHIP_ERROR_INCORRECT_STATE);
     Commands::ProvideOfferResponse::DecodableType response;
     ReturnErrorOnFailure(app::DataModel::Decode(data, response));
-    VerifyOrReturnError(!response.videoStreamID.HasValue() || response.videoStreamID.Value() == info.metadata.videoStreamID,
-                        CHIP_ERROR_INVALID_ARGUMENT);
-    VerifyOrReturnError(!response.audioStreamID.HasValue() || response.audioStreamID.Value() == info.metadata.audioStreamID,
-                        CHIP_ERROR_INVALID_ARGUMENT);
-    return requestor.BindSession(handle, response.webRTCSessionID);
+    return requestor.BindSession(handle, response.webRTCSessionID, response.videoStreamID, response.audioStreamID);
 }
 
 void CameraProviderClient::OnResponse(app::CommandSender *, const app::CommandSender::ResponseData & response)
@@ -209,19 +218,21 @@ void CameraProviderClient::OnResponse(app::CommandSender *, const app::CommandSe
         mError = CHIP_ERROR_INCORRECT_STATE;
         return;
     }
-    mResponseReceived = true;
-    mError            = response.statusIB.ToChipError();
-    if (mError != CHIP_NO_ERROR)
-    {
-        return;
-    }
-    const CommandId expected = mCommand == Command::Offer ? Commands::ProvideOfferResponse::Id
-        : mCommand == Command::Candidates                 ? Commands::ProvideICECandidates::Id
-                                                          : Commands::EndSession::Id;
+    mResponseReceived            = true;
+    const CHIP_ERROR status      = response.statusIB.ToChipError();
+    const CommandId expected     = mCommand == Command::Offer ? Commands::ProvideOfferResponse::Id
+            : mCommand == Command::Candidates                 ? Commands::ProvideICECandidates::Id
+                                                              : Commands::EndSession::Id;
+    const CommandId expectedPath = mCommand == Command::Offer && status != CHIP_NO_ERROR ? Commands::ProvideOffer::Id : expected;
     if (response.path.mEndpointId != mInfo.metadata.peerEndpointID || response.path.mClusterId != Id ||
-        response.path.mCommandId != expected)
+        response.path.mCommandId != expectedPath)
     {
         mError = CHIP_ERROR_INVALID_ARGUMENT;
+        return;
+    }
+    mError = status;
+    if (mError != CHIP_NO_ERROR)
+    {
         return;
     }
     if (mCommand == Command::Offer)
